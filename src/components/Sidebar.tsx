@@ -1,0 +1,112 @@
+import React from 'react';
+import { NavLink } from 'react-router-dom';
+import { 
+  LayoutDashboard, 
+  FileText, 
+  Users, 
+  Megaphone, 
+  Wallet, 
+  ShoppingCart, 
+  Package, 
+  Settings, 
+  Bot, 
+  Copyright,
+  PanelLeftClose,
+  PanelLeftOpen
+} from 'lucide-react';
+import { cn } from '../lib/utils';
+
+interface SidebarProps {
+  isOpen: boolean;
+  toggleSidebar: () => void;
+}
+
+export function Sidebar({ isOpen, toggleSidebar }: SidebarProps) {
+  const navItems = [
+    { icon: LayoutDashboard, label: 'Trang chủ', path: '/' },
+    { icon: FileText, label: 'Hành chính', path: '/hanh-chinh' },
+    { icon: Users, label: 'Nhân sự', path: '/nhan-su' },
+    { icon: Megaphone, label: 'Marketing', path: '/marketing' },
+    { icon: Wallet, label: 'Tài chính', path: '/tai-chinh' },
+    { icon: ShoppingCart, label: 'Mua hàng', path: '/mua-hang' },
+    { icon: Package, label: 'Kho vận', path: '/kho-van' },
+    { icon: Settings, label: 'Hệ thống', path: '/he-thong' },
+    { icon: Bot, label: 'Trợ lý AI', path: '/tro-ly-ai' },
+  ];
+
+  return (
+    <aside 
+      className={cn(
+        "fixed left-0 top-0 z-40 h-screen bg-white border-r border-slate-200 transition-all duration-300 flex flex-col",
+        isOpen ? "w-64" : "w-20"
+      )}
+    >
+      <div className="h-16 flex items-center justify-between px-4 border-b border-slate-100">
+        <div className="flex items-center gap-3 overflow-hidden">
+          <img 
+            src="https://www.appsheet.com/template/gettablefileurl?appName=Appsheet-325045268&tableName=Kho%20%E1%BA%A3nh&fileName=Kho%20%E1%BA%A3nh_Images%2F13c7458d.%E1%BA%A2nh.064848.jpg" 
+            alt="Logo" 
+            className="w-8 h-8 object-contain"
+          />
+          <div className={cn("transition-opacity duration-300", isOpen ? "opacity-100" : "opacity-0 w-0")}>
+            <h1 className="font-bold text-slate-800 text-sm whitespace-nowrap">CRM full</h1>
+            <p className="text-[10px] text-slate-500 whitespace-nowrap">Ứng dụng quản lý</p>
+          </div>
+        </div>
+        {isOpen && (
+          <button 
+            onClick={toggleSidebar}
+            className="p-1.5 rounded-lg hover:bg-slate-100 text-slate-400 hover:text-slate-600 transition-colors"
+          >
+            <PanelLeftClose size={18} />
+          </button>
+        )}
+      </div>
+
+      <div className="flex-1 overflow-y-auto py-4 px-3 space-y-1">
+        {navItems.map((item) => (
+          <NavLink
+            key={item.path}
+            to={item.path}
+            className={({ isActive }) => cn(
+              "flex items-center gap-3 px-3 py-2.5 rounded-lg transition-colors group relative",
+              isActive 
+                ? "bg-red-50 text-red-600 font-medium" 
+                : "text-slate-600 hover:bg-slate-50 hover:text-slate-900"
+            )}
+          >
+            {({ isActive }) => (
+              <>
+                <div className={cn(
+                  "w-8 h-8 flex items-center justify-center rounded-md shrink-0 transition-colors",
+                  isActive ? "bg-red-600 text-white" : "text-slate-500 group-hover:text-slate-700"
+                )}>
+                  <item.icon size={18} />
+                </div>
+                <span className={cn("transition-all duration-300 whitespace-nowrap", isOpen ? "opacity-100" : "opacity-0 w-0 hidden")}>
+                  {item.label}
+                </span>
+                {!isOpen && (
+                  <div className="absolute left-full ml-2 px-2 py-1 bg-slate-800 text-white text-xs rounded opacity-0 group-hover:opacity-100 pointer-events-none whitespace-nowrap z-50 transition-opacity">
+                    {item.label}
+                  </div>
+                )}
+              </>
+            )}
+          </NavLink>
+        ))}
+      </div>
+      
+      {!isOpen && (
+        <div className="p-4 border-t border-slate-100 flex justify-center">
+          <button 
+            onClick={toggleSidebar}
+            className="p-2 rounded-lg hover:bg-slate-100 text-slate-500 transition-colors"
+          >
+            <PanelLeftOpen size={20} />
+          </button>
+        </div>
+      )}
+    </aside>
+  );
+}
