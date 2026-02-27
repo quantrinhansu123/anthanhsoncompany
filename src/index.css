@@ -16,3 +16,26 @@ html.dark .bg-blue-600 {
 html {
     transition: filter 0.3s ease;
 }
+
+/* Hide scrollbar for breadcrumb */
+.hide-scrollbar {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+}
+
+.hide-scrollbar::-webkit-scrollbar {
+    display: none;
+}
+
+/* Mobile optimizations */
+@media (max-width: 640px) {
+    /* Prevent text selection on mobile for better UX */
+    button, a {
+        -webkit-tap-highlight-color: transparent;
+    }
+    
+    /* Smooth scrolling */
+    * {
+        -webkit-overflow-scrolling: touch;
+    }
+}

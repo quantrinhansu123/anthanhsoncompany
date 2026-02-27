@@ -22,6 +22,7 @@ import { KPIGrading } from './pages/administration/KPIGrading';
 import { BonusPenalty } from './pages/administration/BonusPenalty';
 import { SalarySettings } from './pages/administration/SalarySettings';
 import { SalaryTable } from './pages/administration/SalaryTable';
+import { AIAssistant } from './pages/AIAssistant';
 
 export default function App() {
   return (
@@ -44,6 +45,7 @@ export default function App() {
           <Route path="kho-van" element={<Logistics />} />
           <Route path="he-thong" element={<System />} />
           <Route path="tai-chinh" element={<Finance />} />
+          <Route path="tro-ly-ai" element={<AIAssistant />} />
           <Route path="settings" element={<Settings />} />
           {/* Placeholder routes for other paths to avoid 404s inside the layout */}
           <Route path="*" element={<Dashboard />} />

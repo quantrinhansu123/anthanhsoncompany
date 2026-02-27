@@ -174,7 +174,7 @@ export function Settings() {
                                 <img
                                     src={logoUrl}
                                     alt="App Logo Preview"
-                                    className="w-10 h-10 object-contain rounded-lg border border-slate-200 bg-slate-50 p-1 shrink-0"
+                                    className="w-16 h-16 md:w-20 md:h-20 object-contain rounded-lg border border-slate-200 bg-slate-50 p-1 shrink-0"
                                     onError={(e) => { (e.target as HTMLImageElement).src = 'data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 24 24%22 fill=%22%2394a3b8%22><rect width=%2224%22 height=%2224%22 rx=%224%22 fill=%22%23f1f5f9%22/><text x=%2212%22 y=%2216%22 text-anchor=%22middle%22 font-size=%2210%22>?</text></svg>'; }}
                                 />
                                 <input
