@@ -1,24 +1,24 @@
 import React from 'react';
-import { 
-  BookOpen, 
-  Calculator, 
-  CalendarRange, 
-  RefreshCw, 
-  FileText, 
-  Settings, 
-  HandCoins, 
-  CreditCard, 
-  Wallet, 
-  Banknote, 
-  ArrowLeftRight, 
-  PieChart, 
-  Share2, 
-  TrendingUp, 
-  BarChart3, 
-  Landmark, 
-  LineChart, 
-  CheckCircle2, 
-  FileSpreadsheet, 
+import {
+  BookOpen,
+  Calculator,
+  CalendarRange,
+  RefreshCw,
+  FileText,
+  Settings,
+  HandCoins,
+  CreditCard,
+  Wallet,
+  Banknote,
+  ArrowLeftRight,
+  PieChart,
+  Share2,
+  TrendingUp,
+  BarChart3,
+  Landmark,
+  LineChart,
+  CheckCircle2,
+  FileSpreadsheet,
   Receipt,
   ArrowLeft,
   Search,
@@ -30,9 +30,10 @@ import { useNavigate } from 'react-router-dom';
 interface FinanceItemProps {
   title: string;
   description: string;
-  icon: React.ElementType;
+  icon: any;
   color: string;
   bgColor: string;
+  key?: string | React.Key;
 }
 
 function FinanceCard({ title, description, icon: Icon, color, bgColor }: FinanceItemProps) {
@@ -116,16 +117,16 @@ export function Finance() {
       {/* Top Toolbar */}
       <div className="bg-white p-2 rounded-lg border border-slate-200 flex flex-col md:flex-row gap-4 justify-between items-center sticky top-0 z-20 shadow-sm">
         <div className="flex items-center gap-2 w-full md:w-auto">
-          <button 
+          <button
             onClick={() => navigate(-1)}
             className="flex items-center gap-1 px-3 py-1.5 text-sm font-medium text-slate-600 hover:bg-slate-50 rounded-md border border-slate-200 transition-colors"
           >
             <ArrowLeft size={16} />
             Quay lại
           </button>
-          
+
           <div className="h-6 w-px bg-slate-200 mx-1"></div>
-          
+
           <button className="px-3 py-1.5 text-sm font-bold text-blue-600 bg-blue-50 rounded-md transition-colors">
             Tất cả
           </button>
@@ -136,9 +137,9 @@ export function Finance() {
 
         <div className="relative w-full md:w-80">
           <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
-          <input 
-            type="text" 
-            placeholder="Tìm module theo tên hoặc mô tả.." 
+          <input
+            type="text"
+            placeholder="Tìm module theo tên hoặc mô tả.."
             className="w-full pl-9 pr-4 py-1.5 text-sm border border-slate-200 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all"
           />
         </div>

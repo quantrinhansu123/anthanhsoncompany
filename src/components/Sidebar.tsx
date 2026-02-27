@@ -1,20 +1,21 @@
 import React from 'react';
 import { NavLink } from 'react-router-dom';
-import { 
-  LayoutDashboard, 
-  FileText, 
-  Users, 
-  Megaphone, 
-  Wallet, 
-  ShoppingCart, 
-  Package, 
-  Settings, 
-  Bot, 
+import {
+  LayoutDashboard,
+  FileText,
+  Users,
+  Megaphone,
+  Wallet,
+  ShoppingCart,
+  Package,
+  Settings,
+  Bot,
   Copyright,
   PanelLeftClose,
   PanelLeftOpen
 } from 'lucide-react';
 import { cn } from '../lib/utils';
+import { useSettings } from '../contexts/SettingsContext';
 
 interface SidebarProps {
   isOpen: boolean;
@@ -22,20 +23,22 @@ interface SidebarProps {
 }
 
 export function Sidebar({ isOpen, toggleSidebar }: SidebarProps) {
+  const { t, logoUrl } = useSettings();
+
   const navItems = [
-    { icon: LayoutDashboard, label: 'Trang chủ', path: '/' },
-    { icon: FileText, label: 'Hành chính', path: '/hanh-chinh' },
-    { icon: Users, label: 'Nhân sự', path: '/nhan-su' },
-    { icon: Megaphone, label: 'Marketing', path: '/marketing' },
-    { icon: Wallet, label: 'Tài chính', path: '/tai-chinh' },
-    { icon: ShoppingCart, label: 'Mua hàng', path: '/mua-hang' },
-    { icon: Package, label: 'Kho vận', path: '/kho-van' },
-    { icon: Settings, label: 'Hệ thống', path: '/he-thong' },
-    { icon: Bot, label: 'Trợ lý AI', path: '/tro-ly-ai' },
+    { icon: LayoutDashboard, label: t('nav.home'), path: '/' },
+    { icon: FileText, label: t('nav.admin'), path: '/hanh-chinh' },
+    { icon: Users, label: t('nav.hr'), path: '/nhan-su' },
+    { icon: Megaphone, label: t('nav.marketing'), path: '/marketing' },
+    { icon: Wallet, label: t('nav.finance'), path: '/tai-chinh' },
+    { icon: ShoppingCart, label: t('nav.purchasing'), path: '/mua-hang' },
+    { icon: Package, label: t('nav.logistics'), path: '/kho-van' },
+    { icon: Settings, label: t('nav.system'), path: '/he-thong' },
+    { icon: Bot, label: t('nav.ai'), path: '/tro-ly-ai' },
   ];
 
   return (
-    <aside 
+    <aside
       className={cn(
         "fixed left-0 top-0 z-40 h-screen bg-white border-r border-slate-200 transition-all duration-300 flex flex-col",
         isOpen ? "w-64" : "w-20"
@@ -43,9 +46,9 @@ export function Sidebar({ isOpen, toggleSidebar }: SidebarProps) {
     >
       <div className="h-16 flex items-center justify-between px-4 border-b border-slate-100">
         <div className="flex items-center gap-3 overflow-hidden">
-          <img 
-            src="https://www.appsheet.com/template/gettablefileurl?appName=Appsheet-325045268&tableName=Kho%20%E1%BA%A3nh&fileName=Kho%20%E1%BA%A3nh_Images%2F13c7458d.%E1%BA%A2nh.064848.jpg" 
-            alt="Logo" 
+          <img
+            src={logoUrl}
+            alt="Logo"
             className="w-8 h-8 object-contain"
           />
           <div className={cn("transition-opacity duration-300", isOpen ? "opacity-100" : "opacity-0 w-0")}>
@@ -54,7 +57,7 @@ export function Sidebar({ isOpen, toggleSidebar }: SidebarProps) {
           </div>
         </div>
         {isOpen && (
-          <button 
+          <button
             onClick={toggleSidebar}
             className="p-1.5 rounded-lg hover:bg-slate-100 text-slate-400 hover:text-slate-600 transition-colors"
           >
@@ -70,8 +73,8 @@ export function Sidebar({ isOpen, toggleSidebar }: SidebarProps) {
             to={item.path}
             className={({ isActive }) => cn(
               "flex items-center gap-3 px-3 py-2.5 rounded-lg transition-colors group relative",
-              isActive 
-                ? "bg-red-50 text-red-600 font-medium" 
+              isActive
+                ? "bg-red-50 text-red-600 font-medium"
                 : "text-slate-600 hover:bg-slate-50 hover:text-slate-900"
             )}
           >
@@ -96,10 +99,10 @@ export function Sidebar({ isOpen, toggleSidebar }: SidebarProps) {
           </NavLink>
         ))}
       </div>
-      
+
       {!isOpen && (
         <div className="p-4 border-t border-slate-100 flex justify-center">
-          <button 
+          <button
             onClick={toggleSidebar}
             className="p-2 rounded-lg hover:bg-slate-100 text-slate-500 transition-colors"
           >

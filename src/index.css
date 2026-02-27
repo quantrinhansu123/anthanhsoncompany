@@ -1,1 +1,18 @@
 @import "tailwindcss";
+
+html.dark {
+    filter: invert(0.93) hue-rotate(180deg) brightness(1.1);
+    background-color: #111;
+}
+
+html.dark img,
+html.dark svg,
+html.dark [style*="background-image"],
+html.dark .text-blue-600,
+html.dark .bg-blue-600 {
+    filter: invert(1) hue-rotate(180deg);
+}
+
+html {
+    transition: filter 0.3s ease;
+}

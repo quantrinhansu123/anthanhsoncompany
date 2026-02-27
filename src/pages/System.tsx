@@ -1,14 +1,14 @@
 import React from 'react';
-import { 
-  Building2, 
-  ListOrdered, 
-  Briefcase, 
-  ClipboardList, 
-  Users, 
-  Building, 
-  MapPin, 
-  Shield, 
-  DatabaseBackup, 
+import {
+  Building2,
+  ListOrdered,
+  Briefcase,
+  ClipboardList,
+  Users,
+  Building,
+  MapPin,
+  Shield,
+  DatabaseBackup,
   Monitor,
   ArrowLeft,
   Search,
@@ -25,7 +25,7 @@ interface SystemItemProps {
   hasArrow?: boolean;
 }
 
-function SystemCard({ title, description, icon: Icon, color, bgColor, hasArrow }: SystemItemProps) {
+const SystemCard: React.FC<SystemItemProps> = ({ title, description, icon: Icon, color, bgColor, hasArrow }) => {
   return (
     <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm hover:shadow-md transition-all duration-300 group flex items-center gap-4 cursor-pointer">
       <div className={`${bgColor} ${color} w-12 h-12 rounded-xl flex items-center justify-center shrink-0`}>
@@ -77,16 +77,16 @@ export function System() {
       {/* Top Toolbar */}
       <div className="bg-white p-2 rounded-lg border border-slate-200 flex flex-col md:flex-row gap-4 justify-between items-center sticky top-0 z-20 shadow-sm">
         <div className="flex items-center gap-2 w-full md:w-auto">
-          <button 
+          <button
             onClick={() => navigate(-1)}
             className="flex items-center gap-1 px-3 py-1.5 text-sm font-medium text-slate-600 hover:bg-slate-50 rounded-md border border-slate-200 transition-colors"
           >
             <ArrowLeft size={16} />
             Quay lại
           </button>
-          
+
           <div className="h-6 w-px bg-slate-200 mx-1"></div>
-          
+
           <button className="px-3 py-1.5 text-sm font-bold text-blue-600 bg-blue-50 rounded-md transition-colors">
             Tất cả
           </button>
@@ -97,9 +97,9 @@ export function System() {
 
         <div className="relative w-full md:w-80">
           <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
-          <input 
-            type="text" 
-            placeholder="Tìm module theo tên hoặc mô tả.." 
+          <input
+            type="text"
+            placeholder="Tìm module theo tên hoặc mô tả.."
             className="w-full pl-9 pr-4 py-1.5 text-sm border border-slate-200 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all"
           />
         </div>
@@ -116,7 +116,15 @@ export function System() {
             </div>
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
               {section.items.map((item) => (
-                <SystemCard key={item.title} {...item} />
+                <SystemCard
+                  key={item.title}
+                  title={item.title}
+                  description={item.description}
+                  icon={item.icon}
+                  color={item.color}
+                  bgColor={item.bgColor}
+                  hasArrow={item.hasArrow}
+                />
               ))}
             </div>
           </div>

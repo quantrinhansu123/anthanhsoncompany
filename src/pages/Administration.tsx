@@ -1,11 +1,11 @@
 import React from 'react';
-import { 
-  Calendar, 
-  ClipboardCheck, 
-  FileText, 
-  Target, 
-  Banknote, 
-  Scale, 
+import {
+  Calendar,
+  ClipboardCheck,
+  FileText,
+  Target,
+  Banknote,
+  Scale,
   Settings,
   FileInput,
   Send,
@@ -31,16 +31,23 @@ import {
 import { Link } from 'react-router-dom';
 
 interface AdminItemProps {
+  key?: string;
   title: string;
   description: string;
   icon: React.ElementType;
   color: string;
   bgColor: string;
+  path?: string;
 }
 
-function AdminCard({ title, description, icon: Icon, color, bgColor }: AdminItemProps) {
+function AdminCard({ title, description, icon: Icon, color, bgColor, path }: AdminItemProps) {
+  // @ts-ignore
+  const CardWrapper = path ? Link : 'div';
+  const props = path ? { to: path } : {};
+
   return (
-    <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm hover:shadow-md transition-all duration-300 group flex items-start gap-4 relative">
+    // @ts-ignore
+    <CardWrapper {...props} className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm hover:shadow-md transition-all duration-300 group flex items-start gap-4 relative h-full block w-full text-left">
       <div className={`${bgColor} ${color} w-10 h-10 rounded-lg flex items-center justify-center shrink-0`}>
         <Icon size={20} />
       </div>
@@ -60,7 +67,7 @@ function AdminCard({ title, description, icon: Icon, color, bgColor }: AdminItem
           <HelpCircle size={14} />
         </button>
       </div>
-    </div>
+    </CardWrapper>
   );
 }
 
@@ -68,13 +75,13 @@ const sections = [
   {
     title: 'Công lương',
     items: [
-      { title: 'Chấm công', description: 'Quản lý chấm công, ca làm việc.', icon: Calendar, color: 'text-blue-600', bgColor: 'bg-blue-50' },
-      { title: 'Tổng hợp chấm công', description: 'Tổng hợp và báo cáo chấm công theo nhân viên.', icon: ClipboardCheck, color: 'text-orange-600', bgColor: 'bg-orange-50' },
-      { title: 'Phiếu hành chính', description: 'Phiếu đề xuất, xác nhận hành chính.', icon: FileText, color: 'text-purple-600', bgColor: 'bg-purple-50' },
-      { title: 'Chấm điểm KPI', description: 'Đánh giá và chấm điểm KPI theo kỳ, nhân viên.', icon: Target, color: 'text-pink-600', bgColor: 'bg-pink-50' },
-      { title: 'Bảng lương', description: 'Tính lương, phiếu lương, báo cáo.', icon: Banknote, color: 'text-emerald-600', bgColor: 'bg-emerald-50' },
-      { title: 'Điểm cộng trừ', description: 'Ghi nhận điểm cộng, trừ của nhân viên theo tháng.', icon: Scale, color: 'text-indigo-600', bgColor: 'bg-indigo-50' },
-      { title: 'Thiết lập công lương', description: 'Cấu hình hệ số, quy tắc tính lương.', icon: Settings, color: 'text-slate-600', bgColor: 'bg-slate-100' },
+      { title: 'Chấm công', description: 'Quản lý chấm công, ca làm việc.', icon: Calendar, color: 'text-blue-600', bgColor: 'bg-blue-50', path: '/hanh-chinh/cham-cong' },
+      { title: 'Tổng hợp chấm công', description: 'Tổng hợp và báo cáo chấm công theo nhân viên.', icon: ClipboardCheck, color: 'text-orange-600', bgColor: 'bg-orange-50', path: '/hanh-chinh/tong-hop-cham-cong' },
+      { title: 'Phiếu hành chính', description: 'Phiếu đề xuất, xác nhận hành chính.', icon: FileText, color: 'text-purple-600', bgColor: 'bg-purple-50', path: '/hanh-chinh/phieu-hanh-chinh' },
+      { title: 'Chấm điểm KPI', description: 'Đánh giá và chấm điểm KPI theo kỳ, nhân viên.', icon: Target, color: 'text-pink-600', bgColor: 'bg-pink-50', path: '/hanh-chinh/cham-diem-kpi' },
+      { title: 'Bảng lương', description: 'Tính lương, phiếu lương, báo cáo.', icon: Banknote, color: 'text-emerald-600', bgColor: 'bg-emerald-50', path: '/hanh-chinh/bang-luong' },
+      { title: 'Điểm cộng trừ', description: 'Ghi nhận điểm cộng, trừ của nhân viên theo tháng.', icon: Scale, color: 'text-indigo-600', bgColor: 'bg-indigo-50', path: '/hanh-chinh/diem-cong-tru' },
+      { title: 'Thiết lập công lương', description: 'Cấu hình hệ số, quy tắc tính lương.', icon: Settings, color: 'text-slate-600', bgColor: 'bg-slate-100', path: '/hanh-chinh/thiet-lap-cong-luong' },
     ]
   },
   {
@@ -133,7 +140,15 @@ export function Administration() {
           </div>
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
             {section.items.map((item) => (
-              <AdminCard key={item.title} {...item} />
+              <AdminCard
+                key={item.title}
+                title={item.title}
+                description={item.description}
+                icon={item.icon}
+                color={item.color}
+                bgColor={item.bgColor}
+                path={item.path}
+              />
             ))}
           </div>
         </div>
