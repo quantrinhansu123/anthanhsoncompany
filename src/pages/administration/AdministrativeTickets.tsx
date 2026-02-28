@@ -27,12 +27,12 @@ const mockMyTickets = [
 ];
 
 const mockManagedTickets = [
-    { id: 1, sender: 'Lê Minh Công', department: 'Phòng Hành chính', type: 'Xin nghỉ phép', shift: 'Cả ngày', date: '2026-03-04', status: 'Đã duyệt' },
+    { id: 1, sender: 'Nguyễn Đắc Công', department: 'Phòng Hành chính', type: 'Xin nghỉ phép', shift: 'Cả ngày', date: '2026-03-04', status: 'Đã duyệt' },
     { id: 2, sender: 'Ngô Hoàng Nam', department: 'Phòng Kỹ thuật', type: 'Xin nghỉ không lương', shift: 'Cả ngày', date: '2026-03-01', status: 'Chờ duyệt' },
     { id: 3, sender: 'Lê Minh Quân', department: 'Phòng Kinh doanh', type: 'Công tác', shift: 'Cả ngày', date: '2026-02-24', status: 'Chờ duyệt' },
-    { id: 4, sender: 'Lê Minh Công', department: 'Phòng Hành chính', type: 'Đi muộn / về sớm', shift: 'Sáng', date: '2026-02-21', status: 'Quản lý đã duyệt' },
+    { id: 4, sender: 'Nguyễn Đắc Công', department: 'Phòng Hành chính', type: 'Đi muộn / về sớm', shift: 'Sáng', date: '2026-02-21', status: 'Quản lý đã duyệt' },
     { id: 5, sender: 'Phạm Thu Trang', department: 'Phòng Nhân sự', type: 'Quên chấm công', shift: 'Chiều', date: '2026-02-17', status: 'Đã duyệt' },
-    { id: 6, sender: 'Lê Minh Công', department: 'Phòng Hành chính', type: 'Tăng ca', shift: 'Chiều', date: '2026-02-07', status: 'Từ chối' },
+    { id: 6, sender: 'Nguyễn Đắc Công', department: 'Phòng Hành chính', type: 'Tăng ca', shift: 'Chiều', date: '2026-02-07', status: 'Từ chối' },
 ];
 
 const mockQuotas = [

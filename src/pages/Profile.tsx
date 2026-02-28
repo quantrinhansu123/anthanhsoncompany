@@ -49,19 +49,19 @@ export function Profile() {
                         <div className="absolute top-0 left-0 right-0 h-24 bg-gradient-to-br from-blue-50 to-blue-100/50 -z-10"></div>
 
                         <div className="w-24 h-24 bg-slate-900 rounded-full flex items-center justify-center text-white text-3xl font-bold border-4 border-white shadow-md relative mt-4">
-                            <span className="bg-gradient-to-br from-white to-slate-200 bg-clip-text text-transparent">LC</span>
+                            <span className="bg-gradient-to-br from-white to-slate-200 bg-clip-text text-transparent">NĐC</span>
                             <span className="absolute bottom-1 right-1 w-4 h-4 bg-emerald-500 border-2 border-white rounded-full"></span>
                         </div>
 
                         <div className="text-center mt-4 mb-6">
-                            <h2 className="text-lg font-bold text-slate-800">Lê Minh Công</h2>
+                            <h2 className="text-lg font-bold text-slate-800">Nguyễn Đắc Công</h2>
                             <span className="px-2.5 py-0.5 rounded-full bg-blue-50 text-blue-600 text-xs font-semibold mt-1 inline-block">Admin</span>
                         </div>
 
                         <div className="w-full space-y-3.5 mt-2">
                             <div className="flex items-center gap-3 text-sm text-slate-600">
                                 <Mail size={16} className="text-slate-400" />
-                                <span>admin@5fedu.com</span>
+                                <span>Upcare</span>
                             </div>
                             <div className="flex items-center gap-3 text-sm text-slate-600">
                                 <Phone size={16} className="text-slate-400" />
@@ -107,7 +107,7 @@ export function Profile() {
 
                     <CardSection title="Thông tin cá nhân" icon={User}>
                         <div className="grid grid-cols-1 md:grid-cols-3 gap-y-6 gap-x-8">
-                            <InfoField label="Họ tên" value="Lê Minh Công" icon={User} />
+                            <InfoField label="Họ tên" value="Nguyễn Đắc Công" icon={User} />
                             <InfoField label="Ngày sinh" icon={Calendar} />
                             <InfoField label="Nơi sinh" icon={MapPin} />
 
@@ -139,7 +139,7 @@ export function Profile() {
 
                     <CardSection title="Thông tin liên hệ" icon={PhoneCall}>
                         <div className="grid grid-cols-1 md:grid-cols-3 gap-y-6 gap-x-8">
-                            <InfoField label="Email công việc" value="admin@5fedu.com" icon={Mail} />
+                            <InfoField label="Email công việc" value="Upcare" icon={Mail} />
                             <InfoField label="Email cá nhân" icon={Mail} />
                             <InfoField label="Điện thoại" value="0900000000" icon={Phone} />
 

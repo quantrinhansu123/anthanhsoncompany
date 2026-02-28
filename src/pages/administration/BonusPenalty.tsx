@@ -15,7 +15,7 @@ import {
 } from 'lucide-react';
 
 const mockData = [
-    { id: 1, name: 'Lê Minh Công', code: 'NV000', period: '2025-01', type: 'Cộng', category: 'Hoàn thành vượt KPI', points: 2, description: 'Đạt 120% chỉ tiêu quý' },
+    { id: 1, name: 'Nguyễn Đắc Công', code: 'NV000', period: '2025-01', type: 'Cộng', category: 'Hoàn thành vượt KPI', points: 2, description: 'Đạt 120% chỉ tiêu quý' },
     { id: 2, name: 'Lê Minh Quân', code: 'NV002', period: '2025-01', type: 'Trừ', category: 'Đi muộn', points: 1, description: 'Đi muộn 15 phút ngày 10/01' },
     { id: 3, name: 'Nguyễn Văn Thành', code: 'NV001', period: '2025-02', type: 'Cộng', category: 'Chuyên cần (không đi trễ/về sớm)', points: 1, description: '—' },
 ];

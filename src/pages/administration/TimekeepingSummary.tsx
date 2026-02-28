@@ -23,7 +23,7 @@ import { Link } from 'react-router-dom';
 const mockRealtimeData = [
     {
         id: 1,
-        employee: 'Lê Minh Công',
+        employee: 'Nguyễn Đắc Công',
         department: 'Phòng Hành chính',
         branch: 'Chi nhánh TP. Hồ Chí Minh',
         checkIn: '--',
