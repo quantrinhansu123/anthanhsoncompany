@@ -11,8 +11,8 @@ export function Layout() {
   const { logoUrl } = useSettings();
   const location = useLocation();
   
-  // Hide watermark on chatbot page
-  const showWatermark = !location.pathname.includes('tro-ly-ai');
+  // Hide watermark on chatbot page and iframe pages
+  const showWatermark = !location.pathname.includes('tro-ly-ai') && !location.pathname.includes('danh-sach-van-don');
 
   useEffect(() => {
     const checkMobile = () => {

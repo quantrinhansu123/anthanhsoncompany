@@ -23,6 +23,7 @@ import { BonusPenalty } from './pages/administration/BonusPenalty';
 import { SalarySettings } from './pages/administration/SalarySettings';
 import { SalaryTable } from './pages/administration/SalaryTable';
 import { AIAssistant } from './pages/AIAssistant';
+import { DanhSachVanDon } from './pages/logistics/DanhSachVanDon';
 
 export default function App() {
   return (
@@ -43,6 +44,7 @@ export default function App() {
           <Route path="nhan-su" element={<HumanResources />} />
           <Route path="nhan-su/ho-so" element={<RecruitmentList />} />
           <Route path="kho-van" element={<Logistics />} />
+          <Route path="kho-van/danh-sach-van-don" element={<DanhSachVanDon />} />
           <Route path="he-thong" element={<System />} />
           <Route path="tai-chinh" element={<Finance />} />
           <Route path="tro-ly-ai" element={<AIAssistant />} />
