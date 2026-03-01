@@ -1,14 +1,12 @@
 import React from 'react';
 import {
-  Users,
-  Award,
+  BookOpen,
   Star,
   HelpCircle
 } from 'lucide-react';
 import { Link } from 'react-router-dom';
 
-interface AdminItemProps {
-  key?: string;
+interface ProcessItemProps {
   title: string;
   description: string;
   icon: React.ElementType;
@@ -17,7 +15,7 @@ interface AdminItemProps {
   path?: string;
 }
 
-function AdminCard({ title, description, icon: Icon, color, bgColor, path }: AdminItemProps) {
+function ProcessCard({ title, description, icon: Icon, color, bgColor, path }: ProcessItemProps) {
   // @ts-ignore
   const CardWrapper = path ? Link : 'div';
   const props = path ? { to: path } : {};
@@ -52,13 +50,12 @@ const sections = [
   {
     title: '',
     items: [
-      { title: 'Nhân sự', description: 'Quản lý thông tin nhân viên, tuyển dụng, đào tạo.', icon: Users, color: 'text-blue-600', bgColor: 'bg-blue-50', path: '/nhan-su' },
-      { title: 'Chứng chỉ hành nghề', description: 'Quản lý chứng chỉ, giấy phép hành nghề của nhân viên.', icon: Award, color: 'text-emerald-600', bgColor: 'bg-emerald-50', path: '/hanh-chinh/chung-chi-hanh-nghe' },
+      { title: 'Thư viện lỗi', description: 'Quản lý thư viện lỗi, phân loại, xử lý và giải pháp.', icon: BookOpen, color: 'text-blue-600', bgColor: 'bg-blue-50', path: '/quy-trinh/thu-vien-loi' },
     ]
   }
 ];
 
-export function Administration() {
+export function Process() {
   return (
     <div className="space-y-8">
       {sections.map((section) => (
@@ -72,7 +69,7 @@ export function Administration() {
           )}
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
             {section.items.map((item) => (
-              <AdminCard
+              <ProcessCard
                 key={item.title}
                 title={item.title}
                 description={item.description}

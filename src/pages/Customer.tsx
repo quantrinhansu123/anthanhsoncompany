@@ -1,14 +1,14 @@
 import React from 'react';
 import {
-  Users,
-  Award,
+  UserCircle,
+  FolderKanban,
+  FileSignature,
   Star,
   HelpCircle
 } from 'lucide-react';
 import { Link } from 'react-router-dom';
 
-interface AdminItemProps {
-  key?: string;
+interface CustomerItemProps {
   title: string;
   description: string;
   icon: React.ElementType;
@@ -17,7 +17,7 @@ interface AdminItemProps {
   path?: string;
 }
 
-function AdminCard({ title, description, icon: Icon, color, bgColor, path }: AdminItemProps) {
+function CustomerCard({ title, description, icon: Icon, color, bgColor, path }: CustomerItemProps) {
   // @ts-ignore
   const CardWrapper = path ? Link : 'div';
   const props = path ? { to: path } : {};
@@ -52,13 +52,14 @@ const sections = [
   {
     title: '',
     items: [
-      { title: 'Nhân sự', description: 'Quản lý thông tin nhân viên, tuyển dụng, đào tạo.', icon: Users, color: 'text-blue-600', bgColor: 'bg-blue-50', path: '/nhan-su' },
-      { title: 'Chứng chỉ hành nghề', description: 'Quản lý chứng chỉ, giấy phép hành nghề của nhân viên.', icon: Award, color: 'text-emerald-600', bgColor: 'bg-emerald-50', path: '/hanh-chinh/chung-chi-hanh-nghe' },
+      { title: 'DS Khách Hàng', description: 'Danh sách khách hàng, thông tin liên hệ, lịch sử giao dịch.', icon: UserCircle, color: 'text-blue-600', bgColor: 'bg-blue-50', path: '/khach-hang/danh-sach' },
+      { title: 'Dự án', description: 'Quản lý dự án, tiến độ, ngân sách, nhân sự.', icon: FolderKanban, color: 'text-emerald-600', bgColor: 'bg-emerald-50', path: '/khach-hang/du-an' },
+      { title: 'Hợp đồng', description: 'Quản lý hợp đồng, ký kết, gia hạn, thanh lý.', icon: FileSignature, color: 'text-purple-600', bgColor: 'bg-purple-50', path: '/khach-hang/hop-dong' },
     ]
   }
 ];
 
-export function Administration() {
+export function Customer() {
   return (
     <div className="space-y-8">
       {sections.map((section) => (
@@ -72,7 +73,7 @@ export function Administration() {
           )}
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
             {section.items.map((item) => (
-              <AdminCard
+              <CustomerCard
                 key={item.title}
                 title={item.title}
                 description={item.description}

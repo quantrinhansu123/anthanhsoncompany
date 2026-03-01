@@ -2,15 +2,10 @@ import React from 'react';
 import { NavLink } from 'react-router-dom';
 import {
   LayoutDashboard,
-  FileText,
   Users,
-  Megaphone,
-  Wallet,
-  ShoppingCart,
-  Package,
-  Settings,
-  Bot,
-  Copyright,
+  Calculator,
+  UserCircle,
+  GitBranch,
   PanelLeftClose,
   PanelLeftOpen
 } from 'lucide-react';
@@ -28,14 +23,10 @@ export function Sidebar({ isOpen, toggleSidebar, isMobile = false }: SidebarProp
 
   const navItems = [
     { icon: LayoutDashboard, label: t('nav.home'), path: '/' },
-    { icon: FileText, label: t('nav.admin'), path: '/hanh-chinh' },
-    { icon: Users, label: t('nav.hr'), path: '/nhan-su' },
-    { icon: Megaphone, label: t('nav.marketing'), path: '/marketing' },
-    { icon: Wallet, label: t('nav.finance'), path: '/tai-chinh' },
-    { icon: ShoppingCart, label: t('nav.purchasing'), path: '/mua-hang' },
-    { icon: Package, label: t('nav.logistics'), path: '/kho-van' },
-    { icon: Settings, label: t('nav.system'), path: '/he-thong' },
-    { icon: Bot, label: t('nav.ai'), path: '/tro-ly-ai' },
+    { icon: Users, label: t('nav.adminHr'), path: '/hanh-chinh' },
+    { icon: Calculator, label: t('nav.accounting'), path: '/tai-chinh' },
+    { icon: UserCircle, label: t('nav.customer'), path: '/khach-hang' },
+    { icon: GitBranch, label: t('nav.process'), path: '/quy-trinh' },
   ];
 
   return (

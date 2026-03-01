@@ -13,6 +13,8 @@ import { Administration } from './pages/Administration';
 import { System } from './pages/System';
 import { RecruitmentList } from './pages/human-resources/RecruitmentList';
 import { Finance } from './pages/Finance';
+import { Customer } from './pages/Customer';
+import { Process } from './pages/Process';
 import { Timekeeping } from './pages/administration/Timekeeping';
 import { TimekeepingSummary } from './pages/administration/TimekeepingSummary';
 import { Profile } from './pages/Profile';
@@ -47,6 +49,8 @@ export default function App() {
           <Route path="kho-van/danh-sach-van-don" element={<DanhSachVanDon />} />
           <Route path="he-thong" element={<System />} />
           <Route path="tai-chinh" element={<Finance />} />
+          <Route path="khach-hang" element={<Customer />} />
+          <Route path="quy-trinh" element={<Process />} />
           <Route path="tro-ly-ai" element={<AIAssistant />} />
           <Route path="settings" element={<Settings />} />
           {/* Placeholder routes for other paths to avoid 404s inside the layout */}
