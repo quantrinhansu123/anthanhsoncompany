@@ -12,6 +12,7 @@ import { Logistics } from './pages/Logistics';
 import { Administration } from './pages/Administration';
 import { System } from './pages/System';
 import { RecruitmentList } from './pages/human-resources/RecruitmentList';
+import { AddEmployee } from './pages/human-resources/AddEmployee';
 import { Finance } from './pages/Finance';
 import { Customer } from './pages/Customer';
 import { Process } from './pages/Process';
@@ -24,6 +25,7 @@ import { KPIGrading } from './pages/administration/KPIGrading';
 import { BonusPenalty } from './pages/administration/BonusPenalty';
 import { SalarySettings } from './pages/administration/SalarySettings';
 import { SalaryTable } from './pages/administration/SalaryTable';
+import { ChungChiHanhNghe } from './pages/administration/ChungChiHanhNghe';
 import { AIAssistant } from './pages/AIAssistant';
 import { DanhSachVanDon } from './pages/logistics/DanhSachVanDon';
 
@@ -42,9 +44,12 @@ export default function App() {
           <Route path="hanh-chinh/diem-cong-tru" element={<BonusPenalty />} />
           <Route path="hanh-chinh/thiet-lap-cong-luong" element={<SalarySettings />} />
           <Route path="hanh-chinh/bang-luong" element={<SalaryTable />} />
+          <Route path="hanh-chinh/chung-chi-hanh-nghe" element={<ChungChiHanhNghe />} />
           <Route path="marketing" element={<Marketing />} />
           <Route path="nhan-su" element={<HumanResources />} />
           <Route path="nhan-su/ho-so" element={<RecruitmentList />} />
+          <Route path="nhan-su/them" element={<AddEmployee />} />
+          <Route path="nhan-su/them/:id" element={<AddEmployee />} />
           <Route path="kho-van" element={<Logistics />} />
           <Route path="kho-van/danh-sach-van-don" element={<DanhSachVanDon />} />
           <Route path="he-thong" element={<System />} />
