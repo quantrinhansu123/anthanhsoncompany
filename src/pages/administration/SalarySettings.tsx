@@ -292,7 +292,7 @@ export function SalarySettings() {
                                         <td className="px-5 py-4 text-slate-500 truncate max-w-[200px]">{row.note}</td>
                                         <td className="px-5 py-4 text-center">{renderStatusBadge(row.status)}</td>
                                         <td className="px-5 py-4 text-right">
-                                            <div className="flex items-center justify-end gap-3 opacity-0 group-hover:opacity-100 transition-opacity">
+                                            <div className="flex items-center justify-end gap-3 transition-opacity">
                                                 <button className="text-blue-500 hover:text-blue-600">
                                                     <Edit size={16} />
                                                 </button>
@@ -317,7 +317,7 @@ export function SalarySettings() {
                                         <td className="px-5 py-4 text-slate-500 truncate max-w-[300px]">{row.note}</td>
                                         <td className="px-5 py-4 text-center">{renderStatusBadge(row.status)}</td>
                                         <td className="px-5 py-4 text-right">
-                                            <div className="flex items-center justify-end gap-3 opacity-0 group-hover:opacity-100 transition-opacity">
+                                            <div className="flex items-center justify-end gap-3 transition-opacity">
                                                 <button className="text-blue-500 hover:text-blue-600">
                                                     <Edit size={16} />
                                                 </button>
@@ -343,7 +343,7 @@ export function SalarySettings() {
                                         <td className="px-5 py-3.5 text-slate-500">{row.note}</td>
                                         <td className="px-5 py-3.5 text-center">{renderStatusBadge(row.status)}</td>
                                         <td className="px-5 py-3.5 text-right">
-                                            <div className="flex items-center justify-end gap-3 opacity-0 group-hover:opacity-100 transition-opacity">
+                                            <div className="flex items-center justify-end gap-3 transition-opacity">
                                                 <button className="text-blue-500 hover:text-blue-600">
                                                     <Edit size={16} />
                                                 </button>

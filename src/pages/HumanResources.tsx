@@ -1,13 +1,13 @@
 import React, { useState, useEffect } from 'react';
-import { 
-  Search, 
-  Plus, 
-  Edit, 
-  Trash2, 
+import {
+  Search,
+  Plus,
+  Edit,
+  Trash2,
   Eye,
-  ChevronLeft, 
-  ChevronRight, 
-  ChevronsLeft, 
+  ChevronLeft,
+  ChevronRight,
+  ChevronsLeft,
   ChevronsRight,
   CheckSquare,
   Square,
@@ -49,7 +49,7 @@ export function HumanResources() {
   useEffect(() => {
     // Test connection first
     testNhanSuConnection().then(result => {
-      console.log('Database connection test result:', result);
+      // test result handled
     });
     loadEmployees();
   }, []);
@@ -58,16 +58,8 @@ export function HumanResources() {
     try {
       setLoading(true);
       setError(null);
-      console.log('Loading employees from nhan_su table...');
       const data = await employeeService.getAll();
-      console.log('Received data:', data);
-      console.log('Data length:', data?.length || 0);
-      if (data && data.length > 0) {
-        console.log('First employee sample:', data[0]);
-        console.log('First employee keys:', Object.keys(data[0]));
-        console.log('First employee values:', Object.values(data[0]));
-      }
-      
+
       // Normalize dữ liệu để đảm bảo có các trường cần thiết
       const normalizedData = (data || []).map((emp: any) => ({
         ...emp,
@@ -81,8 +73,7 @@ export function HumanResources() {
         status: emp.status || 'active',
         ngayVaoLam: emp.ngay_vao_lam || emp.ngayVaoLam || emp.joinDate || ''
       }));
-      
-      console.log('Normalized data:', normalizedData);
+
       setEmployees(normalizedData);
     } catch (err: any) {
       const errorMessage = err.message || 'Có lỗi xảy ra khi tải dữ liệu';
@@ -125,13 +116,13 @@ export function HumanResources() {
   };
 
   // Filter employees locally or use search API
-  const filteredEmployees = searchTerm 
-    ? employees.filter(emp => 
-        emp.name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        emp.code?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        emp.department?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        emp.email?.toLowerCase().includes(searchTerm.toLowerCase())
-      )
+  const filteredEmployees = searchTerm
+    ? employees.filter(emp =>
+      emp.name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      emp.code?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      emp.department?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      emp.email?.toLowerCase().includes(searchTerm.toLowerCase())
+    )
     : employees;
 
   const totalPages = Math.ceil(filteredEmployees.length / itemsPerPage);
@@ -146,7 +137,7 @@ export function HumanResources() {
       setViewingEmployee(employee);
       setActiveTab('employee');
       setShowViewModal(true);
-      
+
       // Load certificates data from nhan_su_chi_tiet
       setLoadingCertificates(true);
       try {
@@ -158,7 +149,7 @@ export function HumanResources() {
       } finally {
         setLoadingCertificates(false);
       }
-      
+
       // Load dependent persons data
       setLoadingDependents(true);
       try {
@@ -205,16 +196,16 @@ export function HumanResources() {
         <div className="px-4 md:px-6 py-4 border-b border-slate-200 flex flex-col md:flex-row gap-4 justify-between items-start md:items-center">
           <div className="relative w-full md:w-80">
             <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
-            <input 
-              type="text" 
-              placeholder="Tìm theo mã, tên, phòng ban, email..." 
+            <input
+              type="text"
+              placeholder="Tìm theo mã, tên, phòng ban, email..."
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
               className="w-full pl-9 pr-4 py-2 text-sm border border-slate-200 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all"
             />
           </div>
 
-          <button 
+          <button
             onClick={() => navigate('/nhan-su/them')}
             className="flex items-center gap-2 px-4 py-2 text-sm font-bold text-white bg-blue-600 hover:bg-blue-700 rounded-md transition-colors shadow-sm"
           >
@@ -272,8 +263,8 @@ export function HumanResources() {
               <tbody className="divide-y divide-slate-100">
                 {currentEmployees.length > 0 ? (
                   currentEmployees.map((employee) => (
-                    <tr 
-                      key={employee.id} 
+                    <tr
+                      key={employee.id}
                       className="hover:bg-slate-50 transition-colors group"
                     >
                       <td className="p-4">
@@ -285,46 +276,46 @@ export function HumanResources() {
                           )}
                         </button>
                       </td>
-                    <td className="p-4 font-medium text-slate-700">
-                      {employee.code || employee.ma_nv || employee.employee_code || '(Trống)'}
-                    </td>
-                    <td className="p-4 font-medium text-slate-800">
-                      {employee.full_name || employee.name || employee.hoTen || employee.ho_ten || '(Trống)'}
-                    </td>
-                    <td className="p-4 text-slate-600">
-                      {employee.phongBan || employee.department || employee.phong_ban || '(Trống)'}
-                    </td>
-                    <td className="p-4 text-slate-600">
-                      {(employee as any).chuc_vu || employee.chucVu || employee.position || '(Trống)'}
-                    </td>
-                    <td className="p-4 text-slate-600">
-                      {employee.email || '(Trống)'}
-                    </td>
-                    <td className="p-4 text-slate-600">
-                      {(employee as any).sdt_nhan_vien || employee.sdtNhanVien || employee.phone || employee.dien_thoai || '(Trống)'}
-                    </td>
-                    <td className="p-4">
-                      {getStatusBadge(employee.status || 'active')}
-                    </td>
+                      <td className="p-4 font-medium text-slate-700">
+                        {employee.code || employee.ma_nv || employee.employee_code || '(Trống)'}
+                      </td>
+                      <td className="p-4 font-medium text-slate-800">
+                        {employee.full_name || employee.name || employee.hoTen || employee.ho_ten || '(Trống)'}
+                      </td>
+                      <td className="p-4 text-slate-600">
+                        {employee.phongBan || employee.department || employee.phong_ban || '(Trống)'}
+                      </td>
+                      <td className="p-4 text-slate-600">
+                        {(employee as any).chuc_vu || employee.chucVu || employee.position || '(Trống)'}
+                      </td>
+                      <td className="p-4 text-slate-600">
+                        {employee.email || '(Trống)'}
+                      </td>
+                      <td className="p-4 text-slate-600">
+                        {(employee as any).sdt_nhan_vien || employee.sdtNhanVien || employee.phone || employee.dien_thoai || '(Trống)'}
+                      </td>
                       <td className="p-4">
-                        <div className="flex items-center justify-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
-                          <button 
+                        {getStatusBadge(employee.status || 'active')}
+                      </td>
+                      <td className="p-4">
+                        <div className="flex items-center justify-center gap-2 transition-opacity">
+                          <button
                             onClick={() => handleView(employee.id)}
-                            className="p-1.5 text-blue-500 hover:bg-blue-50 rounded-md transition-colors border border-blue-200"
+                            className="action-btn p-1.5 text-purple-600 bg-purple-50 border border-purple-100 rounded-md hover:bg-purple-100"
                             title="Xem"
                           >
                             <Eye size={14} />
                           </button>
-                          <button 
+                          <button
                             onClick={() => handleEdit(employee.id)}
-                            className="p-1.5 text-orange-500 hover:bg-orange-50 rounded-md transition-colors border border-orange-200"
+                            className="action-btn p-1.5 text-orange-500 bg-orange-50 border border-orange-100 rounded-md hover:bg-orange-100"
                             title="Sửa"
                           >
                             <Edit size={14} />
                           </button>
-                          <button 
+                          <button
                             onClick={() => handleDelete(employee.id)}
-                            className="p-1.5 text-red-500 hover:bg-red-50 rounded-md transition-colors border border-red-200"
+                            className="action-btn p-1.5 text-red-500 bg-red-50 border border-red-100 rounded-md hover:bg-red-100"
                             title="Xóa"
                           >
                             <Trash2 size={14} />
@@ -359,53 +350,53 @@ export function HumanResources() {
           <div className="px-4 md:px-6 py-3 border-t border-slate-200 flex items-center justify-between bg-slate-50/50">
             <div className="flex items-center gap-2 text-sm text-slate-600">
               <span className="font-semibold">{filteredEmployees.length}</span> bản ghi
-            <div className="h-4 w-px bg-slate-300 mx-2"></div>
-            <select 
-              className="bg-white border border-slate-200 rounded px-2 py-1 text-xs focus:outline-none focus:border-blue-500"
-              defaultValue={itemsPerPage}
-            >
-              <option value={10}>10</option>
-              <option value={20}>20</option>
-              <option value={50}>50</option>
-              <option value={100}>100</option>
-            </select>
-            <span>/ trang</span>
+              <div className="h-4 w-px bg-slate-300 mx-2"></div>
+              <select
+                className="bg-white border border-slate-200 rounded px-2 py-1 text-xs focus:outline-none focus:border-blue-500"
+                defaultValue={itemsPerPage}
+              >
+                <option value={10}>10</option>
+                <option value={20}>20</option>
+                <option value={50}>50</option>
+                <option value={100}>100</option>
+              </select>
+              <span>/ trang</span>
+            </div>
+
+            <div className="flex items-center gap-1">
+              <button
+                onClick={() => setCurrentPage(1)}
+                disabled={currentPage === 1}
+                className="p-1.5 rounded hover:bg-slate-200 text-slate-400 disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                <ChevronsLeft size={16} />
+              </button>
+              <button
+                onClick={() => setCurrentPage(prev => Math.max(1, prev - 1))}
+                disabled={currentPage === 1}
+                className="p-1.5 rounded hover:bg-slate-200 text-slate-400 disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                <ChevronLeft size={16} />
+              </button>
+              <span className="px-3 py-1 text-sm text-slate-600">
+                Trang {currentPage} / {totalPages || 1}
+              </span>
+              <button
+                onClick={() => setCurrentPage(prev => Math.min(totalPages, prev + 1))}
+                disabled={currentPage >= totalPages}
+                className="p-1.5 rounded hover:bg-slate-200 text-slate-400 disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                <ChevronRight size={16} />
+              </button>
+              <button
+                onClick={() => setCurrentPage(totalPages)}
+                disabled={currentPage >= totalPages}
+                className="p-1.5 rounded hover:bg-slate-200 text-slate-400 disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                <ChevronsRight size={16} />
+              </button>
+            </div>
           </div>
-          
-          <div className="flex items-center gap-1">
-            <button 
-              onClick={() => setCurrentPage(1)}
-              disabled={currentPage === 1}
-              className="p-1.5 rounded hover:bg-slate-200 text-slate-400 disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              <ChevronsLeft size={16} />
-            </button>
-            <button 
-              onClick={() => setCurrentPage(prev => Math.max(1, prev - 1))}
-              disabled={currentPage === 1}
-              className="p-1.5 rounded hover:bg-slate-200 text-slate-400 disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              <ChevronLeft size={16} />
-            </button>
-            <span className="px-3 py-1 text-sm text-slate-600">
-              Trang {currentPage} / {totalPages || 1}
-            </span>
-            <button 
-              onClick={() => setCurrentPage(prev => Math.min(totalPages, prev + 1))}
-              disabled={currentPage >= totalPages}
-              className="p-1.5 rounded hover:bg-slate-200 text-slate-400 disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              <ChevronRight size={16} />
-            </button>
-            <button 
-              onClick={() => setCurrentPage(totalPages)}
-              disabled={currentPage >= totalPages}
-              className="p-1.5 rounded hover:bg-slate-200 text-slate-400 disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              <ChevronsRight size={16} />
-            </button>
-          </div>
-        </div>
         )}
       </div>
 
@@ -432,33 +423,30 @@ export function HumanResources() {
               <div className="flex gap-1 px-6">
                 <button
                   onClick={() => setActiveTab('employee')}
-                  className={`px-4 py-3 text-sm font-medium transition-colors border-b-2 flex items-center gap-2 ${
-                    activeTab === 'employee'
-                      ? 'text-blue-600 border-blue-600 bg-white'
-                      : 'text-slate-600 border-transparent hover:text-slate-800'
-                  }`}
+                  className={`px-4 py-3 text-sm font-medium transition-colors border-b-2 flex items-center gap-2 ${activeTab === 'employee'
+                    ? 'text-blue-600 border-blue-600 bg-white'
+                    : 'text-slate-600 border-transparent hover:text-slate-800'
+                    }`}
                 >
                   <User size={16} />
                   Thông tin nhân viên
                 </button>
                 <button
                   onClick={() => setActiveTab('license')}
-                  className={`px-4 py-3 text-sm font-medium transition-colors border-b-2 flex items-center gap-2 ${
-                    activeTab === 'license'
-                      ? 'text-blue-600 border-blue-600 bg-white'
-                      : 'text-slate-600 border-transparent hover:text-slate-800'
-                  }`}
+                  className={`px-4 py-3 text-sm font-medium transition-colors border-b-2 flex items-center gap-2 ${activeTab === 'license'
+                    ? 'text-blue-600 border-blue-600 bg-white'
+                    : 'text-slate-600 border-transparent hover:text-slate-800'
+                    }`}
                 >
                   <FileText size={16} />
                   Chứng chỉ hành nghề
                 </button>
                 <button
                   onClick={() => setActiveTab('dependent')}
-                  className={`px-4 py-3 text-sm font-medium transition-colors border-b-2 flex items-center gap-2 ${
-                    activeTab === 'dependent'
-                      ? 'text-blue-600 border-blue-600 bg-white'
-                      : 'text-slate-600 border-transparent hover:text-slate-800'
-                  }`}
+                  className={`px-4 py-3 text-sm font-medium transition-colors border-b-2 flex items-center gap-2 ${activeTab === 'dependent'
+                    ? 'text-blue-600 border-blue-600 bg-white'
+                    : 'text-slate-600 border-transparent hover:text-slate-800'
+                    }`}
                 >
                   <Users size={16} />
                   Thông tin người phụ thuộc
@@ -476,168 +464,168 @@ export function HumanResources() {
                     <h4 className="text-sm font-semibold text-slate-700 uppercase tracking-wide border-b border-slate-200 pb-2">
                       Thông tin cơ bản
                     </h4>
-                  
-                  <div>
-                    <label className="block text-xs font-medium text-slate-500 mb-1">Mã nhân viên</label>
-                    <p className="text-sm text-slate-800 font-medium">
-                      {(viewingEmployee as any).code || viewingEmployee.code || '(Trống)'}
-                    </p>
+
+                    <div>
+                      <label className="block text-xs font-medium text-slate-500 mb-1">Mã nhân viên</label>
+                      <p className="text-sm text-slate-800 font-medium">
+                        {(viewingEmployee as any).code || viewingEmployee.code || '(Trống)'}
+                      </p>
+                    </div>
+
+                    <div>
+                      <label className="block text-xs font-medium text-slate-500 mb-1">Họ và tên</label>
+                      <p className="text-sm text-slate-800 font-medium">
+                        {(viewingEmployee as any).full_name || viewingEmployee.full_name || viewingEmployee.name || viewingEmployee.hoTen || '(Trống)'}
+                      </p>
+                    </div>
+
+                    <div>
+                      <label className="block text-xs font-medium text-slate-500 mb-1">Phòng ban</label>
+                      <p className="text-sm text-slate-800">
+                        {(viewingEmployee as any).phong_ban || viewingEmployee.phongBan || viewingEmployee.department || '(Trống)'}
+                      </p>
+                    </div>
+
+                    <div>
+                      <label className="block text-xs font-medium text-slate-500 mb-1">Chức vụ</label>
+                      <p className="text-sm text-slate-800">
+                        {(viewingEmployee as any).chuc_vu || viewingEmployee.chucVu || viewingEmployee.position || '(Trống)'}
+                      </p>
+                    </div>
+
+                    <div>
+                      <label className="block text-xs font-medium text-slate-500 mb-1 flex items-center gap-1">
+                        <Mail size={14} />
+                        Email
+                      </label>
+                      <p className="text-sm text-slate-800">
+                        {viewingEmployee.email || '(Trống)'}
+                      </p>
+                    </div>
+
+                    <div>
+                      <label className="block text-xs font-medium text-slate-500 mb-1 flex items-center gap-1">
+                        <Phone size={14} />
+                        Số điện thoại
+                      </label>
+                      <p className="text-sm text-slate-800">
+                        {(viewingEmployee as any).sdt_nhan_vien || viewingEmployee.sdtNhanVien || viewingEmployee.phone || '(Trống)'}
+                      </p>
+                    </div>
+
+                    <div>
+                      <label className="block text-xs font-medium text-slate-500 mb-1">Trạng thái</label>
+                      <div className="mt-1">
+                        {getStatusBadge(viewingEmployee.status || 'active')}
+                      </div>
+                    </div>
                   </div>
 
-                  <div>
-                    <label className="block text-xs font-medium text-slate-500 mb-1">Họ và tên</label>
-                    <p className="text-sm text-slate-800 font-medium">
-                      {(viewingEmployee as any).full_name || viewingEmployee.full_name || viewingEmployee.name || viewingEmployee.hoTen || '(Trống)'}
-                    </p>
+                  {/* Thông tin cá nhân */}
+                  <div className="space-y-4">
+                    <h4 className="text-sm font-semibold text-slate-700 uppercase tracking-wide border-b border-slate-200 pb-2">
+                      Thông tin cá nhân
+                    </h4>
+
+                    <div>
+                      <label className="block text-xs font-medium text-slate-500 mb-1 flex items-center gap-1">
+                        <CalendarIcon size={14} />
+                        Ngày sinh
+                      </label>
+                      <p className="text-sm text-slate-800">
+                        {viewingEmployee.ngaySinh ? new Date(viewingEmployee.ngaySinh).toLocaleDateString('vi-VN') : '(Trống)'}
+                      </p>
+                    </div>
+
+                    <div>
+                      <label className="block text-xs font-medium text-slate-500 mb-1 flex items-center gap-1">
+                        <MapPin size={14} />
+                        Địa chỉ
+                      </label>
+                      <p className="text-sm text-slate-800">
+                        {viewingEmployee.diaChi || '(Trống)'}
+                      </p>
+                    </div>
+
+                    <div>
+                      <label className="block text-xs font-medium text-slate-500 mb-1">Số CCCD</label>
+                      <p className="text-sm text-slate-800">
+                        {viewingEmployee.soCCCD || '(Trống)'}
+                      </p>
+                    </div>
+
+                    <div>
+                      <label className="block text-xs font-medium text-slate-500 mb-1">Ngày cấp CCCD</label>
+                      <p className="text-sm text-slate-800">
+                        {viewingEmployee.ngayCapCCCD ? new Date(viewingEmployee.ngayCapCCCD).toLocaleDateString('vi-VN') : '(Trống)'}
+                      </p>
+                    </div>
+
+                    <div>
+                      <label className="block text-xs font-medium text-slate-500 mb-1">MST cá nhân</label>
+                      <p className="text-sm text-slate-800">
+                        {viewingEmployee.mstCaNhan || '(Trống)'}
+                      </p>
+                    </div>
+
+                    <div>
+                      <label className="block text-xs font-medium text-slate-500 mb-1">Mã số BHXH</label>
+                      <p className="text-sm text-slate-800">
+                        {viewingEmployee.maSoBHXH || '(Trống)'}
+                      </p>
+                    </div>
                   </div>
 
-                  <div>
-                    <label className="block text-xs font-medium text-slate-500 mb-1">Phòng ban</label>
-                    <p className="text-sm text-slate-800">
-                      {(viewingEmployee as any).phong_ban || viewingEmployee.phongBan || viewingEmployee.department || '(Trống)'}
-                    </p>
+                  {/* Thông tin học vấn */}
+                  <div className="space-y-4">
+                    <h4 className="text-sm font-semibold text-slate-700 uppercase tracking-wide border-b border-slate-200 pb-2">
+                      Thông tin học vấn
+                    </h4>
+
+                    <div>
+                      <label className="block text-xs font-medium text-slate-500 mb-1">Bằng đại học chuyên ngành</label>
+                      <p className="text-sm text-slate-800">
+                        {viewingEmployee.bangDHChuyenNganh || '(Trống)'}
+                      </p>
+                    </div>
+
+                    <div>
+                      <label className="block text-xs font-medium text-slate-500 mb-1">Năm tốt nghiệp</label>
+                      <p className="text-sm text-slate-800">
+                        {viewingEmployee.namTotNghiep || '(Trống)'}
+                      </p>
+                    </div>
                   </div>
 
-                  <div>
-                    <label className="block text-xs font-medium text-slate-500 mb-1">Chức vụ</label>
-                    <p className="text-sm text-slate-800">
-                      {(viewingEmployee as any).chuc_vu || viewingEmployee.chucVu || viewingEmployee.position || '(Trống)'}
-                    </p>
-                  </div>
+                  {/* Thông tin khác */}
+                  <div className="space-y-4">
+                    <h4 className="text-sm font-semibold text-slate-700 uppercase tracking-wide border-b border-slate-200 pb-2">
+                      Thông tin khác
+                    </h4>
 
-                  <div>
-                    <label className="block text-xs font-medium text-slate-500 mb-1 flex items-center gap-1">
-                      <Mail size={14} />
-                      Email
-                    </label>
-                    <p className="text-sm text-slate-800">
-                      {viewingEmployee.email || '(Trống)'}
-                    </p>
-                  </div>
+                    <div>
+                      <label className="block text-xs font-medium text-slate-500 mb-1">Ngày vào làm</label>
+                      <p className="text-sm text-slate-800">
+                        {viewingEmployee.ngayVaoLam ? new Date(viewingEmployee.ngayVaoLam).toLocaleDateString('vi-VN') :
+                          viewingEmployee.joinDate ? new Date(viewingEmployee.joinDate).toLocaleDateString('vi-VN') : '(Trống)'}
+                      </p>
+                    </div>
 
-                  <div>
-                    <label className="block text-xs font-medium text-slate-500 mb-1 flex items-center gap-1">
-                      <Phone size={14} />
-                      Số điện thoại
-                    </label>
-                    <p className="text-sm text-slate-800">
-                      {(viewingEmployee as any).sdt_nhan_vien || viewingEmployee.sdtNhanVien || viewingEmployee.phone || '(Trống)'}
-                    </p>
-                  </div>
+                    <div>
+                      <label className="block text-xs font-medium text-slate-500 mb-1">Ngày tạo</label>
+                      <p className="text-sm text-slate-800">
+                        {(viewingEmployee as any).created_at ? new Date((viewingEmployee as any).created_at).toLocaleString('vi-VN') : '(Trống)'}
+                      </p>
+                    </div>
 
-                  <div>
-                    <label className="block text-xs font-medium text-slate-500 mb-1">Trạng thái</label>
-                    <div className="mt-1">
-                      {getStatusBadge(viewingEmployee.status || 'active')}
+                    <div>
+                      <label className="block text-xs font-medium text-slate-500 mb-1">Ngày cập nhật</label>
+                      <p className="text-sm text-slate-800">
+                        {(viewingEmployee as any).updated_at ? new Date((viewingEmployee as any).updated_at).toLocaleString('vi-VN') : '(Trống)'}
+                      </p>
                     </div>
                   </div>
                 </div>
-
-                {/* Thông tin cá nhân */}
-                <div className="space-y-4">
-                  <h4 className="text-sm font-semibold text-slate-700 uppercase tracking-wide border-b border-slate-200 pb-2">
-                    Thông tin cá nhân
-                  </h4>
-
-                  <div>
-                    <label className="block text-xs font-medium text-slate-500 mb-1 flex items-center gap-1">
-                      <CalendarIcon size={14} />
-                      Ngày sinh
-                    </label>
-                    <p className="text-sm text-slate-800">
-                      {viewingEmployee.ngaySinh ? new Date(viewingEmployee.ngaySinh).toLocaleDateString('vi-VN') : '(Trống)'}
-                    </p>
-                  </div>
-
-                  <div>
-                    <label className="block text-xs font-medium text-slate-500 mb-1 flex items-center gap-1">
-                      <MapPin size={14} />
-                      Địa chỉ
-                    </label>
-                    <p className="text-sm text-slate-800">
-                      {viewingEmployee.diaChi || '(Trống)'}
-                    </p>
-                  </div>
-
-                  <div>
-                    <label className="block text-xs font-medium text-slate-500 mb-1">Số CCCD</label>
-                    <p className="text-sm text-slate-800">
-                      {viewingEmployee.soCCCD || '(Trống)'}
-                    </p>
-                  </div>
-
-                  <div>
-                    <label className="block text-xs font-medium text-slate-500 mb-1">Ngày cấp CCCD</label>
-                    <p className="text-sm text-slate-800">
-                      {viewingEmployee.ngayCapCCCD ? new Date(viewingEmployee.ngayCapCCCD).toLocaleDateString('vi-VN') : '(Trống)'}
-                    </p>
-                  </div>
-
-                  <div>
-                    <label className="block text-xs font-medium text-slate-500 mb-1">MST cá nhân</label>
-                    <p className="text-sm text-slate-800">
-                      {viewingEmployee.mstCaNhan || '(Trống)'}
-                    </p>
-                  </div>
-
-                  <div>
-                    <label className="block text-xs font-medium text-slate-500 mb-1">Mã số BHXH</label>
-                    <p className="text-sm text-slate-800">
-                      {viewingEmployee.maSoBHXH || '(Trống)'}
-                    </p>
-                  </div>
-                </div>
-
-                {/* Thông tin học vấn */}
-                <div className="space-y-4">
-                  <h4 className="text-sm font-semibold text-slate-700 uppercase tracking-wide border-b border-slate-200 pb-2">
-                    Thông tin học vấn
-                  </h4>
-
-                  <div>
-                    <label className="block text-xs font-medium text-slate-500 mb-1">Bằng đại học chuyên ngành</label>
-                    <p className="text-sm text-slate-800">
-                      {viewingEmployee.bangDHChuyenNganh || '(Trống)'}
-                    </p>
-                  </div>
-
-                  <div>
-                    <label className="block text-xs font-medium text-slate-500 mb-1">Năm tốt nghiệp</label>
-                    <p className="text-sm text-slate-800">
-                      {viewingEmployee.namTotNghiep || '(Trống)'}
-                    </p>
-                  </div>
-                </div>
-
-                {/* Thông tin khác */}
-                <div className="space-y-4">
-                  <h4 className="text-sm font-semibold text-slate-700 uppercase tracking-wide border-b border-slate-200 pb-2">
-                    Thông tin khác
-                  </h4>
-
-                  <div>
-                    <label className="block text-xs font-medium text-slate-500 mb-1">Ngày vào làm</label>
-                    <p className="text-sm text-slate-800">
-                      {viewingEmployee.ngayVaoLam ? new Date(viewingEmployee.ngayVaoLam).toLocaleDateString('vi-VN') : 
-                       viewingEmployee.joinDate ? new Date(viewingEmployee.joinDate).toLocaleDateString('vi-VN') : '(Trống)'}
-                    </p>
-                  </div>
-
-                  <div>
-                    <label className="block text-xs font-medium text-slate-500 mb-1">Ngày tạo</label>
-                    <p className="text-sm text-slate-800">
-                      {(viewingEmployee as any).created_at ? new Date((viewingEmployee as any).created_at).toLocaleString('vi-VN') : '(Trống)'}
-                    </p>
-                  </div>
-
-                  <div>
-                    <label className="block text-xs font-medium text-slate-500 mb-1">Ngày cập nhật</label>
-                    <p className="text-sm text-slate-800">
-                      {(viewingEmployee as any).updated_at ? new Date((viewingEmployee as any).updated_at).toLocaleString('vi-VN') : '(Trống)'}
-                    </p>
-                  </div>
-                </div>
-              </div>
               )}
 
               {/* Tab Content: Chứng chỉ hành nghề */}
@@ -646,7 +634,7 @@ export function HumanResources() {
                   <h4 className="text-sm font-semibold text-slate-700 uppercase tracking-wide border-b border-slate-200 pb-2 mb-4">
                     Chứng chỉ hành nghề (từ bảng nhan_su_chi_tiet)
                   </h4>
-                  
+
                   {loadingCertificates ? (
                     <div className="flex items-center justify-center py-8">
                       <Loader2 className="w-6 h-6 animate-spin text-blue-600" />
@@ -717,7 +705,7 @@ export function HumanResources() {
                   <h4 className="text-sm font-semibold text-slate-700 uppercase tracking-wide border-b border-slate-200 pb-2 mb-4">
                     Thông tin người phụ thuộc (từ bảng nguoi_phu_thuoc)
                   </h4>
-                  
+
                   {loadingDependents ? (
                     <div className="flex items-center justify-center py-8">
                       <Loader2 className="w-6 h-6 animate-spin text-blue-600" />
@@ -744,7 +732,7 @@ export function HumanResources() {
                                 {person.ho_ten_npt || person.hoTenNPT || '(Trống)'}
                               </td>
                               <td className="p-3 text-slate-700">
-                                {person.ngay_sinh_npt || person.ngaySinhNPT 
+                                {person.ngay_sinh_npt || person.ngaySinhNPT
                                   ? new Date(person.ngay_sinh_npt || person.ngaySinhNPT).toLocaleDateString('vi-VN')
                                   : '(Trống)'}
                               </td>
@@ -758,12 +746,12 @@ export function HumanResources() {
                                 {person.quan_he || person.quanHe || '(Trống)'}
                               </td>
                               <td className="p-3 text-slate-700">
-                                {person.created_at 
+                                {person.created_at
                                   ? new Date(person.created_at).toLocaleString('vi-VN')
                                   : '(Trống)'}
                               </td>
                               <td className="p-3 text-slate-700">
-                                {person.updated_at 
+                                {person.updated_at
                                   ? new Date(person.updated_at).toLocaleString('vi-VN')
                                   : '(Trống)'}
                               </td>

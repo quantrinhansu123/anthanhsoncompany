@@ -14,8 +14,11 @@ import { System } from './pages/System';
 import { RecruitmentList } from './pages/human-resources/RecruitmentList';
 import { AddEmployee } from './pages/human-resources/AddEmployee';
 import { Finance } from './pages/Finance';
+import { ThuChi } from './pages/finance/ThuChi';
+import { AddThuChi } from './pages/finance/AddThuChi';
 import { Customer } from './pages/Customer';
 import { Process } from './pages/Process';
+import { ThuVienLoi } from './pages/process/ThuVienLoi';
 import { Timekeeping } from './pages/administration/Timekeeping';
 import { TimekeepingSummary } from './pages/administration/TimekeepingSummary';
 import { Profile } from './pages/Profile';
@@ -28,6 +31,9 @@ import { SalaryTable } from './pages/administration/SalaryTable';
 import { ChungChiHanhNghe } from './pages/administration/ChungChiHanhNghe';
 import { AIAssistant } from './pages/AIAssistant';
 import { DanhSachVanDon } from './pages/logistics/DanhSachVanDon';
+import { DanhSachKhachHang } from './pages/customer/DanhSachKhachHang';
+import { DuAn } from './pages/customer/DuAn';
+import { HopDong } from './pages/customer/HopDong';
 
 export default function App() {
   return (
@@ -54,8 +60,15 @@ export default function App() {
           <Route path="kho-van/danh-sach-van-don" element={<DanhSachVanDon />} />
           <Route path="he-thong" element={<System />} />
           <Route path="tai-chinh" element={<Finance />} />
+          <Route path="tai-chinh/thu-chi" element={<ThuChi />} />
+          <Route path="tai-chinh/thu-chi/them" element={<AddThuChi />} />
+          <Route path="tai-chinh/thu-chi/them/:id" element={<AddThuChi />} />
           <Route path="khach-hang" element={<Customer />} />
+          <Route path="khach-hang/danh-sach" element={<DanhSachKhachHang />} />
+          <Route path="khach-hang/du-an" element={<DuAn />} />
+          <Route path="khach-hang/hop-dong" element={<HopDong />} />
           <Route path="quy-trinh" element={<Process />} />
+          <Route path="quy-trinh/thu-vien-loi" element={<ThuVienLoi />} />
           <Route path="tro-ly-ai" element={<AIAssistant />} />
           <Route path="settings" element={<Settings />} />
           {/* Placeholder routes for other paths to avoid 404s inside the layout */}

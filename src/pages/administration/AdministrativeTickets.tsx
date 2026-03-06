@@ -289,7 +289,7 @@ export function AdministrativeTickets() {
                                         <td className="px-5 py-3.5 text-slate-800">{row.date}</td>
                                         <td className="px-5 py-3.5">{renderStatus(row.status)}</td>
                                         <td className="px-5 py-3.5 text-right">
-                                            <div className="flex items-center justify-end gap-3 opacity-0 group-hover:opacity-100 transition-opacity">
+                                            <div className="flex items-center justify-end gap-3 transition-opacity">
                                                 <button className="text-blue-500 hover:text-blue-600">
                                                     <Edit size={16} />
                                                 </button>
@@ -321,7 +321,7 @@ export function AdministrativeTickets() {
                                         <td className="px-5 py-3.5 text-slate-800">{row.date}</td>
                                         <td className="px-5 py-3.5">{renderStatus(row.status)}</td>
                                         <td className="px-5 py-3.5 text-right">
-                                            <div className="flex items-center justify-end gap-3 opacity-0 group-hover:opacity-100 transition-opacity">
+                                            <div className="flex items-center justify-end gap-3 transition-opacity">
                                                 <button className="text-red-500 hover:text-red-600">
                                                     <Trash2 size={16} />
                                                 </button>
@@ -345,7 +345,7 @@ export function AdministrativeTickets() {
                                         <td className="px-5 py-3.5 text-slate-600">{row.used}</td>
                                         <td className="px-5 py-3.5 text-slate-600">{row.remaining}</td>
                                         <td className="px-5 py-3.5 text-right">
-                                            <div className="flex items-center justify-end gap-3 opacity-0 group-hover:opacity-100 transition-opacity">
+                                            <div className="flex items-center justify-end gap-3 transition-opacity">
                                                 <span className="text-slate-400">—</span>
                                             </div>
                                         </td>

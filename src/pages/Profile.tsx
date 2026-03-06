@@ -1,10 +1,59 @@
-import React from 'react';
+import React, { useState, useRef } from 'react';
 import {
     User, Mail, Phone, Building, Calendar, ShieldCheck, Camera, KeyRound,
-    Briefcase, PhoneCall, Heart, GraduationCap, Landmark, Info, MapPin
+    Briefcase, PhoneCall, Heart, GraduationCap, Landmark, Info, MapPin,
+    X, CheckCircle, Eye, EyeOff
 } from 'lucide-react';
 
+// Toast component
+function Toast({ message, type, onClose }: { message: string; type: 'success' | 'info' | 'warning'; onClose: () => void }) {
+    React.useEffect(() => {
+        const timer = setTimeout(onClose, 3000);
+        return () => clearTimeout(timer);
+    }, [onClose]);
+    const bgColor = type === 'success' ? 'bg-emerald-500' : type === 'warning' ? 'bg-amber-500' : 'bg-blue-500';
+    return (
+        <div className={`fixed top-5 right-5 z-[100] ${bgColor} text-white px-4 py-3 rounded-xl shadow-lg flex items-center gap-3 toast-enter`}>
+            <CheckCircle size={18} />
+            <span className="text-sm font-medium">{message}</span>
+            <button onClick={onClose} className="ml-2 hover:bg-white/20 rounded p-0.5 transition-colors"><X size={14} /></button>
+        </div>
+    );
+}
+
 export function Profile() {
+    const [toast, setToast] = useState<{ message: string; type: 'success' | 'info' | 'warning' } | null>(null);
+    const [showPasswordModal, setShowPasswordModal] = useState(false);
+    const [showOldPw, setShowOldPw] = useState(false);
+    const [showNewPw, setShowNewPw] = useState(false);
+    const [pwForm, setPwForm] = useState({ oldPw: '', newPw: '', confirmPw: '' });
+    const fileInputRef = useRef<HTMLInputElement>(null);
+
+    const handleAvatarChange = () => {
+        fileInputRef.current?.click();
+    };
+
+    const handleFileSelected = (e: React.ChangeEvent<HTMLInputElement>) => {
+        const file = e.target.files?.[0];
+        if (file) {
+            setToast({ message: `Đã chọn ảnh: ${file.name}. Tính năng đang phát triển.`, type: 'info' });
+        }
+        e.target.value = '';
+    };
+
+    const handlePasswordChange = () => {
+        if (!pwForm.oldPw || !pwForm.newPw || !pwForm.confirmPw) {
+            setToast({ message: 'Vui lòng nhập đầy đủ thông tin', type: 'warning' });
+            return;
+        }
+        if (pwForm.newPw !== pwForm.confirmPw) {
+            setToast({ message: 'Mật khẩu xác nhận không khớp', type: 'warning' });
+            return;
+        }
+        setShowPasswordModal(false);
+        setPwForm({ oldPw: '', newPw: '', confirmPw: '' });
+        setToast({ message: 'Đã đổi mật khẩu thành công!', type: 'success' });
+    };
     const CardSection = ({ title, icon: Icon, children }: { title: string, icon: any, children: React.ReactNode }) => (
         <div className="bg-white rounded-xl border border-slate-200 p-6 mb-6 shadow-sm">
             <div className="flex items-center gap-2 mb-6 border-b border-slate-100 pb-4">
@@ -85,14 +134,15 @@ export function Profile() {
                             </div>
                         </div>
 
+                        <input type="file" ref={fileInputRef} onChange={handleFileSelected} accept="image/*" className="hidden" />
                         <div className="w-full grid grid-cols-2 gap-3 mt-8 pt-6 border-t border-slate-100">
-                            <button className="flex flex-col items-center justify-center gap-2 p-3 rounded-xl border border-slate-200 hover:bg-slate-50 hover:border-blue-200 hover:text-blue-600 transition-all group shadow-sm hover:shadow">
+                            <button onClick={handleAvatarChange} className="action-btn flex flex-col items-center justify-center gap-2 p-3 rounded-xl border border-slate-200 hover:bg-slate-50 hover:border-blue-200 hover:text-blue-600 group shadow-sm hover:shadow">
                                 <div className="w-10 h-10 rounded-full bg-blue-50 text-blue-600 flex items-center justify-center group-hover:bg-blue-100 transition-colors">
                                     <Camera size={18} />
                                 </div>
                                 <span className="text-xs font-medium text-slate-600 group-hover:text-blue-600">Đổi ảnh đại diện</span>
                             </button>
-                            <button className="flex flex-col items-center justify-center gap-2 p-3 rounded-xl border border-slate-200 hover:bg-slate-50 hover:border-slate-300 hover:text-slate-800 transition-all group shadow-sm hover:shadow">
+                            <button onClick={() => setShowPasswordModal(true)} className="action-btn flex flex-col items-center justify-center gap-2 p-3 rounded-xl border border-slate-200 hover:bg-slate-50 hover:border-slate-300 hover:text-slate-800 group shadow-sm hover:shadow">
                                 <div className="w-10 h-10 rounded-full border border-slate-200 bg-white text-slate-600 flex items-center justify-center group-hover:bg-slate-100 transition-colors">
                                     <KeyRound size={18} />
                                 </div>
@@ -214,6 +264,51 @@ export function Profile() {
 
                 </div>
             </div>
+
+            {/* Toast */}
+            {toast && <Toast message={toast.message} type={toast.type} onClose={() => setToast(null)} />}
+
+            {/* Password Change Modal */}
+            {showPasswordModal && (
+                <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 modal-overlay p-4">
+                    <div className="bg-white w-full max-w-md rounded-2xl shadow-lg modal-content">
+                        <div className="px-6 py-4 flex justify-between items-center border-b border-slate-200">
+                            <h2 className="text-lg font-bold text-slate-800">Đổi mật khẩu</h2>
+                            <button onClick={() => setShowPasswordModal(false)} className="icon-btn p-1.5 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-lg">
+                                <X size={20} />
+                            </button>
+                        </div>
+                        <div className="p-6 space-y-4">
+                            <div>
+                                <label className="block text-sm font-medium text-slate-700 mb-1">Mật khẩu cũ</label>
+                                <div className="relative">
+                                    <input type={showOldPw ? 'text' : 'password'} value={pwForm.oldPw} onChange={(e) => setPwForm({ ...pwForm, oldPw: e.target.value })} className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm pr-10 focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-blue-500" placeholder="Nhập mật khẩu cũ..." />
+                                    <button onClick={() => setShowOldPw(!showOldPw)} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600">
+                                        {showOldPw ? <EyeOff size={16} /> : <Eye size={16} />}
+                                    </button>
+                                </div>
+                            </div>
+                            <div>
+                                <label className="block text-sm font-medium text-slate-700 mb-1">Mật khẩu mới</label>
+                                <div className="relative">
+                                    <input type={showNewPw ? 'text' : 'password'} value={pwForm.newPw} onChange={(e) => setPwForm({ ...pwForm, newPw: e.target.value })} className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm pr-10 focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-blue-500" placeholder="Nhập mật khẩu mới..." />
+                                    <button onClick={() => setShowNewPw(!showNewPw)} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600">
+                                        {showNewPw ? <EyeOff size={16} /> : <Eye size={16} />}
+                                    </button>
+                                </div>
+                            </div>
+                            <div>
+                                <label className="block text-sm font-medium text-slate-700 mb-1">Xác nhận mật khẩu mới</label>
+                                <input type="password" value={pwForm.confirmPw} onChange={(e) => setPwForm({ ...pwForm, confirmPw: e.target.value })} className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-blue-500" placeholder="Nhập lại mật khẩu mới..." />
+                            </div>
+                        </div>
+                        <div className="px-6 py-4 border-t border-slate-200 flex justify-end gap-2">
+                            <button onClick={() => setShowPasswordModal(false)} className="btn-secondary px-4 py-2 bg-white border border-slate-300 rounded-lg text-sm font-medium text-slate-700 hover:bg-slate-50">Hủy</button>
+                            <button onClick={handlePasswordChange} className="btn-primary ripple px-4 py-2 bg-blue-600 border border-blue-600 rounded-lg text-sm font-medium text-white hover:bg-blue-700">Đổi mật khẩu</button>
+                        </div>
+                    </div>
+                </div>
+            )}
         </div>
     );
 }

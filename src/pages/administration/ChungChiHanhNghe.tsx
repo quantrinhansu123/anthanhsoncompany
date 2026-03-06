@@ -162,7 +162,7 @@ export function ChungChiHanhNghe() {
         // Upload file to Supabase Storage
         const filePath = `certificates/${Date.now()}_${file.name}`;
         const url = await certificateService.uploadFile('certificates', filePath, file);
-        
+
         // Update form data with URL
         const urlField = field === 'file' ? 'file_url' : field === 'anh' ? 'anh_url' : 'anh2_url';
         setCertificateFormData(prev => ({ ...prev, [urlField]: url }));
@@ -246,7 +246,7 @@ export function ChungChiHanhNghe() {
 
   const calculateRemainingMonths = (expiryDate: string): string => {
     if (!expiryDate) return '(Trống)';
-    
+
     let expiry: Date;
     if (expiryDate.includes('/')) {
       const parts = expiryDate.split('/');
@@ -457,7 +457,7 @@ export function ChungChiHanhNghe() {
                         </div>
                       </td>
                       <td className="p-4">
-                        <div className="flex items-center justify-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                        <div className="flex items-center justify-center gap-2 transition-opacity">
                           <button
                             onClick={() => editCertificate(certificate)}
                             className="p-1.5 text-blue-500 hover:bg-blue-50 rounded-md transition-colors"

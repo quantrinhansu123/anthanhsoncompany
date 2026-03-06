@@ -1,8 +1,8 @@
 import React, { useState, useEffect } from 'react';
-import { 
-  ArrowLeft, 
-  Save, 
-  Plus, 
+import {
+  ArrowLeft,
+  Save,
+  Plus,
   Trash2,
   Edit,
   Calendar as CalendarIcon,
@@ -55,7 +55,7 @@ export function AddEmployee() {
   const { id } = useParams<{ id: string }>();
   const isEditMode = !!id;
   const [loadingEmployee, setLoadingEmployee] = useState(false);
-  
+
   const [formData, setFormData] = useState({
     hoTen: '', // Họ tên - sẽ map sang full_name
     phongBan: '', // Phòng ban
@@ -113,10 +113,9 @@ export function AddEmployee() {
   const loadEmployeeData = async (employeeId: string | number) => {
     try {
       setLoadingEmployee(true);
-      console.log('Loading employee data for ID:', employeeId);
+      setLoadingEmployee(true);
       const employee = await employeeService.getById(employeeId);
-      console.log('Loaded employee data:', employee);
-      
+
       // Map data từ database vào form - ưu tiên snake_case từ database
       const emp: any = employee;
       setFormData({
@@ -135,8 +134,6 @@ export function AddEmployee() {
         bangDHChuyenNganh: emp.bang_dh_chuyen_nganh || emp.bangDHChuyenNganh || '',
         namTotNghiep: emp.nam_tot_nghiep || emp.namTotNghiep || 0
       });
-      
-      console.log('Mapped form data:', formData);
 
       // Load dependents
       const deps = await dependentService.getByEmployeeId(employeeId.toString());
@@ -215,7 +212,7 @@ export function AddEmployee() {
 
   const validateForm = (): boolean => {
     const newErrors: Record<string, string> = {};
-    
+
     if (!formData.hoTen.trim()) newErrors.hoTen = 'Vui lòng nhập họ tên';
     if (!formData.ngaySinh) newErrors.ngaySinh = 'Vui lòng chọn ngày sinh';
     if (!formData.soCCCD.trim()) newErrors.soCCCD = 'Vui lòng nhập số CCCD';
@@ -234,10 +231,10 @@ export function AddEmployee() {
 
     try {
       setSaving(true);
-      
+
       // 1. Save employee
       let finalEmployeeId: string;
-      
+
       // Map form data sang database format - ưu tiên camelCase vì schema đã chuẩn hóa về camelCase
       const employeeData: any = {
         full_name: formData.hoTen, // Họ và tên - ưu tiên (snake_case cho full_name vì có thể đã tồn tại)
@@ -272,28 +269,24 @@ export function AddEmployee() {
         // Create new employee - không cần id vì database tự tạo UUID
         // Chỉ cần code - KHÔNG truyền id vào employeeData
         employeeData.code = formData.soCCCD || `NV${Date.now()}`;
-        
+
         // Đảm bảo không có id trong employeeData để database tự tạo UUID
         delete employeeData.id;
-        
-        console.log('Creating employee with data (no id):', employeeData);
+
         const savedEmployee = await employeeService.create(employeeData);
-        console.log('Saved employee response:', savedEmployee);
-        
+
         // savedEmployee.id phải là UUID từ database
         if (!savedEmployee || !savedEmployee.id) {
           throw new Error('Không nhận được ID nhân viên sau khi tạo. Vui lòng thử lại.');
         }
         finalEmployeeId = String(savedEmployee.id);
-        
+
         // Kiểm tra xem finalEmployeeId có phải UUID format không
         const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
         if (!uuidRegex.test(finalEmployeeId)) {
           console.error('Invalid UUID format:', finalEmployeeId);
           throw new Error(`ID nhân viên không hợp lệ (UUID): ${finalEmployeeId}. Vui lòng kiểm tra database schema. Có thể bảng nhan_su.id không phải kiểu UUID.`);
         }
-        
-        console.log('Valid UUID created:', finalEmployeeId);
       }
 
       // 2. Save dependents
@@ -304,7 +297,7 @@ export function AddEmployee() {
           await dependentService.delete(dep.id);
         }
       }
-      
+
       for (const dependent of dependents) {
         if (dependent.id && isEditMode) {
           // Update existing dependent
@@ -352,7 +345,7 @@ export function AddEmployee() {
           // Tiếp tục với file_url rỗng nếu upload thất bại
           file_url = '';
         }
-        
+
         try {
           if (cert.anh && cert.anh instanceof File) {
             const filePath = `certificates/${Date.now()}_${cert.anh.name}`;
@@ -362,7 +355,7 @@ export function AddEmployee() {
           console.error('Error uploading image 1:', err);
           anh_url = '';
         }
-        
+
         try {
           if (cert.anh2 && cert.anh2 instanceof File) {
             const filePath = `certificates/${Date.now()}_${cert.anh2.name}`;
@@ -377,7 +370,7 @@ export function AddEmployee() {
         // Kiểm tra xem cert.id có phải UUID hợp lệ không
         const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
         const isValidUUID = cert.id && uuidRegex.test(String(cert.id));
-        
+
         if (isValidUUID && isEditMode) {
           // Update existing certificate trong nhan_su_chi_tiet (chỉ nếu id là UUID hợp lệ)
           try {
@@ -485,7 +478,7 @@ export function AddEmployee() {
 
     if (editingDependent) {
       // Update existing
-      setDependents(prev => 
+      setDependents(prev =>
         prev.map(dep => dep.id === editingDependent.id ? dependentFormData : dep)
       );
     } else {
@@ -570,7 +563,7 @@ export function AddEmployee() {
     if (!validateCertificateForm()) return;
 
     if (editingCertificate) {
-      setCertificates(prev => 
+      setCertificates(prev =>
         prev.map(cert => cert.id === editingCertificate.id ? certificateFormData : cert)
       );
     } else {
@@ -634,499 +627,493 @@ export function AddEmployee() {
                 <User size={16} />
                 Thông tin cá nhân
               </h3>
-              
+
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              {/* Họ tên */}
-              <div>
-                <label className="block text-sm font-medium text-slate-700 mb-1.5">
-                  Họ tên
-                </label>
-                <input
-                  type="text"
-                  value={formData.hoTen}
-                  onChange={(e) => handleInputChange('hoTen', e.target.value)}
-                  className={`w-full px-3 py-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all ${
-                    errors.hoTen ? 'border-red-300' : 'border-slate-300'
-                  }`}
-                  placeholder="Nhập họ tên"
-                />
-                {errors.hoTen && (
-                  <p className="mt-1 text-xs text-red-600">{errors.hoTen}</p>
-                )}
-              </div>
+                {/* Họ tên */}
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-1.5">
+                    Họ tên
+                  </label>
+                  <input
+                    type="text"
+                    value={formData.hoTen}
+                    onChange={(e) => handleInputChange('hoTen', e.target.value)}
+                    className={`w-full px-3 py-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all ${errors.hoTen ? 'border-red-300' : 'border-slate-300'
+                      }`}
+                    placeholder="Nhập họ tên"
+                  />
+                  {errors.hoTen && (
+                    <p className="mt-1 text-xs text-red-600">{errors.hoTen}</p>
+                  )}
+                </div>
 
-              {/* Phòng ban */}
-              <div>
-                <label className="block text-sm font-medium text-slate-700 mb-1.5">
-                  Phòng ban
-                </label>
-                <input
-                  type="text"
-                  value={formData.phongBan}
-                  onChange={(e) => handleInputChange('phongBan', e.target.value)}
-                  className="w-full px-3 py-2 border border-slate-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all"
-                  placeholder="Nhập phòng ban"
-                />
-              </div>
+                {/* Phòng ban */}
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-1.5">
+                    Phòng ban
+                  </label>
+                  <input
+                    type="text"
+                    value={formData.phongBan}
+                    onChange={(e) => handleInputChange('phongBan', e.target.value)}
+                    className="w-full px-3 py-2 border border-slate-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all"
+                    placeholder="Nhập phòng ban"
+                  />
+                </div>
 
-              {/* Chức vụ */}
-              <div>
-                <label className="block text-sm font-medium text-slate-700 mb-1.5">
-                  Chức vụ
-                </label>
-                <input
-                  type="text"
-                  value={formData.chucVu}
-                  onChange={(e) => handleInputChange('chucVu', e.target.value)}
-                  className="w-full px-3 py-2 border border-slate-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all"
-                  placeholder="Nhập chức vụ"
-                />
-              </div>
+                {/* Chức vụ */}
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-1.5">
+                    Chức vụ
+                  </label>
+                  <input
+                    type="text"
+                    value={formData.chucVu}
+                    onChange={(e) => handleInputChange('chucVu', e.target.value)}
+                    className="w-full px-3 py-2 border border-slate-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all"
+                    placeholder="Nhập chức vụ"
+                  />
+                </div>
 
-              {/* Ngày vào làm */}
-              <div>
-                <label className="block text-sm font-medium text-slate-700 mb-1.5 flex items-center gap-1">
-                  <CalendarIcon size={14} />
-                  Ngày vào làm
-                </label>
-                <input
-                  type="date"
-                  value={formData.ngayVaoLam}
-                  onChange={(e) => handleDateChange('ngayVaoLam', e.target.value)}
-                  className="w-full px-3 py-2 border border-slate-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all"
-                />
-              </div>
-
-              {/* Email */}
-              <div>
-                <label className="block text-sm font-medium text-slate-700 mb-1.5 flex items-center gap-1">
-                  <Mail size={14} />
-                  Email
-                </label>
-                <input
-                  type="email"
-                  value={formData.email}
-                  onChange={(e) => handleInputChange('email', e.target.value)}
-                  className="w-full px-3 py-2 border border-slate-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all"
-                  placeholder="example@email.com"
-                />
-              </div>
-
-              {/* SĐT nhân viên */}
-              <div>
-                <label className="block text-sm font-medium text-slate-700 mb-1.5 flex items-center gap-1">
-                  <Phone size={14} />
-                  SĐT nhân viên
-                </label>
-                <input
-                  type="tel"
-                  value={formData.sdtNhanVien}
-                  onChange={(e) => handleInputChange('sdtNhanVien', e.target.value)}
-                  className="w-full px-3 py-2 border border-slate-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all"
-                  placeholder="0912345678"
-                />
-              </div>
-
-              {/* Ngày sinh */}
-              <div>
-                <label className="block text-sm font-medium text-slate-700 mb-1.5 flex items-center gap-1">
-                  Ngày sinh <span className="text-red-500">*</span>
-                </label>
-                <div className="relative">
+                {/* Ngày vào làm */}
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-1.5 flex items-center gap-1">
+                    <CalendarIcon size={14} />
+                    Ngày vào làm
+                  </label>
                   <input
                     type="date"
-                    value={getDateInputValue(formData.ngaySinh)}
-                    onChange={(e) => handleDateChange('ngaySinh', e.target.value)}
-                    className={`w-full px-3 py-2 pr-10 border rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all ${
-                      errors.ngaySinh ? 'border-red-300' : 'border-slate-300'
-                    }`}
+                    value={formData.ngayVaoLam}
+                    onChange={(e) => handleDateChange('ngayVaoLam', e.target.value)}
+                    className="w-full px-3 py-2 border border-slate-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all"
                   />
-                  <CalendarIcon size={16} className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
                 </div>
-                {errors.ngaySinh && (
-                  <p className="mt-1 text-xs text-red-600">{errors.ngaySinh}</p>
-                )}
-              </div>
 
-              {/* Địa chỉ */}
-              <div>
-                <label className="block text-sm font-medium text-slate-700 mb-1.5 flex items-center gap-1">
-                  <MapPin size={14} />
-                  Địa chỉ
-                </label>
-                <input
-                  type="text"
-                  value={formData.diaChi}
-                  onChange={(e) => handleInputChange('diaChi', e.target.value)}
-                  className="w-full px-3 py-2 border border-slate-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all"
-                  placeholder="Nhập địa chỉ"
-                />
-              </div>
-            </div>
-          </div>
-
-          {/* Identity Information Section */}
-          <div className="space-y-4 pt-4 border-t border-slate-200">
-            <h3 className="text-sm font-semibold text-slate-700 uppercase tracking-wide flex items-center gap-2">
-              <CreditCard size={16} />
-              Thông tin định danh
-            </h3>
-            
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              {/* Số CCCD */}
-              <div>
-                <label className="block text-sm font-medium text-slate-700 mb-1.5">
-                  Số CCCD <span className="text-red-500">*</span>
-                </label>
-                <input
-                  type="text"
-                  value={formData.soCCCD}
-                  onChange={(e) => handleInputChange('soCCCD', e.target.value)}
-                  className={`w-full px-3 py-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all ${
-                    errors.soCCCD ? 'border-red-300' : 'border-slate-300'
-                  }`}
-                  placeholder="Nhập số CCCD"
-                />
-                {errors.soCCCD && (
-                  <p className="mt-1 text-xs text-red-600">{errors.soCCCD}</p>
-                )}
-              </div>
-
-              {/* Ngày cấp CCCD */}
-              <div>
-                <label className="block text-sm font-medium text-slate-700 mb-1.5 flex items-center gap-1">
-                  Ngày cấp CCCD <span className="text-red-500">*</span>
-                </label>
-                <div className="relative">
+                {/* Email */}
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-1.5 flex items-center gap-1">
+                    <Mail size={14} />
+                    Email
+                  </label>
                   <input
-                    type="date"
-                    value={getDateInputValue(formData.ngayCapCCCD)}
-                    onChange={(e) => handleDateChange('ngayCapCCCD', e.target.value)}
-                    className={`w-full px-3 py-2 pr-10 border rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all ${
-                      errors.ngayCapCCCD ? 'border-red-300' : 'border-slate-300'
-                    }`}
+                    type="email"
+                    value={formData.email}
+                    onChange={(e) => handleInputChange('email', e.target.value)}
+                    className="w-full px-3 py-2 border border-slate-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all"
+                    placeholder="example@email.com"
                   />
-                  <CalendarIcon size={16} className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
                 </div>
-                {errors.ngayCapCCCD && (
-                  <p className="mt-1 text-xs text-red-600">{errors.ngayCapCCCD}</p>
-                )}
-              </div>
 
-              {/* MST cá nhân */}
-              <div>
-                <label className="block text-sm font-medium text-slate-700 mb-1.5">
-                  MST cá nhân <span className="text-red-500">*</span>
-                </label>
-                <input
-                  type="text"
-                  value={formData.mstCaNhan}
-                  onChange={(e) => handleInputChange('mstCaNhan', e.target.value)}
-                  className={`w-full px-3 py-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all ${
-                    errors.mstCaNhan ? 'border-red-300' : 'border-slate-300'
-                  }`}
-                  placeholder="Nhập MST cá nhân"
-                />
-                {errors.mstCaNhan && (
-                  <p className="mt-1 text-xs text-red-600">{errors.mstCaNhan}</p>
-                )}
-              </div>
-
-              {/* Mã số BHXH */}
-              <div>
-                <label className="block text-sm font-medium text-slate-700 mb-1.5">
-                  Mã số BHXH <span className="text-red-500">*</span>
-                </label>
-                <input
-                  type="text"
-                  value={formData.maSoBHXH}
-                  onChange={(e) => handleInputChange('maSoBHXH', e.target.value)}
-                  className={`w-full px-3 py-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all ${
-                    errors.maSoBHXH ? 'border-red-300' : 'border-slate-300'
-                  }`}
-                  placeholder="Nhập mã số BHXH"
-                />
-                {errors.maSoBHXH && (
-                  <p className="mt-1 text-xs text-red-600">{errors.maSoBHXH}</p>
-                )}
-              </div>
-            </div>
-          </div>
-
-          {/* Education Section */}
-          <div className="space-y-4 pt-4 border-t border-slate-200">
-            <h3 className="text-sm font-semibold text-slate-700 uppercase tracking-wide flex items-center gap-2">
-              <GraduationCap size={16} />
-              Thông tin học vấn
-            </h3>
-            
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              {/* Bằng ĐH chuyên ngành */}
-              <div>
-                <label className="block text-sm font-medium text-slate-700 mb-1.5">
-                  Bằng ĐH chuyên ngành
-                </label>
-                <input
-                  type="text"
-                  value={formData.bangDHChuyenNganh}
-                  onChange={(e) => handleInputChange('bangDHChuyenNganh', e.target.value)}
-                  className="w-full px-3 py-2 border border-slate-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all"
-                  placeholder="Nhập bằng đại học chuyên ngành"
-                />
-              </div>
-
-              {/* Năm tốt nghiệp */}
-              <div>
-                <label className="block text-sm font-medium text-slate-700 mb-1.5">
-                  Năm tốt nghiệp <span className="text-red-500">*</span>
-                </label>
-                <div className="flex items-center gap-2">
-                  <button
-                    type="button"
-                    onClick={handleDecrement}
-                    className="px-3 py-2 border border-slate-300 rounded-md hover:bg-slate-50 transition-colors font-medium text-slate-600"
-                  >
-                    -
-                  </button>
+                {/* SĐT nhân viên */}
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-1.5 flex items-center gap-1">
+                    <Phone size={14} />
+                    SĐT nhân viên
+                  </label>
                   <input
-                    type="number"
-                    value={formData.namTotNghiep}
-                    onChange={(e) => handleInputChange('namTotNghiep', parseInt(e.target.value) || 0)}
-                    className="flex-1 px-3 py-2 border border-slate-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all text-center"
-                    min="0"
+                    type="tel"
+                    value={formData.sdtNhanVien}
+                    onChange={(e) => handleInputChange('sdtNhanVien', e.target.value)}
+                    className="w-full px-3 py-2 border border-slate-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all"
+                    placeholder="0912345678"
                   />
-                  <button
-                    type="button"
-                    onClick={handleIncrement}
-                    className="px-3 py-2 border border-slate-300 rounded-md hover:bg-slate-50 transition-colors font-medium text-slate-600"
-                  >
-                    +
-                  </button>
                 </div>
-                {errors.namTotNghiep && (
-                  <p className="mt-1 text-xs text-red-600">{errors.namTotNghiep}</p>
-                )}
+
+                {/* Ngày sinh */}
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-1.5 flex items-center gap-1">
+                    Ngày sinh <span className="text-red-500">*</span>
+                  </label>
+                  <div className="relative">
+                    <input
+                      type="date"
+                      value={getDateInputValue(formData.ngaySinh)}
+                      onChange={(e) => handleDateChange('ngaySinh', e.target.value)}
+                      className={`w-full px-3 py-2 pr-10 border rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all ${errors.ngaySinh ? 'border-red-300' : 'border-slate-300'
+                        }`}
+                    />
+                    <CalendarIcon size={16} className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
+                  </div>
+                  {errors.ngaySinh && (
+                    <p className="mt-1 text-xs text-red-600">{errors.ngaySinh}</p>
+                  )}
+                </div>
+
+                {/* Địa chỉ */}
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-1.5 flex items-center gap-1">
+                    <MapPin size={14} />
+                    Địa chỉ
+                  </label>
+                  <input
+                    type="text"
+                    value={formData.diaChi}
+                    onChange={(e) => handleInputChange('diaChi', e.target.value)}
+                    className="w-full px-3 py-2 border border-slate-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all"
+                    placeholder="Nhập địa chỉ"
+                  />
+                </div>
               </div>
             </div>
-          </div>
+
+            {/* Identity Information Section */}
+            <div className="space-y-4 pt-4 border-t border-slate-200">
+              <h3 className="text-sm font-semibold text-slate-700 uppercase tracking-wide flex items-center gap-2">
+                <CreditCard size={16} />
+                Thông tin định danh
+              </h3>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                {/* Số CCCD */}
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-1.5">
+                    Số CCCD <span className="text-red-500">*</span>
+                  </label>
+                  <input
+                    type="text"
+                    value={formData.soCCCD}
+                    onChange={(e) => handleInputChange('soCCCD', e.target.value)}
+                    className={`w-full px-3 py-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all ${errors.soCCCD ? 'border-red-300' : 'border-slate-300'
+                      }`}
+                    placeholder="Nhập số CCCD"
+                  />
+                  {errors.soCCCD && (
+                    <p className="mt-1 text-xs text-red-600">{errors.soCCCD}</p>
+                  )}
+                </div>
+
+                {/* Ngày cấp CCCD */}
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-1.5 flex items-center gap-1">
+                    Ngày cấp CCCD <span className="text-red-500">*</span>
+                  </label>
+                  <div className="relative">
+                    <input
+                      type="date"
+                      value={getDateInputValue(formData.ngayCapCCCD)}
+                      onChange={(e) => handleDateChange('ngayCapCCCD', e.target.value)}
+                      className={`w-full px-3 py-2 pr-10 border rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all ${errors.ngayCapCCCD ? 'border-red-300' : 'border-slate-300'
+                        }`}
+                    />
+                    <CalendarIcon size={16} className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
+                  </div>
+                  {errors.ngayCapCCCD && (
+                    <p className="mt-1 text-xs text-red-600">{errors.ngayCapCCCD}</p>
+                  )}
+                </div>
+
+                {/* MST cá nhân */}
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-1.5">
+                    MST cá nhân <span className="text-red-500">*</span>
+                  </label>
+                  <input
+                    type="text"
+                    value={formData.mstCaNhan}
+                    onChange={(e) => handleInputChange('mstCaNhan', e.target.value)}
+                    className={`w-full px-3 py-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all ${errors.mstCaNhan ? 'border-red-300' : 'border-slate-300'
+                      }`}
+                    placeholder="Nhập MST cá nhân"
+                  />
+                  {errors.mstCaNhan && (
+                    <p className="mt-1 text-xs text-red-600">{errors.mstCaNhan}</p>
+                  )}
+                </div>
+
+                {/* Mã số BHXH */}
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-1.5">
+                    Mã số BHXH <span className="text-red-500">*</span>
+                  </label>
+                  <input
+                    type="text"
+                    value={formData.maSoBHXH}
+                    onChange={(e) => handleInputChange('maSoBHXH', e.target.value)}
+                    className={`w-full px-3 py-2 border rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all ${errors.maSoBHXH ? 'border-red-300' : 'border-slate-300'
+                      }`}
+                    placeholder="Nhập mã số BHXH"
+                  />
+                  {errors.maSoBHXH && (
+                    <p className="mt-1 text-xs text-red-600">{errors.maSoBHXH}</p>
+                  )}
+                </div>
+              </div>
+            </div>
+
+            {/* Education Section */}
+            <div className="space-y-4 pt-4 border-t border-slate-200">
+              <h3 className="text-sm font-semibold text-slate-700 uppercase tracking-wide flex items-center gap-2">
+                <GraduationCap size={16} />
+                Thông tin học vấn
+              </h3>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                {/* Bằng ĐH chuyên ngành */}
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-1.5">
+                    Bằng ĐH chuyên ngành
+                  </label>
+                  <input
+                    type="text"
+                    value={formData.bangDHChuyenNganh}
+                    onChange={(e) => handleInputChange('bangDHChuyenNganh', e.target.value)}
+                    className="w-full px-3 py-2 border border-slate-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all"
+                    placeholder="Nhập bằng đại học chuyên ngành"
+                  />
+                </div>
+
+                {/* Năm tốt nghiệp */}
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-1.5">
+                    Năm tốt nghiệp <span className="text-red-500">*</span>
+                  </label>
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={handleDecrement}
+                      className="px-3 py-2 border border-slate-300 rounded-md hover:bg-slate-50 transition-colors font-medium text-slate-600"
+                    >
+                      -
+                    </button>
+                    <input
+                      type="number"
+                      value={formData.namTotNghiep}
+                      onChange={(e) => handleInputChange('namTotNghiep', parseInt(e.target.value) || 0)}
+                      className="flex-1 px-3 py-2 border border-slate-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all text-center"
+                      min="0"
+                    />
+                    <button
+                      type="button"
+                      onClick={handleIncrement}
+                      className="px-3 py-2 border border-slate-300 rounded-md hover:bg-slate-50 transition-colors font-medium text-slate-600"
+                    >
+                      +
+                    </button>
+                  </div>
+                  {errors.namTotNghiep && (
+                    <p className="mt-1 text-xs text-red-600">{errors.namTotNghiep}</p>
+                  )}
+                </div>
+              </div>
+            </div>
 
             {/* Professional Certificate Section */}
             <div className="space-y-4 pt-4 border-t border-slate-200">
-            <div className="flex items-center justify-between">
-              <h3 className="text-sm font-semibold text-slate-700 uppercase tracking-wide flex items-center gap-2">
-                <Award size={16} />
-                Chứng chỉ hành nghề
-              </h3>
-              <button
-                onClick={() => openCertificateModal()}
-                className="flex items-center gap-2 px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-medium rounded-md transition-colors shadow-sm"
-              >
-                <Plus size={16} />
-                New
-              </button>
+              <div className="flex items-center justify-between">
+                <h3 className="text-sm font-semibold text-slate-700 uppercase tracking-wide flex items-center gap-2">
+                  <Award size={16} />
+                  Chứng chỉ hành nghề
+                </h3>
+                <button
+                  onClick={() => openCertificateModal()}
+                  className="flex items-center gap-2 px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-medium rounded-md transition-colors shadow-sm"
+                >
+                  <Plus size={16} />
+                  New
+                </button>
+              </div>
+
+              {certificates.length > 0 && (
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead className="bg-slate-50 border-b border-slate-200">
+                      <tr>
+                        <th className="px-4 py-3 text-left font-semibold text-slate-700">STT</th>
+                        <th className="px-4 py-3 text-left font-semibold text-slate-700">Tên file lưu</th>
+                        <th className="px-4 py-3 text-left font-semibold text-slate-700">File</th>
+                        <th className="px-4 py-3 text-left font-semibold text-slate-700">Ảnh</th>
+                        <th className="px-4 py-3 text-left font-semibold text-slate-700">Ảnh 2</th>
+                        <th className="px-4 py-3 text-left font-semibold text-slate-700">CCHN</th>
+                        <th className="px-4 py-3 text-left font-semibold text-slate-700">Hạng CCHN</th>
+                        <th className="px-4 py-3 text-left font-semibold text-slate-700">Ngày hết hạn</th>
+                        <th className="px-4 py-3 text-left font-semibold text-slate-700">Số tháng còn lại</th>
+                        <th className="px-4 py-3 text-center font-semibold text-slate-700">Thao tác</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100">
+                      {certificates.map((certificate, index) => {
+                        const formatDate = (dateStr: string): string => {
+                          if (!dateStr) return '(Trống)';
+                          if (dateStr.includes('/')) return dateStr;
+                          const parts = dateStr.split('-');
+                          if (parts.length === 3) {
+                            return `${parts[2]}/${parts[1]}/${parts[0]}`;
+                          }
+                          return dateStr;
+                        };
+
+                        const calculateRemainingMonths = (expiryDate: string): string => {
+                          if (!expiryDate) return '(Trống)';
+
+                          let expiry: Date;
+                          if (expiryDate.includes('/')) {
+                            const parts = expiryDate.split('/');
+                            expiry = new Date(parseInt(parts[2]), parseInt(parts[1]) - 1, parseInt(parts[0]));
+                          } else if (expiryDate.includes('-')) {
+                            expiry = new Date(expiryDate);
+                          } else {
+                            return '(Trống)';
+                          }
+
+                          const now = new Date();
+                          const currentYear = now.getFullYear();
+                          const currentMonth = now.getMonth();
+                          const expiryYear = expiry.getFullYear();
+                          const expiryMonth = expiry.getMonth();
+
+                          const monthsRemaining = (expiryYear - currentYear) * 12 + (expiryMonth - currentMonth);
+
+                          if (monthsRemaining < 0) {
+                            return `Đã hết hạn (${Math.abs(monthsRemaining)} tháng)`;
+                          } else if (monthsRemaining === 0) {
+                            return 'Hết hạn trong tháng này';
+                          } else {
+                            return `${monthsRemaining} tháng`;
+                          }
+                        };
+
+                        return (
+                          <tr key={certificate.id} className="hover:bg-slate-50 transition-colors">
+                            <td className="px-4 py-3 text-slate-600">{index + 1}</td>
+                            <td className="px-4 py-3 text-slate-700 font-medium">{certificate.tenFileLuu || '(Trống)'}</td>
+                            <td className="px-4 py-3 text-slate-600">{certificate.file ? certificate.file.name : '(Trống)'}</td>
+                            <td className="px-4 py-3">
+                              {certificate.anh ? (
+                                <div className="flex items-center gap-2">
+                                  <div className="w-10 h-10 rounded border border-slate-200 overflow-hidden">
+                                    <img
+                                      src={URL.createObjectURL(certificate.anh)}
+                                      alt="Ảnh 1"
+                                      className="w-full h-full object-cover"
+                                    />
+                                  </div>
+                                  <span className="text-sm text-slate-600">{certificate.anh.name}</span>
+                                </div>
+                              ) : (
+                                <span className="text-slate-400">(Trống)</span>
+                              )}
+                            </td>
+                            <td className="px-4 py-3">
+                              {certificate.anh2 ? (
+                                <div className="flex items-center gap-2">
+                                  <div className="w-10 h-10 rounded border border-slate-200 overflow-hidden">
+                                    <img
+                                      src={URL.createObjectURL(certificate.anh2)}
+                                      alt="Ảnh 2"
+                                      className="w-full h-full object-cover"
+                                    />
+                                  </div>
+                                  <span className="text-sm text-slate-600">{certificate.anh2.name}</span>
+                                </div>
+                              ) : (
+                                <span className="text-slate-400">(Trống)</span>
+                              )}
+                            </td>
+                            <td className="px-4 py-3 text-slate-600">{certificate.cchn || '(Trống)'}</td>
+                            <td className="px-4 py-3 text-slate-600">{certificate.hangCCHN || '(Trống)'}</td>
+                            <td className="px-4 py-3 text-slate-600">{formatDate(certificate.ngayHetHanCC)}</td>
+                            <td className="px-4 py-3 text-slate-600 font-medium">{calculateRemainingMonths(certificate.ngayHetHanCC)}</td>
+                            <td className="px-4 py-3">
+                              <div className="flex items-center justify-center gap-2">
+                                <button
+                                  onClick={() => editCertificate(certificate)}
+                                  className="p-1.5 text-blue-500 hover:bg-blue-50 rounded-md transition-colors"
+                                  title="Sửa"
+                                >
+                                  <Edit size={16} />
+                                </button>
+                                <button
+                                  onClick={() => removeCertificate(certificate.id)}
+                                  className="p-1.5 text-red-500 hover:bg-red-50 rounded-md transition-colors"
+                                  title="Xóa"
+                                >
+                                  <Trash2 size={16} />
+                                </button>
+                              </div>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              )}
             </div>
 
-            {certificates.length > 0 && (
-              <div className="overflow-x-auto">
-                <table className="w-full text-sm">
-                  <thead className="bg-slate-50 border-b border-slate-200">
-                    <tr>
-                      <th className="px-4 py-3 text-left font-semibold text-slate-700">STT</th>
-                      <th className="px-4 py-3 text-left font-semibold text-slate-700">Tên file lưu</th>
-                      <th className="px-4 py-3 text-left font-semibold text-slate-700">File</th>
-                      <th className="px-4 py-3 text-left font-semibold text-slate-700">Ảnh</th>
-                      <th className="px-4 py-3 text-left font-semibold text-slate-700">Ảnh 2</th>
-                      <th className="px-4 py-3 text-left font-semibold text-slate-700">CCHN</th>
-                      <th className="px-4 py-3 text-left font-semibold text-slate-700">Hạng CCHN</th>
-                      <th className="px-4 py-3 text-left font-semibold text-slate-700">Ngày hết hạn</th>
-                      <th className="px-4 py-3 text-left font-semibold text-slate-700">Số tháng còn lại</th>
-                      <th className="px-4 py-3 text-center font-semibold text-slate-700">Thao tác</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-100">
-                    {certificates.map((certificate, index) => {
-                      const formatDate = (dateStr: string): string => {
-                        if (!dateStr) return '(Trống)';
-                        if (dateStr.includes('/')) return dateStr;
-                        const parts = dateStr.split('-');
-                        if (parts.length === 3) {
-                          return `${parts[2]}/${parts[1]}/${parts[0]}`;
-                        }
-                        return dateStr;
-                      };
-
-                      const calculateRemainingMonths = (expiryDate: string): string => {
-                        if (!expiryDate) return '(Trống)';
-                        
-                        let expiry: Date;
-                        if (expiryDate.includes('/')) {
-                          const parts = expiryDate.split('/');
-                          expiry = new Date(parseInt(parts[2]), parseInt(parts[1]) - 1, parseInt(parts[0]));
-                        } else if (expiryDate.includes('-')) {
-                          expiry = new Date(expiryDate);
-                        } else {
-                          return '(Trống)';
-                        }
-
-                        const now = new Date();
-                        const currentYear = now.getFullYear();
-                        const currentMonth = now.getMonth();
-                        const expiryYear = expiry.getFullYear();
-                        const expiryMonth = expiry.getMonth();
-
-                        const monthsRemaining = (expiryYear - currentYear) * 12 + (expiryMonth - currentMonth);
-
-                        if (monthsRemaining < 0) {
-                          return `Đã hết hạn (${Math.abs(monthsRemaining)} tháng)`;
-                        } else if (monthsRemaining === 0) {
-                          return 'Hết hạn trong tháng này';
-                        } else {
-                          return `${monthsRemaining} tháng`;
-                        }
-                      };
-
-                      return (
-                        <tr key={certificate.id} className="hover:bg-slate-50 transition-colors">
-                          <td className="px-4 py-3 text-slate-600">{index + 1}</td>
-                          <td className="px-4 py-3 text-slate-700 font-medium">{certificate.tenFileLuu || '(Trống)'}</td>
-                          <td className="px-4 py-3 text-slate-600">{certificate.file ? certificate.file.name : '(Trống)'}</td>
-                          <td className="px-4 py-3">
-                            {certificate.anh ? (
-                              <div className="flex items-center gap-2">
-                                <div className="w-10 h-10 rounded border border-slate-200 overflow-hidden">
-                                  <img
-                                    src={URL.createObjectURL(certificate.anh)}
-                                    alt="Ảnh 1"
-                                    className="w-full h-full object-cover"
-                                  />
-                                </div>
-                                <span className="text-sm text-slate-600">{certificate.anh.name}</span>
-                              </div>
-                            ) : (
-                              <span className="text-slate-400">(Trống)</span>
-                            )}
-                          </td>
-                          <td className="px-4 py-3">
-                            {certificate.anh2 ? (
-                              <div className="flex items-center gap-2">
-                                <div className="w-10 h-10 rounded border border-slate-200 overflow-hidden">
-                                  <img
-                                    src={URL.createObjectURL(certificate.anh2)}
-                                    alt="Ảnh 2"
-                                    className="w-full h-full object-cover"
-                                  />
-                                </div>
-                                <span className="text-sm text-slate-600">{certificate.anh2.name}</span>
-                              </div>
-                            ) : (
-                              <span className="text-slate-400">(Trống)</span>
-                            )}
-                          </td>
-                          <td className="px-4 py-3 text-slate-600">{certificate.cchn || '(Trống)'}</td>
-                          <td className="px-4 py-3 text-slate-600">{certificate.hangCCHN || '(Trống)'}</td>
-                          <td className="px-4 py-3 text-slate-600">{formatDate(certificate.ngayHetHanCC)}</td>
-                          <td className="px-4 py-3 text-slate-600 font-medium">{calculateRemainingMonths(certificate.ngayHetHanCC)}</td>
-                          <td className="px-4 py-3">
-                            <div className="flex items-center justify-center gap-2">
-                              <button
-                                onClick={() => editCertificate(certificate)}
-                                className="p-1.5 text-blue-500 hover:bg-blue-50 rounded-md transition-colors"
-                                title="Sửa"
-                              >
-                                <Edit size={16} />
-                              </button>
-                              <button
-                                onClick={() => removeCertificate(certificate.id)}
-                                className="p-1.5 text-red-500 hover:bg-red-50 rounded-md transition-colors"
-                                title="Xóa"
-                              >
-                                <Trash2 size={16} />
-                              </button>
-                            </div>
-                          </td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
-              </div>
-            )}
-          </div>
-
-          {/* Dependents Section */}
+            {/* Dependents Section */}
             <div className="space-y-4 pt-4 border-t border-slate-200">
               <div className="flex items-center justify-between">
                 <h3 className="text-sm font-semibold text-slate-700 uppercase tracking-wide flex items-center gap-2">
                   <Users size={16} />
                   Người phụ thuộc
                 </h3>
-              <button
-                onClick={() => openDependentModal()}
-                className="flex items-center gap-2 px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-medium rounded-md transition-colors shadow-sm"
-              >
-                <Plus size={16} />
-                New
-              </button>
-            </div>
-
-            {dependents.length > 0 && (
-              <div className="overflow-x-auto">
-                <table className="w-full text-sm">
-                  <thead className="bg-slate-50 border-b border-slate-200">
-                    <tr>
-                      <th className="px-4 py-3 text-left font-semibold text-slate-700">STT</th>
-                      <th className="px-4 py-3 text-left font-semibold text-slate-700">Họ tên</th>
-                      <th className="px-4 py-3 text-left font-semibold text-slate-700">Ngày sinh</th>
-                      <th className="px-4 py-3 text-left font-semibold text-slate-700">Số CCCD</th>
-                      <th className="px-4 py-3 text-left font-semibold text-slate-700">MST</th>
-                      <th className="px-4 py-3 text-left font-semibold text-slate-700">Quan hệ</th>
-                      <th className="px-4 py-3 text-center font-semibold text-slate-700">Thao tác</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-100">
-                    {dependents.map((dependent, index) => {
-                      const formatDate = (dateStr: string): string => {
-                        if (!dateStr) return '(Trống)';
-                        if (dateStr.includes('/')) return dateStr;
-                        const parts = dateStr.split('-');
-                        if (parts.length === 3) {
-                          return `${parts[2]}/${parts[1]}/${parts[0]}`;
-                        }
-                        return dateStr;
-                      };
-                      return (
-                        <tr key={dependent.id} className="hover:bg-slate-50 transition-colors">
-                          <td className="px-4 py-3 text-slate-600">{index + 1}</td>
-                          <td className="px-4 py-3 text-slate-700 font-medium">{dependent.hoTenNPT || '(Trống)'}</td>
-                          <td className="px-4 py-3 text-slate-600">{formatDate(dependent.ngaySinhNPT)}</td>
-                          <td className="px-4 py-3 text-slate-600">{dependent.soCCCDNPT || '(Trống)'}</td>
-                          <td className="px-4 py-3 text-slate-600">{dependent.mstNPT || '(Trống)'}</td>
-                          <td className="px-4 py-3 text-slate-600">{dependent.quanHe || '(Trống)'}</td>
-                        <td className="px-4 py-3">
-                          <div className="flex items-center justify-center gap-2">
-                            <button
-                              onClick={() => editDependent(dependent)}
-                              className="p-1.5 text-blue-500 hover:bg-blue-50 rounded-md transition-colors"
-                              title="Sửa"
-                            >
-                              <Edit size={16} />
-                            </button>
-                            <button
-                              onClick={() => removeDependent(dependent.id)}
-                              className="p-1.5 text-red-500 hover:bg-red-50 rounded-md transition-colors"
-                              title="Xóa"
-                            >
-                              <Trash2 size={16} />
-                            </button>
-                          </div>
-                        </td>
-                      </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
+                <button
+                  onClick={() => openDependentModal()}
+                  className="flex items-center gap-2 px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-medium rounded-md transition-colors shadow-sm"
+                >
+                  <Plus size={16} />
+                  New
+                </button>
               </div>
-            )}
+
+              {dependents.length > 0 && (
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead className="bg-slate-50 border-b border-slate-200">
+                      <tr>
+                        <th className="px-4 py-3 text-left font-semibold text-slate-700">STT</th>
+                        <th className="px-4 py-3 text-left font-semibold text-slate-700">Họ tên</th>
+                        <th className="px-4 py-3 text-left font-semibold text-slate-700">Ngày sinh</th>
+                        <th className="px-4 py-3 text-left font-semibold text-slate-700">Số CCCD</th>
+                        <th className="px-4 py-3 text-left font-semibold text-slate-700">MST</th>
+                        <th className="px-4 py-3 text-left font-semibold text-slate-700">Quan hệ</th>
+                        <th className="px-4 py-3 text-center font-semibold text-slate-700">Thao tác</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100">
+                      {dependents.map((dependent, index) => {
+                        const formatDate = (dateStr: string): string => {
+                          if (!dateStr) return '(Trống)';
+                          if (dateStr.includes('/')) return dateStr;
+                          const parts = dateStr.split('-');
+                          if (parts.length === 3) {
+                            return `${parts[2]}/${parts[1]}/${parts[0]}`;
+                          }
+                          return dateStr;
+                        };
+                        return (
+                          <tr key={dependent.id} className="hover:bg-slate-50 transition-colors">
+                            <td className="px-4 py-3 text-slate-600">{index + 1}</td>
+                            <td className="px-4 py-3 text-slate-700 font-medium">{dependent.hoTenNPT || '(Trống)'}</td>
+                            <td className="px-4 py-3 text-slate-600">{formatDate(dependent.ngaySinhNPT)}</td>
+                            <td className="px-4 py-3 text-slate-600">{dependent.soCCCDNPT || '(Trống)'}</td>
+                            <td className="px-4 py-3 text-slate-600">{dependent.mstNPT || '(Trống)'}</td>
+                            <td className="px-4 py-3 text-slate-600">{dependent.quanHe || '(Trống)'}</td>
+                            <td className="px-4 py-3">
+                              <div className="flex items-center justify-center gap-2">
+                                <button
+                                  onClick={() => editDependent(dependent)}
+                                  className="p-1.5 text-blue-500 hover:bg-blue-50 rounded-md transition-colors"
+                                  title="Sửa"
+                                >
+                                  <Edit size={16} />
+                                </button>
+                                <button
+                                  onClick={() => removeDependent(dependent.id)}
+                                  className="p-1.5 text-red-500 hover:bg-red-50 rounded-md transition-colors"
+                                  title="Xóa"
+                                >
+                                  <Trash2 size={16} />
+                                </button>
+                              </div>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              )}
             </div>
 
             {/* Save Button */}
@@ -1151,7 +1138,7 @@ export function AddEmployee() {
             </div>
           </div>
         )}
-        </div>
+      </div>
 
       {/* Dependent Modal */}
       {showDependentModal && (
@@ -1319,13 +1306,13 @@ export function AddEmployee() {
                     placeholder="Add or search"
                   />
                   <ChevronDown size={16} className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
-                  
+
                   {showCertificateFileNameDropdown && (
                     <div className="absolute z-10 w-full mt-1 bg-white border border-slate-200 rounded-md shadow-lg max-h-48 overflow-y-auto">
-                      {filteredFileNameOptions.filter(opt => 
+                      {filteredFileNameOptions.filter(opt =>
                         opt.toLowerCase().includes(certificateFileNameSearch.toLowerCase())
                       ).length > 0 ? (
-                        filteredFileNameOptions.filter(opt => 
+                        filteredFileNameOptions.filter(opt =>
                           opt.toLowerCase().includes(certificateFileNameSearch.toLowerCase())
                         ).map((option, index) => (
                           <button

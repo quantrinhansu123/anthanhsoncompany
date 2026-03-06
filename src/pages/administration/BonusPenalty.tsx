@@ -128,7 +128,7 @@ export function BonusPenalty() {
                                         <td className="px-5 py-4 text-slate-500 max-w-[250px] truncate">{row.description}</td>
 
                                         <td className="px-5 py-4 text-right">
-                                            <div className="flex items-center justify-end gap-3 text-slate-400 opacity-0 group-hover:opacity-100 transition-opacity">
+                                            <div className="flex items-center justify-end gap-3 text-slate-400 transition-opacity">
                                                 <button className="text-blue-500 hover:text-blue-600 transition-colors">
                                                     <Edit size={16} />
                                                 </button>
