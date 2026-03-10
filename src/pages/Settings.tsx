@@ -11,9 +11,11 @@ import {
     Clock,
     Bell,
     Palette,
-    ImageIcon
+    ImageIcon,
+    Upload
 } from 'lucide-react';
 import { useSettings } from '../contexts/SettingsContext';
+import { supabase } from '../lib/supabase';
 
 export function Settings() {
     const {
@@ -23,6 +25,9 @@ export function Settings() {
         fontSize, setFontSize,
         language, setLanguage,
         logoUrl, setLogoUrl,
+        timezone, setTimezone,
+        emailNotifications, setEmailNotifications,
+        pushNotifications, setPushNotifications,
         t
     } = useSettings();
 
@@ -55,13 +60,16 @@ export function Settings() {
                         <CheckCircle2 size={16} /> {t('settings.autoSave')}
                     </p>
                     <button
-                        onClick={() => {
+                        onClick={async () => {
                             setTheme('light');
                             setColor('blue');
                             setFontFamily('Inter');
                             setFontSize('Trung bình');
                             setLanguage('vi');
                             setLogoUrl('https://www.appsheet.com/template/gettablefileurl?appName=Appsheet-325045268&tableName=Kho%20%E1%BA%A3nh&fileName=Kho%20%E1%BA%A3nh_Images%2F13c7458d.%E1%BA%A2nh.064848.jpg');
+                            setTimezone('(GMT+07:00) Hà Nội, TP HCM, Bangkok');
+                            setEmailNotifications(false);
+                            setPushNotifications(false);
                         }}
                         className="btn-secondary flex items-center gap-2 px-4 py-2 border border-slate-200 rounded-lg text-sm font-medium text-slate-600 hover:bg-slate-50 bg-white"
                     >
@@ -177,15 +185,84 @@ export function Settings() {
                                     className="w-16 h-16 md:w-20 md:h-20 object-contain rounded-lg border border-slate-200 bg-slate-50 p-1 shrink-0"
                                     onError={(e) => { (e.target as HTMLImageElement).src = 'data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 24 24%22 fill=%22%2394a3b8%22><rect width=%2224%22 height=%2224%22 rx=%224%22 fill=%22%23f1f5f9%22/><text x=%2212%22 y=%2216%22 text-anchor=%22middle%22 font-size=%2210%22>?</text></svg>'; }}
                                 />
-                                <input
-                                    type="text"
-                                    value={logoUrl}
-                                    onChange={(e) => setLogoUrl(e.target.value)}
-                                    placeholder="Nhập URL logo..."
-                                    className="flex-1 border border-slate-200 rounded-lg px-3 py-2 text-sm text-slate-700 outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 bg-white"
-                                />
+                                <div className="flex-1 flex flex-col gap-2">
+                                    <input
+                                        type="text"
+                                        value={logoUrl}
+                                        onChange={(e) => {
+                                            setLogoUrl(e.target.value);
+                                            // Tự động lưu vào database khi thay đổi
+                                        }}
+                                        placeholder="Nhập URL logo hoặc upload ảnh..."
+                                        className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm text-slate-700 outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 bg-white"
+                                    />
+                                    <label className="flex items-center justify-center gap-2 px-3 py-1.5 text-xs text-slate-600 border border-slate-200 rounded-lg cursor-pointer hover:bg-slate-50 transition-colors">
+                                        <Upload size={14} />
+                                        <span>Hoặc upload ảnh từ máy tính</span>
+                                        <input
+                                            type="file"
+                                            accept="image/*"
+                                            className="hidden"
+                                            onChange={async (e) => {
+                                                const file = e.target.files?.[0];
+                                                if (!file) return;
+                                                
+                                                // Validate file size (max 5MB)
+                                                if (file.size > 5 * 1024 * 1024) {
+                                                    alert('File quá lớn. Vui lòng chọn file nhỏ hơn 5MB.');
+                                                    return;
+                                                }
+                                                
+                                                try {
+                                                    // Upload to Supabase Storage
+                                                    const timestamp = Date.now();
+                                                    const fileName = `logo_${timestamp}_${file.name}`;
+                                                    const filePath = `logos/${fileName}`;
+                                                    
+                                                    // Check if bucket exists
+                                                    const { data: buckets } = await supabase.storage.listBuckets();
+                                                    const bucketExists = buckets?.some(b => b.name === 'logos');
+                                                    
+                                                    if (!bucketExists) {
+                                                        alert('Bucket "logos" chưa được tạo. Vui lòng tạo bucket trong Supabase Dashboard > Storage.');
+                                                        return;
+                                                    }
+                                                    
+                                                    // Upload file
+                                                    const { data: uploadData, error: uploadError } = await supabase.storage
+                                                        .from('logos')
+                                                        .upload(filePath, file, {
+                                                            cacheControl: '3600',
+                                                            upsert: true
+                                                        });
+                                                    
+                                                    if (uploadError) {
+                                                        console.error('Error uploading logo:', uploadError);
+                                                        alert(`Lỗi khi upload ảnh: ${uploadError.message}`);
+                                                        return;
+                                                    }
+                                                    
+                                                    // Get public URL
+                                                    const { data: urlData } = supabase.storage
+                                                        .from('logos')
+                                                        .getPublicUrl(uploadData.path);
+                                                    
+                                                    // Update logo URL (sẽ tự động lưu vào database)
+                                                    setLogoUrl(urlData.publicUrl);
+                                                    
+                                                    alert('Đã upload và lưu logo thành công!');
+                                                } catch (error: any) {
+                                                    console.error('Error uploading logo:', error);
+                                                    alert(`Lỗi: ${error.message || 'Không thể upload ảnh'}`);
+                                                }
+                                            }}
+                                        />
+                                    </label>
+                                </div>
                             </div>
-                            <p className="text-xs text-slate-400 mt-1.5">Dán link ảnh logo để thay đổi logo hiển thị trên sidebar.</p>
+                            <p className="text-xs text-slate-400 mt-1.5">
+                                Dán link ảnh logo hoặc upload ảnh từ máy tính. Logo sẽ được lưu vào database và hiển thị trên sidebar.
+                            </p>
                         </div>
                     </div>
                 </div>
@@ -216,9 +293,13 @@ export function Settings() {
                             <p className="text-sm font-medium text-slate-700 mb-2 flex items-center gap-2">
                                 <Clock size={16} className="text-slate-400" /> {t('settings.timezone')}
                             </p>
-                            <select className="w-full border border-slate-200 rounded-lg px-3 py-2.5 text-sm text-slate-700 outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 bg-white cursor-pointer shadow-sm">
-                                <option>(GMT+07:00) Hà Nội, TP HCM, Bangkok</option>
-                                <option>(GMT+08:00) Singapore, KL, Beijing</option>
+                            <select 
+                                className="w-full border border-slate-200 rounded-lg px-3 py-2.5 text-sm text-slate-700 outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 bg-white cursor-pointer shadow-sm"
+                                value={timezone}
+                                onChange={(e) => setTimezone(e.target.value)}
+                            >
+                                <option value="(GMT+07:00) Hà Nội, TP HCM, Bangkok">(GMT+07:00) Hà Nội, TP HCM, Bangkok</option>
+                                <option value="(GMT+08:00) Singapore, KL, Beijing">(GMT+08:00) Singapore, KL, Beijing</option>
                             </select>
                         </div>
                     </div>
@@ -227,35 +308,35 @@ export function Settings() {
                 {/* Thông báo */}
                 <div className="bg-white rounded-xl border border-slate-200 p-5 md:p-6 shadow-sm relative overflow-hidden flex flex-col justify-between">
                     <div>
-                        <div className="absolute top-5 right-5 z-10">
-                            <span className="bg-slate-100/80 border border-slate-200 text-slate-600 text-xs font-medium px-2 py-1 rounded-md">{t('settings.soon')}</span>
-                        </div>
-                        <h3 className="text-sm font-bold text-blue-600 flex items-center gap-2 mb-5 uppercase tracking-wide opacity-50">
+                        <h3 className="text-sm font-bold text-blue-600 flex items-center gap-2 mb-5 uppercase tracking-wide">
                             <Bell size={16} /> {t('settings.notifications')}
                         </h3>
-                        <div className="space-y-4 opacity-50 pointer-events-none">
+                        <div className="space-y-4">
                             <div className="flex items-center justify-between">
                                 <div>
                                     <p className="text-sm font-medium text-slate-700">{t('settings.emailNoti')}</p>
                                     <p className="text-xs text-slate-400 mt-0.5">{t('settings.emailNotiDesc')}</p>
                                 </div>
-                                <div className="w-10 h-5 bg-slate-200/80 rounded-full relative">
-                                    <div className="w-4 h-4 bg-white rounded-full absolute top-0.5 left-0.5 shadow-sm"></div>
-                                </div>
+                                <button
+                                    onClick={() => setEmailNotifications(!emailNotifications)}
+                                    className={`w-10 h-5 rounded-full relative transition-colors ${emailNotifications ? 'bg-blue-600' : 'bg-slate-200'}`}
+                                >
+                                    <div className={`w-4 h-4 bg-white rounded-full absolute top-0.5 transition-transform ${emailNotifications ? 'left-5' : 'left-0.5'} shadow-sm`}></div>
+                                </button>
                             </div>
                             <div className="flex items-center justify-between pt-2 border-t border-slate-100">
                                 <div>
                                     <p className="text-sm font-medium text-slate-700">{t('settings.pushNoti')}</p>
                                     <p className="text-xs text-slate-400 mt-0.5">{t('settings.pushNotiDesc')}</p>
                                 </div>
-                                <div className="w-10 h-5 bg-slate-200/80 rounded-full relative">
-                                    <div className="w-4 h-4 bg-white rounded-full absolute top-0.5 left-0.5 shadow-sm"></div>
-                                </div>
+                                <button
+                                    onClick={() => setPushNotifications(!pushNotifications)}
+                                    className={`w-10 h-5 rounded-full relative transition-colors ${pushNotifications ? 'bg-blue-600' : 'bg-slate-200'}`}
+                                >
+                                    <div className={`w-4 h-4 bg-white rounded-full absolute top-0.5 transition-transform ${pushNotifications ? 'left-5' : 'left-0.5'} shadow-sm`}></div>
+                                </button>
                             </div>
                         </div>
-                    </div>
-                    <div className="mt-8 text-center pb-2">
-                        <p className="text-[11px] text-blue-500/80 font-medium py-1 px-3 bg-blue-50/50 inline-block rounded-full">{t('settings.developing')}</p>
                     </div>
                 </div>
 

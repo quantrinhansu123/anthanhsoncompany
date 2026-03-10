@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import {
     Plus,
     Search,
@@ -28,7 +28,10 @@ interface ErrorRecord {
     chuyenNganh: string;
     boMon: string;
     hangMuc: string;
+    hangMucKiemTra: string;
     dachGiaiKiemTra: string;
+    cachKiemTraNhanh: string;
+    tieuChuan: string;
     trongCham: number;
     mucDoQuanTrong: 'Thấp' | 'Trung bình' | 'Cao' | 'Nghiêm trọng';
     canhBaoLoi: 'Thấp' | 'Trung bình' | 'Vàng' | 'Đỏ' | 'Gấp';
@@ -36,39 +39,7 @@ interface ErrorRecord {
     hinhAnhMinhHoa: string;
 }
 
-// --- Sample Data ---
-const SAMPLE_DATA: ErrorRecord[] = [
-    {
-        id: 1,
-        stt: 1,
-        noiDungKiemTra: "Kiểm tra cao độ thoát nước ngõ ngách so với cốt san nền dự án",
-        checklistId: "HT-排水-01",
-        chuyenNganh: "Hạ tầng",
-        boMon: "Thoát nước",
-        hangMuc: "Ngõ ngách Cổ Nhuế",
-        dachGiaiKiemTra: "Cao độ vỉa hè hiện trạng cao hơn cốt san nền thiết kế 15cm",
-        trongCham: 10,
-        mucDoQuanTrong: "Cao",
-        canhBaoLoi: "Vàng",
-        ghiChuKyThuat: "Cần điều chỉnh độ dốc dọc tuyến",
-        hinhAnhMinhHoa: "img_01.jpg"
-    },
-    {
-        id: 2,
-        stt: 2,
-        noiDungKiemTra: "Cốt san nền không khớp với quy hoạch phân khu",
-        checklistId: "HT-SN-02",
-        chuyenNganh: "Hạ tầng",
-        boMon: "San nền",
-        hangMuc: "Toàn khu",
-        dachGiaiKiemTra: "Lệch cốt so với mốc tọa độ vỉa hè quốc lộ 14B",
-        trongCham: 15,
-        mucDoQuanTrong: "Nghiêm trọng",
-        canhBaoLoi: "Đỏ",
-        ghiChuKyThuat: "Duyệt lại hồ sơ cắm mốc",
-        hinhAnhMinhHoa: "img_02.jpg"
-    }
-];
+import { thuVienLoiService } from '../../lib/services/thuVienLoiService';
 
 // --- Sub-components ---
 const MucDoBadge = ({ mucDo }: { mucDo: ErrorRecord['mucDoQuanTrong'] }) => {
@@ -133,10 +104,15 @@ const Toast = ({ message, type, onClose }: ToastProps) => {
 
 // --- Main Page Component ---
 export function ThuVienLoi() {
-    const [items, setItems] = useState<ErrorRecord[]>(SAMPLE_DATA);
+    const [items, setItems] = useState<ErrorRecord[]>([]);
     const [searchTerm, setSearchTerm] = useState('');
     const [filterChuyenNganh, setFilterChuyenNganh] = useState('Tất cả');
     const [filterMucDo, setFilterMucDo] = useState('Tất cả');
+    // Filters dạng checkbox (multiple selection)
+    const [filterTieuChuan, setFilterTieuChuan] = useState<string[]>([]);
+    const [filterMucDoQuanTrong, setFilterMucDoQuanTrong] = useState<string[]>([]);
+    const [filterCanhBaoLoi, setFilterCanhBaoLoi] = useState<string[]>([]);
+    const [filterGhiChuKyThuat, setFilterGhiChuKyThuat] = useState<string[]>([]);
     const [currentPage, setCurrentPage] = useState(1);
     const [itemsPerPage, setItemsPerPage] = useState(10);
     const [toast, setToast] = useState<{ message: string, type: 'success' | 'error' | 'info' } | null>(null);
@@ -154,7 +130,10 @@ export function ThuVienLoi() {
         chuyenNganh: 'Hạ tầng',
         boMon: '',
         hangMuc: '',
+        hangMucKiemTra: '',
         dachGiaiKiemTra: '',
+        cachKiemTraNhanh: '',
+        tieuChuan: '',
         trongCham: 0,
         mucDoQuanTrong: 'Trung bình',
         canhBaoLoi: 'Vàng',
@@ -162,15 +141,108 @@ export function ThuVienLoi() {
         hinhAnhMinhHoa: ''
     });
 
+    // Load data from Supabase
+    useEffect(() => {
+        (async () => {
+            try {
+                console.log('Loading data from thu_vien_loi...');
+                const rows = await thuVienLoiService.getAll();
+                console.log('Data received from service:', rows);
+                
+                if (!rows || rows.length === 0) {
+                    console.warn('No data found in thu_vien_loi table');
+                    setItems([]);
+                    return;
+                }
+
+                const mapped: ErrorRecord[] = rows
+                    .filter(r => r && r.id && r.id !== '') // Lọc bỏ các record không có id hợp lệ
+                    .map((r, index) => {
+                        const mappedItem: ErrorRecord = {
+                            id: r.id,
+                            stt: r.stt ?? index + 1,
+                            noiDungKiemTra: r.noi_dung_kiem_tra || '',
+                            checklistId: r.checklist_id || '',
+                            chuyenNganh: r.chuyen_nganh || 'Hạ tầng',
+                            boMon: r.bo_mon || '',
+                            hangMuc: r.hang_muc || '',
+                            hangMucKiemTra: r.hang_muc_kiem_tra || '',
+                            dachGiaiKiemTra: r.dien_giai_kiem_tra || '',
+                            cachKiemTraNhanh: r.cach_kiem_tra_nhanh || '',
+                            tieuChuan: r.tieu_chuan || '',
+                            trongCham: r.trong_cham ?? 0,
+                            mucDoQuanTrong: (r.muc_do_quan_trong as any) || 'Trung bình',
+                            canhBaoLoi: (r.canh_bao_loi as any) || 'Vàng',
+                            ghiChuKyThuat: r.ghi_chu_ky_thuat || '',
+                            hinhAnhMinhHoa: r.hinh_anh_minh_hoa || '',
+                        };
+                        return mappedItem;
+                    });
+                
+                console.log('Mapped data:', mapped);
+                setItems(mapped);
+            } catch (e) {
+                console.error('Error loading thu_vien_loi data:', e);
+                setToast({ message: 'Lỗi khi tải dữ liệu: ' + (e instanceof Error ? e.message : String(e)), type: 'error' });
+            }
+        })();
+    }, []);
+
+    // Lấy danh sách unique values cho các filter
+    const uniqueTieuChuan = useMemo(() => {
+        const values = items.map(i => i.tieuChuan).filter(v => v && v.trim() !== '');
+        return Array.from(new Set(values)).sort();
+    }, [items]);
+
+    const uniqueMucDoQuanTrong = useMemo(() => {
+        const values = items.map(i => i.mucDoQuanTrong).filter(v => v);
+        return Array.from(new Set(values)).sort();
+    }, [items]);
+
+    const uniqueCanhBaoLoi = useMemo(() => {
+        const values = items.map(i => i.canhBaoLoi).filter(v => v);
+        return Array.from(new Set(values)).sort();
+    }, [items]);
+
+    const uniqueGhiChuKyThuat = useMemo(() => {
+        const values = items.map(i => i.ghiChuKyThuat).filter(v => v && v.trim() !== '');
+        return Array.from(new Set(values)).sort();
+    }, [items]);
+
+    // Đếm số lượng items cho mỗi option
+    const getCountForTieuChuan = (value: string) => {
+        return items.filter(item => item.tieuChuan === value).length;
+    };
+
+    const getCountForMucDoQuanTrong = (value: string) => {
+        return items.filter(item => item.mucDoQuanTrong === value).length;
+    };
+
+    const getCountForCanhBaoLoi = (value: string) => {
+        return items.filter(item => item.canhBaoLoi === value).length;
+    };
+
+    const getCountForGhiChuKyThuat = (value: string) => {
+        return items.filter(item => item.ghiChuKyThuat === value).length;
+    };
+
     const filteredItems = useMemo(() => {
         return items.filter(item => {
             const matchesSearch = item.noiDungKiemTra.toLowerCase().includes(searchTerm.toLowerCase()) ||
                 item.checklistId.toLowerCase().includes(searchTerm.toLowerCase());
             const matchesChuyenNganh = filterChuyenNganh === 'Tất cả' || item.chuyenNganh === filterChuyenNganh;
             const matchesMucDo = filterMucDo === 'Tất cả' || item.mucDoQuanTrong === filterMucDo;
-            return matchesSearch && matchesChuyenNganh && matchesMucDo;
+            
+            // Filters checkbox (multiple selection)
+            const matchesTieuChuan = filterTieuChuan.length === 0 || filterTieuChuan.includes(item.tieuChuan);
+            const matchesMucDoQuanTrong = filterMucDoQuanTrong.length === 0 || filterMucDoQuanTrong.includes(item.mucDoQuanTrong);
+            const matchesCanhBaoLoi = filterCanhBaoLoi.length === 0 || filterCanhBaoLoi.includes(item.canhBaoLoi);
+            const matchesGhiChuKyThuat = filterGhiChuKyThuat.length === 0 || filterGhiChuKyThuat.includes(item.ghiChuKyThuat);
+            
+            return matchesSearch && matchesChuyenNganh && matchesMucDo && 
+                   matchesTieuChuan && matchesMucDoQuanTrong && matchesCanhBaoLoi && matchesGhiChuKyThuat;
         });
-    }, [items, searchTerm, filterChuyenNganh, filterMucDo]);
+    }, [items, searchTerm, filterChuyenNganh, filterMucDo, filterTieuChuan, filterMucDoQuanTrong, filterCanhBaoLoi, filterGhiChuKyThuat]);
 
     const totalPages = Math.ceil(filteredItems.length / itemsPerPage);
     const startIndex = (currentPage - 1) * itemsPerPage;
@@ -184,7 +256,10 @@ export function ThuVienLoi() {
             chuyenNganh: 'Hạ tầng',
             boMon: '',
             hangMuc: '',
+            hangMucKiemTra: '',
             dachGiaiKiemTra: '',
+            cachKiemTraNhanh: '',
+            tieuChuan: '',
             trongCham: 0,
             mucDoQuanTrong: 'Trung bình',
             canhBaoLoi: 'Vàng',
@@ -213,8 +288,9 @@ export function ThuVienLoi() {
         setIsDeleteModalOpen(true);
     };
 
-    const confirmDelete = () => {
+    const confirmDelete = async () => {
         if (itemToDelete) {
+            await thuVienLoiService.delete(String(itemToDelete));
             setItems(prev => prev.filter(i => i.id !== itemToDelete));
             setToast({ message: 'Đã xóa dữ liệu thành công', type: 'success' });
             setIsDeleteModalOpen(false);
@@ -222,19 +298,90 @@ export function ThuVienLoi() {
         }
     };
 
-    const handleSave = () => {
+    const handleSave = async () => {
         if (modalMode === 'add') {
-            const newId = Date.now();
-            const newRecord: ErrorRecord = {
-                ...formData,
-                id: newId,
-                stt: items.length + 1
-            };
-            setItems(prev => [newRecord, ...prev]);
-            setToast({ message: 'Thêm mới thành công', type: 'success' });
+            const nextStt = items.length + 1;
+            const created = await thuVienLoiService.create({
+                id: '' as any, // ignored by insert
+                stt: nextStt,
+                noi_dung_kiem_tra: formData.noiDungKiemTra,
+                checklist_id: formData.checklistId,
+                chuyen_nganh: formData.chuyenNganh,
+                bo_mon: formData.boMon,
+                hang_muc: formData.hangMuc,
+                hang_muc_kiem_tra: formData.hangMucKiemTra,
+                dien_giai_kiem_tra: formData.dachGiaiKiemTra,
+                cach_kiem_tra_nhanh: formData.cachKiemTraNhanh,
+                tieu_chuan: formData.tieuChuan,
+                trong_cham: formData.trongCham,
+                muc_do_quan_trong: formData.mucDoQuanTrong,
+                canh_bao_loi: formData.canhBaoLoi,
+                ghi_chu_ky_thuat: formData.ghiChuKyThuat,
+                hinh_anh_minh_hoa: formData.hinhAnhMinhHoa,
+                created_at: undefined,
+                updated_at: undefined,
+            } as any);
+
+            if (created) {
+                const newRecord: ErrorRecord = {
+                    id: created.id,
+                    stt: created.stt ?? nextStt,
+                    noiDungKiemTra: created.noi_dung_kiem_tra,
+                    checklistId: created.checklist_id || '',
+                    chuyenNganh: created.chuyen_nganh || 'Hạ tầng',
+                    boMon: created.bo_mon || '',
+                    hangMuc: created.hang_muc || '',
+                    hangMucKiemTra: created.hang_muc_kiem_tra || '',
+                    dachGiaiKiemTra: created.dien_giai_kiem_tra || '',
+                    cachKiemTraNhanh: created.cach_kiem_tra_nhanh || '',
+                    tieuChuan: created.tieu_chuan || '',
+                    trongCham: created.trong_cham ?? 0,
+                    mucDoQuanTrong: (created.muc_do_quan_trong as any) || 'Trung bình',
+                    canhBaoLoi: (created.canh_bao_loi as any) || 'Vàng',
+                    ghiChuKyThuat: created.ghi_chu_ky_thuat || '',
+                    hinhAnhMinhHoa: created.hinh_anh_minh_hoa || '',
+                };
+                setItems(prev => [newRecord, ...prev]);
+                setToast({ message: 'Thêm mới thành công', type: 'success' });
+            }
         } else if (modalMode === 'edit' && selectedItem) {
-            setItems(prev => prev.map(i => i.id === selectedItem.id ? { ...i, ...formData } : i));
-            setToast({ message: 'Cập nhật thành công', type: 'success' });
+            const updated = await thuVienLoiService.update(String(selectedItem.id), {
+                noi_dung_kiem_tra: formData.noiDungKiemTra,
+                checklist_id: formData.checklistId,
+                chuyen_nganh: formData.chuyenNganh,
+                bo_mon: formData.boMon,
+                hang_muc: formData.hangMuc,
+                hang_muc_kiem_tra: formData.hangMucKiemTra,
+                dien_giai_kiem_tra: formData.dachGiaiKiemTra,
+                cach_kiem_tra_nhanh: formData.cachKiemTraNhanh,
+                tieu_chuan: formData.tieuChuan,
+                trong_cham: formData.trongCham,
+                muc_do_quan_trong: formData.mucDoQuanTrong,
+                canh_bao_loi: formData.canhBaoLoi,
+                ghi_chu_ky_thuat: formData.ghiChuKyThuat,
+                hinh_anh_minh_hoa: formData.hinhAnhMinhHoa,
+            });
+
+            if (updated) {
+                setItems(prev => prev.map(i => i.id === selectedItem.id ? {
+                    ...i,
+                    noiDungKiemTra: updated.noi_dung_kiem_tra,
+                    checklistId: updated.checklist_id || '',
+                    chuyenNganh: updated.chuyen_nganh || 'Hạ tầng',
+                    boMon: updated.bo_mon || '',
+                    hangMuc: updated.hang_muc || '',
+                    hangMucKiemTra: updated.hang_muc_kiem_tra || '',
+                    dachGiaiKiemTra: updated.dien_giai_kiem_tra || '',
+                    cachKiemTraNhanh: updated.cach_kiem_tra_nhanh || '',
+                    tieuChuan: updated.tieu_chuan || '',
+                    trongCham: updated.trong_cham ?? 0,
+                    mucDoQuanTrong: (updated.muc_do_quan_trong as any) || 'Trung bình',
+                    canhBaoLoi: (updated.canh_bao_loi as any) || 'Vàng',
+                    ghiChuKyThuat: updated.ghi_chu_ky_thuat || '',
+                    hinhAnhMinhHoa: updated.hinh_anh_minh_hoa || '',
+                } : i));
+                setToast({ message: 'Cập nhật thành công', type: 'success' });
+            }
         }
         setIsModalOpen(false);
     };
@@ -331,6 +478,149 @@ export function ThuVienLoi() {
                     </div>
                 </div>
 
+                {/* Checkbox Filters */}
+                <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm mb-6">
+                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+                        {/* Tiêu chuẩn */}
+                        <div>
+                            <h3 className="text-xs font-bold text-slate-600 uppercase mb-3">Tiêu chuẩn</h3>
+                            <div className="space-y-2 max-h-48 overflow-y-auto">
+                                {uniqueTieuChuan.map((value) => {
+                                    const count = getCountForTieuChuan(value);
+                                    const isChecked = filterTieuChuan.includes(value);
+                                    return (
+                                        <label key={value} className="flex items-center gap-2 cursor-pointer hover:bg-slate-50 p-1 rounded">
+                                            <input
+                                                type="checkbox"
+                                                checked={isChecked}
+                                                onChange={(e) => {
+                                                    if (e.target.checked) {
+                                                        setFilterTieuChuan([...filterTieuChuan, value]);
+                                                    } else {
+                                                        setFilterTieuChuan(filterTieuChuan.filter(v => v !== value));
+                                                    }
+                                                    setCurrentPage(1);
+                                                }}
+                                                className="w-4 h-4 text-blue-600 border-slate-300 rounded focus:ring-blue-500"
+                                            />
+                                            <span className="text-xs text-slate-700 flex-1 truncate">{value}</span>
+                                            <span className="text-xs text-slate-400 bg-slate-100 px-2 py-0.5 rounded">{count}</span>
+                                        </label>
+                                    );
+                                })}
+                            </div>
+                        </div>
+
+                        {/* Mức độ quan trọng */}
+                        <div>
+                            <h3 className="text-xs font-bold text-slate-600 uppercase mb-3">Mức độ quan trọng</h3>
+                            <div className="space-y-2 max-h-48 overflow-y-auto">
+                                {uniqueMucDoQuanTrong.map((value) => {
+                                    const count = getCountForMucDoQuanTrong(value);
+                                    const isChecked = filterMucDoQuanTrong.includes(value);
+                                    return (
+                                        <label key={value} className="flex items-center gap-2 cursor-pointer hover:bg-slate-50 p-1 rounded">
+                                            <input
+                                                type="checkbox"
+                                                checked={isChecked}
+                                                onChange={(e) => {
+                                                    if (e.target.checked) {
+                                                        setFilterMucDoQuanTrong([...filterMucDoQuanTrong, value]);
+                                                    } else {
+                                                        setFilterMucDoQuanTrong(filterMucDoQuanTrong.filter(v => v !== value));
+                                                    }
+                                                    setCurrentPage(1);
+                                                }}
+                                                className="w-4 h-4 text-blue-600 border-slate-300 rounded focus:ring-blue-500"
+                                            />
+                                            <span className="text-xs text-slate-700 flex-1 truncate">{value}</span>
+                                            <span className="text-xs text-slate-400 bg-slate-100 px-2 py-0.5 rounded">{count}</span>
+                                        </label>
+                                    );
+                                })}
+                            </div>
+                        </div>
+
+                        {/* Cảnh báo lỗi */}
+                        <div>
+                            <h3 className="text-xs font-bold text-slate-600 uppercase mb-3">Cảnh báo lỗi</h3>
+                            <div className="space-y-2 max-h-48 overflow-y-auto">
+                                {uniqueCanhBaoLoi.map((value) => {
+                                    const count = getCountForCanhBaoLoi(value);
+                                    const isChecked = filterCanhBaoLoi.includes(value);
+                                    return (
+                                        <label key={value} className="flex items-center gap-2 cursor-pointer hover:bg-slate-50 p-1 rounded">
+                                            <input
+                                                type="checkbox"
+                                                checked={isChecked}
+                                                onChange={(e) => {
+                                                    if (e.target.checked) {
+                                                        setFilterCanhBaoLoi([...filterCanhBaoLoi, value]);
+                                                    } else {
+                                                        setFilterCanhBaoLoi(filterCanhBaoLoi.filter(v => v !== value));
+                                                    }
+                                                    setCurrentPage(1);
+                                                }}
+                                                className="w-4 h-4 text-blue-600 border-slate-300 rounded focus:ring-blue-500"
+                                            />
+                                            <span className="text-xs text-slate-700 flex-1 truncate">{value}</span>
+                                            <span className="text-xs text-slate-400 bg-slate-100 px-2 py-0.5 rounded">{count}</span>
+                                        </label>
+                                    );
+                                })}
+                            </div>
+                        </div>
+
+                        {/* Ghi chú kỹ thuật */}
+                        <div>
+                            <h3 className="text-xs font-bold text-slate-600 uppercase mb-3">Ghi chú kỹ thuật</h3>
+                            <div className="space-y-2 max-h-48 overflow-y-auto">
+                                {uniqueGhiChuKyThuat.map((value) => {
+                                    const count = getCountForGhiChuKyThuat(value);
+                                    const isChecked = filterGhiChuKyThuat.includes(value);
+                                    return (
+                                        <label key={value} className="flex items-center gap-2 cursor-pointer hover:bg-slate-50 p-1 rounded">
+                                            <input
+                                                type="checkbox"
+                                                checked={isChecked}
+                                                onChange={(e) => {
+                                                    if (e.target.checked) {
+                                                        setFilterGhiChuKyThuat([...filterGhiChuKyThuat, value]);
+                                                    } else {
+                                                        setFilterGhiChuKyThuat(filterGhiChuKyThuat.filter(v => v !== value));
+                                                    }
+                                                    setCurrentPage(1);
+                                                }}
+                                                className="w-4 h-4 text-blue-600 border-slate-300 rounded focus:ring-blue-500"
+                                            />
+                                            <span className="text-xs text-slate-700 flex-1 truncate">{value}</span>
+                                            <span className="text-xs text-slate-400 bg-slate-100 px-2 py-0.5 rounded">{count}</span>
+                                        </label>
+                                    );
+                                })}
+                            </div>
+                        </div>
+                    </div>
+                    
+                    {/* Clear all filters button */}
+                    {(filterTieuChuan.length > 0 || filterMucDoQuanTrong.length > 0 || filterCanhBaoLoi.length > 0 || filterGhiChuKyThuat.length > 0) && (
+                        <div className="mt-4 pt-4 border-t border-slate-200">
+                            <button
+                                onClick={() => {
+                                    setFilterTieuChuan([]);
+                                    setFilterMucDoQuanTrong([]);
+                                    setFilterCanhBaoLoi([]);
+                                    setFilterGhiChuKyThuat([]);
+                                    setCurrentPage(1);
+                                }}
+                                className="text-xs text-blue-600 hover:text-blue-700 hover:underline"
+                            >
+                                Xóa tất cả bộ lọc
+                            </button>
+                        </div>
+                    )}
+                </div>
+
                 {/* Table Container */}
                 <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
                     <div className="overflow-x-auto">
@@ -338,39 +628,41 @@ export function ThuVienLoi() {
                             <thead className="bg-slate-50/80 text-slate-600 font-bold text-[11px] uppercase tracking-wider border-b border-slate-200">
                                 <tr>
                                     <th className="p-3 w-10 text-center">STT</th>
-                                    <th className="p-3 w-[250px]">Nội dung kiểm tra</th>
-                                    <th className="p-3">Mã Checklist</th>
                                     <th className="p-3">Chuyên ngành</th>
                                     <th className="p-3">Bộ môn</th>
-                                    <th className="p-3">Hạng mục</th>
-                                    <th className="p-3">Diễn giải kiểm tra</th>
-                                    <th className="p-3">Trọng châm</th>
-                                    <th className="p-3">Mức độ</th>
-                                    <th className="p-3">Cảnh báo</th>
-                                    <th className="p-3">Ghi chú</th>
-                                    <th className="p-3">Hình ảnh</th>
+                                    <th className="p-3">Hạng mục kiểm tra</th>
+                                    <th className="p-3 w-[250px]">Nội dung kiểm tra</th>
+                                    <th className="p-3">Cách kiểm tra nhanh</th>
+                                    <th className="p-3">Tiêu chuẩn</th>
+                                    <th className="p-3">Mức độ quan trọng</th>
+                                    <th className="p-3">Cảnh báo lỗi</th>
+                                    <th className="p-3">Ghi chú kỹ thuật</th>
                                     <th className="p-3 text-center sticky right-0 bg-slate-50 z-20 shadow-[-4px_0_8px_-4px_rgba(0,0,0,0.1)]">Thao tác</th>
                                 </tr>
                             </thead>
                             <tbody className="divide-y divide-slate-100">
-                                {currentItems.length > 0 ? (
+                                {items.length === 0 ? (
+                                    <tr>
+                                        <td colSpan={11} className="p-10 text-center">
+                                            <p className="text-slate-500 text-sm">Đang tải dữ liệu...</p>
+                                        </td>
+                                    </tr>
+                                ) : currentItems.length > 0 ? (
                                     currentItems.map((item, index) => (
                                         <tr
                                             key={item.id}
                                             className="hover:bg-blue-50/30 transition-colors group"
                                         >
                                             <td className="p-3 text-center text-slate-400 text-xs font-medium">{startIndex + index + 1}</td>
-                                            <td className="p-3"><div className="text-slate-700 text-xs leading-relaxed line-clamp-2">{item.noiDungKiemTra}</div></td>
-                                            <td className="p-3"><span className="px-2 py-0.5 bg-slate-100 text-slate-600 rounded text-xs font-mono">{item.checklistId}</span></td>
                                             <td className="p-3 text-xs text-slate-600 whitespace-nowrap">{item.chuyenNganh}</td>
                                             <td className="p-3 text-xs text-slate-600 whitespace-nowrap">{item.boMon}</td>
-                                            <td className="p-3"><div className="text-xs text-slate-600 line-clamp-2">{item.hangMuc}</div></td>
-                                            <td className="p-3"><div className="text-xs text-slate-600 line-clamp-2">{item.dachGiaiKiemTra}</div></td>
-                                            <td className="p-3 text-xs text-slate-600 font-bold">{item.trongCham}</td>
+                                            <td className="p-3"><div className="text-xs text-slate-600 line-clamp-2">{item.hangMucKiemTra || item.hangMuc || '—'}</div></td>
+                                            <td className="p-3"><div className="text-slate-700 text-xs leading-relaxed line-clamp-2">{item.noiDungKiemTra}</div></td>
+                                            <td className="p-3"><div className="text-xs text-slate-600 line-clamp-2">{item.cachKiemTraNhanh || '—'}</div></td>
+                                            <td className="p-3"><div className="text-xs text-slate-600 line-clamp-2">{item.tieuChuan || '—'}</div></td>
                                             <td className="p-3"><MucDoBadge mucDo={item.mucDoQuanTrong} /></td>
                                             <td className="p-3"><CanhBaoBadge canhBao={item.canhBaoLoi} /></td>
-                                            <td className="p-3"><div className="text-xs text-slate-500 line-clamp-2">{item.ghiChuKyThuat}</div></td>
-                                            <td className="p-3 text-xs text-slate-400 italic whitespace-nowrap">{item.hinhAnhMinhHoa || 'Không có'}</td>
+                                            <td className="p-3"><div className="text-xs text-slate-500 line-clamp-2">{item.ghiChuKyThuat || '—'}</div></td>
                                             <td className="p-3 text-center sticky right-0 bg-white group-hover:bg-[#f8faff] transition-colors z-10 shadow-[-4px_0_8px_-4px_rgba(0,0,0,0.1)] border-l border-slate-100">
                                                 <div className="flex items-center justify-center gap-1.5">
                                                     <button onClick={() => handleView(item)} className="p-1.5 text-blue-600 hover:bg-blue-100 rounded-md transition-colors"><Eye size={16} /></button>
@@ -382,7 +674,7 @@ export function ThuVienLoi() {
                                     ))
                                 ) : (
                                     <tr>
-                                        <td colSpan={13} className="p-10 text-center"><p className="text-slate-500 text-sm">Không tìm thấy kết quả phù hợp</p></td>
+                                        <td colSpan={11} className="p-10 text-center"><p className="text-slate-500 text-sm">Không tìm thấy kết quả phù hợp</p></td>
                                     </tr>
                                 )}
                             </tbody>

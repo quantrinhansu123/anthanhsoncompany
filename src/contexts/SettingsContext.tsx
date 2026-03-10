@@ -1,9 +1,11 @@
-import React, { createContext, useContext, useState, useEffect } from 'react';
+import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
 import { translations } from '../lib/i18n';
+import { settingService } from '../lib/services/settingService';
 
 type Theme = 'light' | 'dark' | 'system';
 
 const DEFAULT_LOGO_URL = 'https://www.appsheet.com/template/gettablefileurl?appName=Appsheet-325045268&tableName=Kho%20%E1%BA%A3nh&fileName=Kho%20%E1%BA%A3nh_Images%2F13c7458d.%E1%BA%A2nh.064848.jpg';
+const DEFAULT_USER_ID = 'default'; // Có thể thay đổi sau khi có authentication
 
 interface SettingsContextType {
     theme: Theme;
@@ -18,26 +20,118 @@ interface SettingsContextType {
     setLanguage: (lang: string) => void;
     logoUrl: string;
     setLogoUrl: (url: string) => void;
+    timezone: string;
+    setTimezone: (timezone: string) => void;
+    emailNotifications: boolean;
+    setEmailNotifications: (enabled: boolean) => void;
+    pushNotifications: boolean;
+    setPushNotifications: (enabled: boolean) => void;
     t: (key: string) => string;
 }
 
 const SettingsContext = createContext<SettingsContextType | undefined>(undefined);
 
 export function SettingsProvider({ children }: { children: React.ReactNode }) {
-    const [theme, setTheme] = useState<Theme>(() => (localStorage.getItem('app-theme') as Theme) || 'light');
-    const [color, setColor] = useState(() => localStorage.getItem('app-color') || 'blue');
-    const [fontFamily, setFontFamily] = useState(() => localStorage.getItem('app-font') || 'Inter');
-    const [fontSize, setFontSize] = useState(() => localStorage.getItem('app-fontsize') || 'Trung bình');
-    const [language, setLanguage] = useState(() => localStorage.getItem('app-lang') || 'vi');
-    const [logoUrl, setLogoUrl] = useState(() => localStorage.getItem('app-logo') || DEFAULT_LOGO_URL);
+    // Load từ database hoặc dùng giá trị mặc định
+    const [theme, setThemeState] = useState<Theme>('light');
+    const [color, setColorState] = useState('blue');
+    const [fontFamily, setFontFamilyState] = useState('Inter');
+    const [fontSize, setFontSizeState] = useState('Trung bình');
+    const [language, setLanguageState] = useState('vi');
+    const [logoUrl, setLogoUrlState] = useState(DEFAULT_LOGO_URL);
+    const [timezone, setTimezoneState] = useState('(GMT+07:00) Hà Nội, TP HCM, Bangkok');
+    const [emailNotifications, setEmailNotificationsState] = useState(false);
+    const [pushNotifications, setPushNotificationsState] = useState(false);
+    const [isLoaded, setIsLoaded] = useState(false);
+
+    // Load settings từ database khi component mount
+    useEffect(() => {
+        (async () => {
+            try {
+                const setting = await settingService.get(DEFAULT_USER_ID);
+                if (setting) {
+                    setThemeState((setting.theme as Theme) || 'light');
+                    setColorState(setting.color || 'blue');
+                    setFontFamilyState(setting.font_family || 'Inter');
+                    setFontSizeState(setting.font_size || 'Trung bình');
+                    setLanguageState(setting.language || 'vi');
+                    setLogoUrlState(setting.logo_url || DEFAULT_LOGO_URL);
+                    setTimezoneState(setting.timezone || '(GMT+07:00) Hà Nội, TP HCM, Bangkok');
+                    setEmailNotificationsState(setting.email_notifications ?? false);
+                    setPushNotificationsState(setting.push_notifications ?? false);
+                }
+            } catch (error) {
+                console.error('Error loading settings from database:', error);
+                // Fallback to localStorage nếu database lỗi
+                setThemeState((localStorage.getItem('app-theme') as Theme) || 'light');
+                setColorState(localStorage.getItem('app-color') || 'blue');
+                setFontFamilyState(localStorage.getItem('app-font') || 'Inter');
+                setFontSizeState(localStorage.getItem('app-fontsize') || 'Trung bình');
+                setLanguageState(localStorage.getItem('app-lang') || 'vi');
+                setLogoUrlState(localStorage.getItem('app-logo') || DEFAULT_LOGO_URL);
+            } finally {
+                setIsLoaded(true);
+            }
+        })();
+    }, []);
+
+    // Hàm save vào database với debounce
+    const saveToDatabase = useCallback(async (updates: Partial<any>) => {
+        try {
+            await settingService.upsert(DEFAULT_USER_ID, updates);
+        } catch (error) {
+            console.error('Error saving settings to database:', error);
+        }
+    }, []);
+
+    // Wrapper functions để save vào database khi thay đổi
+    const setTheme = useCallback((newTheme: Theme) => {
+        setThemeState(newTheme);
+        saveToDatabase({ theme: newTheme });
+    }, [saveToDatabase]);
+
+    const setColor = useCallback((newColor: string) => {
+        setColorState(newColor);
+        saveToDatabase({ color: newColor });
+    }, [saveToDatabase]);
+
+    const setFontFamily = useCallback((newFont: string) => {
+        setFontFamilyState(newFont);
+        saveToDatabase({ font_family: newFont });
+    }, [saveToDatabase]);
+
+    const setFontSize = useCallback((newSize: string) => {
+        setFontSizeState(newSize);
+        saveToDatabase({ font_size: newSize });
+    }, [saveToDatabase]);
+
+    const setLanguage = useCallback((newLang: string) => {
+        setLanguageState(newLang);
+        saveToDatabase({ language: newLang });
+    }, [saveToDatabase]);
+
+    const setLogoUrl = useCallback((newUrl: string) => {
+        setLogoUrlState(newUrl);
+        saveToDatabase({ logo_url: newUrl });
+    }, [saveToDatabase]);
+
+    const setTimezone = useCallback((newTimezone: string) => {
+        setTimezoneState(newTimezone);
+        saveToDatabase({ timezone: newTimezone });
+    }, [saveToDatabase]);
+
+    const setEmailNotifications = useCallback((enabled: boolean) => {
+        setEmailNotificationsState(enabled);
+        saveToDatabase({ email_notifications: enabled });
+    }, [saveToDatabase]);
+
+    const setPushNotifications = useCallback((enabled: boolean) => {
+        setPushNotificationsState(enabled);
+        saveToDatabase({ push_notifications: enabled });
+    }, [saveToDatabase]);
 
     useEffect(() => {
-        localStorage.setItem('app-theme', theme);
-        localStorage.setItem('app-color', color);
-        localStorage.setItem('app-font', fontFamily);
-        localStorage.setItem('app-fontsize', fontSize);
-        localStorage.setItem('app-lang', language);
-        localStorage.setItem('app-logo', logoUrl);
+        if (!isLoaded) return; // Chờ load xong mới apply
 
         // Apply Theme (Dark Mode)
         const root = window.document.documentElement;
@@ -99,7 +193,7 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
             styleEl.innerHTML = '';
         }
 
-    }, [theme, color, fontFamily, fontSize, language, logoUrl]);
+    }, [theme, color, fontFamily, fontSize, language, logoUrl, isLoaded]);
 
     const t = (key: string): string => {
         return translations[language]?.[key] || translations['vi']?.[key] || key;
@@ -113,6 +207,9 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
             fontSize, setFontSize,
             language, setLanguage,
             logoUrl, setLogoUrl,
+            timezone, setTimezone,
+            emailNotifications, setEmailNotifications,
+            pushNotifications, setPushNotifications,
             t
         }}>
             {children}

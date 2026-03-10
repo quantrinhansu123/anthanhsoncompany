@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { X, Calendar, Clock, ChevronDown } from 'lucide-react';
+import { customerService, Customer } from '../../lib/services/customerService';
 
 interface Props {
     isOpen: boolean;
@@ -19,15 +20,37 @@ export function ThemDuAnModal({ isOpen, onClose, onSave, initialData }: Props) {
         managerImg: 'https://i.pravatar.cc/150?img=11',
         executorImg: 'https://i.pravatar.cc/150?img=12'
     });
+    const [customers, setCustomers] = useState<Customer[]>([]);
+    const [loadingCustomers, setLoadingCustomers] = useState(false);
+
+    // Load danh sách khách hàng từ database
+    useEffect(() => {
+        if (isOpen) {
+            setLoadingCustomers(true);
+            customerService.getAll()
+                .then((data) => {
+                    setCustomers(data);
+                    setLoadingCustomers(false);
+                })
+                .catch((error) => {
+                    console.error('Error loading customers:', error);
+                    setLoadingCustomers(false);
+                });
+        }
+    }, [isOpen]);
 
     useEffect(() => {
         if (isOpen) {
             if (initialData) {
                 setFormData({
-                    ...initialData,
-                    customerName: initialData.customerName || 'Trung tâm Quan trắc và Quản lý hạ tầng nông nghiệp...',
+                    customerName: initialData.customerName || '',
+                    projectName: initialData.projectName || '',
                     date: initialData.date || new Date().toISOString().split('T')[0],
                     time: initialData.time || new Date().toLocaleTimeString('en-US', { hour12: false }),
+                    status: initialData.status || 'Đang thực hiện',
+                    progress: initialData.progress || 0,
+                    managerImg: initialData.managerImg || `https://i.pravatar.cc/150?img=${Math.floor(Math.random() * 50)}`,
+                    executorImg: initialData.executorImg || `https://i.pravatar.cc/150?img=${Math.floor(Math.random() * 50)}`
                 });
             } else {
                 setFormData({
@@ -92,11 +115,20 @@ export function ThemDuAnModal({ isOpen, onClose, onSave, initialData }: Props) {
                                     name="customerName"
                                     value={formData.customerName}
                                     onChange={handleChange}
-                                    className="w-full pl-4 pr-10 py-3 border border-slate-300 rounded-md focus:outline-none focus:border-blue-500 text-sm text-slate-800 bg-white appearance-none"
+                                    disabled={loadingCustomers}
+                                    className="w-full pl-4 pr-10 py-3 border border-slate-300 rounded-md focus:outline-none focus:border-blue-500 text-sm text-slate-800 bg-white appearance-none disabled:bg-slate-100 disabled:cursor-not-allowed"
                                 >
-                                    <option value="">Chọn khách hàng...</option>
-                                    <option value="Trung tâm Quan trắc và Quản lý hạ tầng nông nghiệp...">Trung tâm Quan trắc và Quản lý hạ tầng nông nghiệp...</option>
-                                    <option value="Công ty Cổ phần Nước Môi trường">Công ty Cổ phần Nước Môi trường</option>
+                                    <option value="">{loadingCustomers ? 'Đang tải...' : 'Chọn khách hàng...'}</option>
+                                    {customers.map((customer) => (
+                                        <option key={customer.id} value={customer.ten_don_vi}>
+                                            {customer.ten_don_vi}
+                                        </option>
+                                    ))}
+                                    {/* Nếu có giá trị từ initialData nhưng không có trong danh sách, vẫn hiển thị */}
+                                    {formData.customerName && 
+                                        !customers.some(c => c.ten_don_vi === formData.customerName) && (
+                                        <option value={formData.customerName}>{formData.customerName}</option>
+                                    )}
                                 </select>
                                 <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" size={18} />
                             </div>

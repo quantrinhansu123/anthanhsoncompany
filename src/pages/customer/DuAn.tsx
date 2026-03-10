@@ -1,7 +1,10 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { Search, Plus, Eye, Edit, Trash2, X, Maximize2, CheckCircle, PlusCircle } from 'lucide-react';
 import { ThemDuAnModal } from './ThemDuAnModal';
 import { useNavigate } from 'react-router-dom';
+import { projectService } from '../../lib/services/projectService';
+import { contractService, ContractRow } from '../../lib/services/contractService';
+import { taskService } from '../../lib/services/taskService';
 
 // Toast component
 function Toast({ message, type, onClose }: { message: string; type: 'success' | 'info' | 'warning'; onClose: () => void }) {
@@ -20,65 +23,8 @@ function Toast({ message, type, onClose }: { message: string; type: 'success' | 
     );
 }
 
-const mockData = [
-    {
-        id: 1,
-        projectName: "Hợp với đối tác TOffice",
-        managerImg: "https://i.pravatar.cc/150?img=11",
-        executorImg: "https://i.pravatar.cc/150?img=12",
-        status: "Hoàn thành",
-        statusColor: "text-emerald-600 bg-emerald-50 border border-emerald-200",
-        progress: 100
-    },
-    {
-        id: 2,
-        projectName: "Khảo sát năng lượng",
-        managerImg: "https://i.pravatar.cc/150?img=13",
-        executorImg: "https://i.pravatar.cc/150?img=14",
-        status: "Hoàn thành",
-        statusColor: "text-emerald-600 bg-emerald-50 border border-emerald-200",
-        progress: 100
-    },
-    {
-        id: 3,
-        projectName: "Hợp đồng lại",
-        managerImg: "https://i.pravatar.cc/150?img=15",
-        executorImg: "https://i.pravatar.cc/150?img=16",
-        status: "Đang thực hiện",
-        statusColor: "text-blue-600 bg-blue-50 border border-blue-200",
-        progress: 65
-    },
-    {
-        id: 4,
-        projectName: "Khách hàng xác nhận",
-        managerImg: "https://i.pravatar.cc/150?img=17",
-        executorImg: "https://i.pravatar.cc/150?img=18",
-        status: "Đang quá hạn",
-        statusColor: "text-rose-600 bg-rose-50 border border-rose-200",
-        progress: 45
-    },
-    {
-        id: 5,
-        projectName: "Gặp TOffice",
-        managerImg: "https://i.pravatar.cc/150?img=19",
-        executorImg: "https://i.pravatar.cc/150?img=20",
-        status: "Từ chối",
-        statusColor: "text-slate-600 bg-slate-100 border border-slate-200",
-        progress: 15
-    },
-    {
-        id: 6,
-        projectName: "Xây dựng đề xuất kinh phí dự án",
-        managerImg: "https://i.pravatar.cc/150?img=21",
-        executorImg: "https://i.pravatar.cc/150?img=22",
-        status: "Tạm dừng",
-        statusColor: "text-amber-600 bg-amber-50 border border-amber-200",
-        progress: 30
-    }
-];
-
 export function DuAn() {
-    const [items, setItems] = useState(mockData);
+    const [items, setItems] = useState<any[]>([]);
     const [isViewModalOpen, setIsViewModalOpen] = useState(false);
     const [selectedProject, setSelectedProject] = useState<any>(null);
     const [isAddModalOpen, setIsAddModalOpen] = useState(false);
@@ -115,9 +61,12 @@ export function DuAn() {
         setIsDeleteModalOpen(true);
     };
 
-    const confirmDelete = () => {
+    const confirmDelete = async () => {
         if (projectToDelete !== null) {
-            setItems(items.filter((item: any) => item.id !== projectToDelete));
+            const ok = await projectService.delete(String(projectToDelete));
+            if (ok) {
+                setItems(items.filter((item: any) => item.id !== projectToDelete));
+            }
             setIsDeleteModalOpen(false);
             setProjectToDelete(null);
         }
@@ -146,24 +95,202 @@ export function DuAn() {
         ngayKyHD: '',
         fileStatus: 'Chưa có file'
     });
+    const [projectContracts, setProjectContracts] = useState<{ [projectId: number]: any[] }>({});
+    
+    // State để lưu hợp đồng thực tế từ database
+    const [realContracts, setRealContracts] = useState<Map<string, ContractRow[]>>(new Map());
+    
+    // State để lưu tiến độ thực tế của từng dự án (tính từ hợp đồng)
+    const [projectProgress, setProjectProgress] = useState<Map<string, number>>(new Map());
+    
+    // State để lưu thông tin hợp đồng của từng dự án (để hiển thị số lượng)
+    const [projectContractInfo, setProjectContractInfo] = useState<Map<string, { total: number; completed: number }>>(new Map());
 
-    const handleSaveProject = (data: any) => {
+    // Load dự án từ bảng du_an và tính tiến độ từ hợp đồng
+    useEffect(() => {
+        (async () => {
+            const data = await projectService.getAll();
+            
+            // Load tất cả hợp đồng
+            const contracts = await contractService.getAll();
+            
+            // Nhóm hợp đồng theo project_name để hiển thị
+            const contractsByProjectName = new Map<string, ContractRow[]>();
+            contracts.forEach(contract => {
+                const projectName = contract.project_name || '(Chưa có tên dự án)';
+                if (!contractsByProjectName.has(projectName)) {
+                    contractsByProjectName.set(projectName, []);
+                }
+                contractsByProjectName.get(projectName)!.push(contract);
+            });
+            setRealContracts(contractsByProjectName);
+            
+            // Load tasks cho tất cả hợp đồng để tính tiến độ
+            const progressMap = new Map<string, number>();
+            
+            // Nhóm hợp đồng theo project_name để tính tiến độ
+            const contractsByProject = new Map<string, string[]>();
+            contracts.forEach(contract => {
+                const projectName = contract.project_name || '(Chưa có tên dự án)';
+                if (!contractsByProject.has(projectName)) {
+                    contractsByProject.set(projectName, []);
+                }
+                contractsByProject.get(projectName)!.push(contract.id);
+            });
+            
+            // Tính tiến độ cho từng dự án
+            const contractInfoMap = new Map<string, { total: number; completed: number }>();
+            
+            await Promise.all(
+                Array.from(contractsByProject.entries()).map(async ([projectName, contractIds]) => {
+                    let completedContracts = 0;
+                    
+                    // Kiểm tra từng hợp đồng xem có 100% không
+                    await Promise.all(
+                        contractIds.map(async (contractId) => {
+                            try {
+                                const tasks = await taskService.getByHopDongId(contractId);
+                                if (tasks.length === 0) {
+                                    // Nếu không có task, không tính vào hoàn thành
+                                    return;
+                                }
+                                // Nếu tất cả tasks đều 100%, hợp đồng này hoàn thành
+                                const allCompleted = tasks.every(task => task.tien_do === 100);
+                                if (allCompleted) {
+                                    completedContracts++;
+                                }
+                            } catch (error) {
+                                console.error(`Error loading tasks for contract ${contractId}:`, error);
+                            }
+                        })
+                    );
+                    
+                    const totalContracts = contractIds.length;
+                    const progress = totalContracts > 0 
+                        ? Math.round((completedContracts / totalContracts) * 100)
+                        : 0;
+                    
+                    progressMap.set(projectName, progress);
+                    contractInfoMap.set(projectName, { total: totalContracts, completed: completedContracts });
+                })
+            );
+            
+            setProjectProgress(progressMap);
+            setProjectContractInfo(contractInfoMap);
+            
+            // Map dự án với tiến độ từ hợp đồng
+            const mapped = (data || []).map((p: any) => {
+                const projectName = p.ten_du_an;
+                const calculatedProgress = progressMap.get(projectName) ?? 0;
+                
+                return {
+                    id: p.id,
+                    projectName: projectName,
+                    status: p.status || 'Đang thực hiện',
+                    statusColor: getStatusColor(p.status || 'Đang thực hiện'),
+                    progress: calculatedProgress, // Sử dụng tiến độ tính từ hợp đồng
+                    managerImg: p.manager_img || 'https://i.pravatar.cc/150?img=11',
+                    executorImg: p.executor_img || 'https://i.pravatar.cc/150?img=12',
+                };
+            });
+            setItems(mapped);
+        })();
+    }, []);
+
+    const handleSaveProject = async (data: any) => {
+        // Cập nhật
         if (data.id) {
-            setItems(items.map((item: any) => item.id === data.id ? { ...data, statusColor: getStatusColor(data.status) } : item));
+            const updated = await projectService.update(String(data.id), {
+                projectName: data.projectName,
+                status: data.status,
+                progress: Number(data.progress) || 0,
+                managerImg: data.managerImg,
+                executorImg: data.executorImg,
+            });
+            if (updated) {
+                setItems(items.map((item: any) =>
+                    item.id === data.id
+                        ? {
+                            ...item,
+                            projectName: updated.ten_du_an,
+                            status: updated.status || 'Đang thực hiện',
+                            statusColor: getStatusColor(updated.status || 'Đang thực hiện'),
+                            progress: updated.progress ?? 0,
+                            managerImg: updated.manager_img || item.managerImg,
+                            executorImg: updated.executor_img || item.executorImg,
+                        }
+                        : item
+                ));
+            }
         } else {
-            setItems([{
-                ...data,
-                id: Date.now(),
-                statusColor: getStatusColor(data.status),
-                progress: Number(data.progress) || 0
-            }, ...items]);
+            // Tạo mới
+            const created = await projectService.create({
+                projectName: data.projectName,
+                status: data.status,
+                progress: Number(data.progress) || 0,
+                managerImg: data.managerImg,
+                executorImg: data.executorImg,
+            });
+            if (created) {
+                const newItem = {
+                    id: created.id,
+                    projectName: created.ten_du_an,
+                    status: created.status || 'Đang thực hiện',
+                    statusColor: getStatusColor(created.status || 'Đang thực hiện'),
+                    progress: created.progress ?? 0,
+                    managerImg: created.manager_img || 'https://i.pravatar.cc/150?img=11',
+                    executorImg: created.executor_img || 'https://i.pravatar.cc/150?img=12',
+                };
+                setItems([newItem, ...items]);
+            }
         }
     };
 
-    const handleSaveContract = () => {
-        setToast({ message: 'Đã thêm hợp đồng mới thành công!', type: 'success' });
-        setIsAddContractModalOpen(false);
-        setContractFormData({ soHopDong: '', tenGoiThau: '', ngayKyHD: '', fileStatus: 'Chưa có file' });
+    const handleSaveContract = async () => {
+        if (!selectedProject) {
+            setToast({ message: 'Vui lòng chọn dự án', type: 'warning' });
+            return;
+        }
+
+        try {
+            // Lưu hợp đồng vào database
+            const created = await contractService.create({
+                project_name: selectedProject.projectName,
+                so_hop_dong: contractFormData.soHopDong || null,
+                ten_goi_thau: contractFormData.tenGoiThau || null,
+                ngay_ky_hd: contractFormData.ngayKyHD || null,
+                file_status: contractFormData.fileStatus || 'Chưa có file',
+                gia_tri_hd: 0,
+                gia_tri_qt: 0,
+                da_thu: 0,
+                con_phai_thu: 0,
+                ngay_update: new Date().toISOString().slice(0, 10),
+            });
+
+            if (!created) {
+                setToast({ message: 'Không lưu được hợp đồng. Vui lòng thử lại.', type: 'warning' });
+                return;
+            }
+
+            // Cập nhật realContracts
+            setRealContracts(prev => {
+                const newMap = new Map(prev);
+                const projectName = selectedProject.projectName;
+                const existing = newMap.get(projectName) || [];
+                newMap.set(projectName, [...existing, created]);
+                return newMap;
+            });
+
+            setToast({ message: 'Đã thêm hợp đồng mới thành công!', type: 'success' });
+            setIsAddContractModalOpen(false);
+            setContractFormData({ soHopDong: '', tenGoiThau: '', ngayKyHD: '', fileStatus: 'Chưa có file' });
+            
+            // Reload để cập nhật tiến độ
+            window.location.reload();
+        } catch (error: any) {
+            console.error('[DuAn] Error saving contract:', error);
+            setToast({ message: `Lỗi: ${error.message || 'Không thể lưu hợp đồng'}`, type: 'warning' });
+        }
     };
 
     return (
@@ -201,6 +328,13 @@ export function DuAn() {
                             </tr>
                         </thead>
                         <tbody className="divide-y divide-slate-100">
+                            {items.length === 0 && (
+                                <tr>
+                                    <td colSpan={6} className="py-6 text-center text-slate-500 text-sm italic">
+                                        Chưa có dự án nào. Nhấn "Thêm dự án" để tạo mới.
+                                    </td>
+                                </tr>
+                            )}
                             {items.map((item, index) => (
                                 <tr key={item.id} className="hover:bg-blue-50/30 transition-all group duration-200 ease-in-out">
                                     <td className="py-4 pl-4 md:pl-6 pr-4 align-middle">
@@ -241,19 +375,32 @@ export function DuAn() {
                                     </td>
 
                                     <td className="py-4 pr-4 md:pr-6 pl-4 align-middle">
-                                        <div className="flex items-center gap-4">
-                                            <div className="w-full h-2.5 bg-slate-100 rounded-full overflow-hidden relative shadow-inner">
-                                                <div
-                                                    className={`absolute left-0 top-0 bottom-0 rounded-full transition-all duration-1000 ease-out ${item.progress === 100
-                                                        ? 'bg-gradient-to-r from-emerald-400 to-emerald-500'
-                                                        : item.progress > 50
-                                                            ? 'bg-gradient-to-r from-blue-400 to-blue-500'
-                                                            : 'bg-gradient-to-r from-amber-400 to-amber-500'
-                                                        }`}
-                                                    style={{ width: `${item.progress}%` }}
-                                                ></div>
+                                        <div className="flex flex-col gap-1.5">
+                                            <div className="flex items-center gap-4">
+                                                <div className="w-full h-2.5 bg-slate-100 rounded-full overflow-hidden relative shadow-inner">
+                                                    <div
+                                                        className={`absolute left-0 top-0 bottom-0 rounded-full transition-all duration-1000 ease-out ${item.progress === 100
+                                                            ? 'bg-gradient-to-r from-emerald-400 to-emerald-500'
+                                                            : item.progress > 50
+                                                                ? 'bg-gradient-to-r from-blue-400 to-blue-500'
+                                                                : 'bg-gradient-to-r from-amber-400 to-amber-500'
+                                                            }`}
+                                                        style={{ width: `${item.progress}%` }}
+                                                    ></div>
+                                                </div>
+                                                <span className="text-xs font-bold text-slate-600 w-9 text-right tabular-nums">{item.progress}%</span>
                                             </div>
-                                            <span className="text-xs font-bold text-slate-600 w-9 text-right tabular-nums">{item.progress}%</span>
+                                            {(() => {
+                                                const contractInfo = projectContractInfo.get(item.projectName);
+                                                if (contractInfo && contractInfo.total > 0) {
+                                                    return (
+                                                        <span className="text-[10px] text-slate-500 text-center">
+                                                            {contractInfo.completed}/{contractInfo.total} hợp đồng
+                                                        </span>
+                                                    );
+                                                }
+                                                return null;
+                                            })()}
                                         </div>
                                     </td>
                                     <td className="py-4 px-4 align-middle text-center">
@@ -357,36 +504,53 @@ export function DuAn() {
                                                         <th className="px-4 py-3 whitespace-nowrap">Ngày ký HĐ</th>
                                                         <th className="px-4 py-3 whitespace-nowrap">Số hợp đồng</th>
                                                         <th className="px-4 py-3 whitespace-nowrap">Tên gói thầu</th>
+                                                        <th className="px-4 py-3 whitespace-nowrap text-right">Giá trị HĐ</th>
                                                     </tr>
                                                 </thead>
                                                 <tbody className="divide-y divide-slate-100">
-                                                    <tr>
-                                                        <td className="px-4 py-3" colSpan={4}>
-                                                            <div className="text-red-600 font-medium flex items-center gap-1">
-                                                                <span>★</span>
-                                                                <span className="italic">{selectedProject.projectName}</span>
-                                                            </div>
-                                                        </td>
-                                                    </tr>
-                                                    <tr className="bg-white">
-                                                        <td className="px-4 py-3 font-semibold text-red-600 italic">Thiếu file: HĐ, BBNT, BBTL, BB...</td>
-                                                        <td className="px-4 py-3 text-slate-600">5/9/2025</td>
-                                                        <td className="px-4 py-3 text-slate-600">2025/05/18-TTQT&QLHT</td>
-                                                        <td className="px-4 py-3 text-slate-600">Tư vấn thẩm tra</td>
-                                                    </tr>
+                                                    {selectedProject && realContracts.get(selectedProject.projectName) && realContracts.get(selectedProject.projectName)!.length > 0 ? (
+                                                        realContracts.get(selectedProject.projectName)!.map((contract: ContractRow) => (
+                                                            <tr key={contract.id} className="bg-white hover:bg-slate-50 transition-colors">
+                                                                <td className="px-4 py-3 font-semibold text-red-600 italic">
+                                                                    {contract.file_status || 'Chưa có file'}
+                                                                </td>
+                                                                <td className="px-4 py-3 text-slate-600">
+                                                                    {contract.ngay_ky_hd ? new Date(contract.ngay_ky_hd).toLocaleDateString('vi-VN') : '(Chưa nhập)'}
+                                                                </td>
+                                                                <td className="px-4 py-3 text-slate-600">
+                                                                    {contract.so_hop_dong || '(Chưa nhập)'}
+                                                                </td>
+                                                                <td className="px-4 py-3 text-slate-600 truncate max-w-[150px]">
+                                                                    {contract.ten_goi_thau || '(Chưa nhập)'}
+                                                                </td>
+                                                                <td className="px-4 py-3 text-slate-600 text-right">
+                                                                    {contract.gia_tri_hd ? contract.gia_tri_hd.toLocaleString('vi-VN') : '0'}
+                                                                </td>
+                                                            </tr>
+                                                        ))
+                                                    ) : (
+                                                        <tr>
+                                                            <td className="px-4 py-8 text-slate-500 italic text-center" colSpan={5}>
+                                                                Chưa có hợp đồng nào cho dự án này
+                                                            </td>
+                                                        </tr>
+                                                    )}
                                                 </tbody>
                                             </table>
                                         </div>
                                         <div className="bg-white border-t border-slate-100 px-4 py-3 flex justify-end gap-3">
                                             <button
-                                                onClick={() => navigate('/khach-hang/hop-dong')}
+                                                onClick={() => navigate(`/khach-hang/hop-dong?project=${encodeURIComponent(selectedProject.projectName)}`)}
                                                 className="action-btn p-1.5 text-blue-500 hover:text-blue-700 hover:bg-blue-50 rounded-md border border-blue-100"
-                                                title="Mở rộng"
+                                                title="Xem tất cả hợp đồng của dự án"
                                             >
                                                 <Maximize2 size={16} />
                                             </button>
                                             <button
-                                                onClick={() => setIsAddContractModalOpen(true)}
+                                                onClick={() => {
+                                                    setContractFormData({ soHopDong: '', tenGoiThau: '', ngayKyHD: '', fileStatus: 'Chưa có file' });
+                                                    setIsAddContractModalOpen(true);
+                                                }}
                                                 className="action-btn p-1.5 text-blue-500 hover:text-blue-700 hover:bg-blue-50 rounded-md border border-blue-100"
                                                 title="Thêm hợp đồng"
                                             >
@@ -430,7 +594,12 @@ export function DuAn() {
                             </div>
                             <div>
                                 <label className="block text-sm font-medium text-slate-700 mb-1">Ngày ký HĐ</label>
-                                <input type="text" className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-purple-500/20" placeholder="dd/mm/yyyy" value={contractFormData.ngayKyHD} onChange={e => setContractFormData({ ...contractFormData, ngayKyHD: e.target.value })} />
+                                <input 
+                                    type="date" 
+                                    className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-purple-500/20" 
+                                    value={contractFormData.ngayKyHD} 
+                                    onChange={e => setContractFormData({ ...contractFormData, ngayKyHD: e.target.value })} 
+                                />
                             </div>
                         </div>
                         <div className="px-6 py-4 bg-slate-50 border-t border-slate-200 flex justify-end gap-2">

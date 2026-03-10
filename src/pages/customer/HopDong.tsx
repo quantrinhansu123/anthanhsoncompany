@@ -1,8 +1,14 @@
-import React, { useState } from 'react';
-import { Search, Plus, Eye, Edit, Trash2, X, ChevronRight, ChevronDown, FileText, Upload, FolderOpen, ClipboardList, PlusCircle, Maximize2, ExternalLink, CheckCircle } from 'lucide-react';
+import React, { useEffect, useState } from 'react';
+import { Search, Plus, Eye, Edit, Trash2, X, ChevronRight, ChevronDown, FileText, Upload, FolderOpen, ClipboardList, PlusCircle, Maximize2, ExternalLink, CheckCircle, FileCheck, Image as ImageIcon, Link as LinkIcon } from 'lucide-react';
+import { useSearchParams } from 'react-router-dom';
+import { contractService, ContractRow } from '../../lib/services/contractService';
+import { projectService } from '../../lib/services/projectService';
+import { taskService, TaskRow } from '../../lib/services/taskService';
+import { supabase } from '../../lib/supabase';
 
 interface Contract {
     id: number;
+    uuid?: string; // UUID thực sự từ database
     fileStatus: string;
     ngayKyHD: string;
     soHopDong: string;
@@ -20,66 +26,6 @@ interface ProjectGroup {
     projectName: string;
     contracts: Contract[];
 }
-
-const mockData: ProjectGroup[] = [
-    {
-        id: 1,
-        projectName: "Đề cương nhiệm vụ và dự toán xây dựng định mức kinh tế - kỹ thuật, đơn giá vận hành các công trình trạm mạng chuyển các triển khai bàn thành phố Đà Nẵng",
-        contracts: [
-            {
-                id: 101,
-                fileStatus: "Thiếu file: HĐ, BBNT, BBTL, PL34",
-                ngayKyHD: "5/9/2025",
-                soHopDong: "2025/05/18-TTQT&QLHT",
-                tenGoiThau: "Tư vấn thẩm tra",
-                loaiDichVu: "TTHVTC-ĐT",
-                giaTriHD: 5000000,
-                giaTriQT: 5000000,
-                daThu: 0,
-                conPhaiThu: 5000000,
-                ngayUpdate: "2/10/2026",
-            }
-        ]
-    },
-    {
-        id: 2,
-        projectName: "Dự án Tuyến ống D500, D400, D300 và hoàn trả tuyến ống D220 – D63 hiện trạng tuyến đường Quốc lộ 14B. Hạng mục: Phòng cháy chữa cháy",
-        contracts: [
-            {
-                id: 201,
-                fileStatus: "Thiếu file: HĐ, BBNT, BBTL, PL34",
-                ngayKyHD: "3/7/2025",
-                soHopDong: "13/2025/HĐTV-CTCN",
-                tenGoiThau: "Tư vấn lập hồ sơ thiết kế xây dựng triển khai sau thiết kế cơ sở",
-                loaiDichVu: "",
-                giaTriHD: 65680000,
-                giaTriQT: 65680000,
-                daThu: 55828000,
-                conPhaiThu: 9852000,
-                ngayUpdate: "2/10/2026",
-            }
-        ]
-    },
-    {
-        id: 3,
-        projectName: "Khu du lịch sinh thái Phúc Hợp Trúc Năng Tiên, đảo Chồng Khoa",
-        contracts: [
-            {
-                id: 301,
-                fileStatus: "Thiếu file: HĐ, BBNT, BBTL, PL34",
-                ngayKyHD: "5/17/2025",
-                soHopDong: "01/2025/HMSHDLT.TNT.TCK",
-                tenGoiThau: "Khảo sát địa hình",
-                loaiDichVu: "KSĐH",
-                giaTriHD: 371500000,
-                giaTriQT: 371500000,
-                daThu: 371500000,
-                conPhaiThu: 0,
-                ngayUpdate: "2/10/2026",
-            }
-        ]
-    }
-];
 
 // Toast notification component
 function Toast({ message, type, onClose }: { message: string; type: 'success' | 'info' | 'warning'; onClose: () => void }) {
@@ -103,9 +49,13 @@ function Toast({ message, type, onClose }: { message: string; type: 'success' | 
 }
 
 export function HopDong() {
-    const [items, setItems] = useState(mockData);
+    const [searchParams, setSearchParams] = useSearchParams();
+    const filterProject = searchParams.get('project'); // Filter theo tên dự án từ URL
+    
+    const [items, setItems] = useState<ProjectGroup[]>([]);
+    const [projects, setProjects] = useState<Array<{ id: string; ten_du_an: string }>>([]);
     const [searchTerm, setSearchTerm] = useState('');
-    const [expandedProjects, setExpandedProjects] = useState<number[]>(mockData.map(p => p.id));
+    const [expandedProjects, setExpandedProjects] = useState<number[]>([]);
     const [isViewModalOpen, setIsViewModalOpen] = useState(false);
     const [selectedContract, setSelectedContract] = useState<Contract | null>(null);
     const [selectedProjectName, setSelectedProjectName] = useState('');
@@ -122,11 +72,39 @@ export function HopDong() {
     const [isAddDocumentModalOpen, setIsAddDocumentModalOpen] = useState(false);
     const [isAddFinanceModalOpen, setIsAddFinanceModalOpen] = useState(false);
     const [isAddTaskModalOpen, setIsAddTaskModalOpen] = useState(false);
+    
+    // State for tasks
+    const [tasks, setTasks] = useState<TaskRow[]>([]);
+    const [loadingTasks, setLoadingTasks] = useState(false);
+    
+    // State for tasks by contract (for progress display in table)
+    const [tasksByContract, setTasksByContract] = useState<Map<string, TaskRow[]>>(new Map());
+    
+    // State for nghiệm thu modal
+    const [isNghiemThuModalOpen, setIsNghiemThuModalOpen] = useState(false);
+    const [selectedTaskForNghiemThu, setSelectedTaskForNghiemThu] = useState<TaskRow | null>(null);
+    const [nghiemThuForm, setNghiemThuForm] = useState({
+        tien_do: 0,
+        link_tai_lieu: '',
+        anh_bang_chung: null as File | null,
+        anh_bang_chung_url: '' as string | null
+    });
+    const [uploadingImage, setUploadingImage] = useState(false);
 
     // Form states for tab modals
     const [documentForm, setDocumentForm] = useState({ name: '', type: '' });
     const [financeForm, setFinanceForm] = useState({ type: 'Phiếu thu', amount: '', note: '' });
-    const [taskForm, setTaskForm] = useState({ name: '', deadline: '', assignee: '' });
+    const [taskForm, setTaskForm] = useState({ 
+        ten_task: '', 
+        mo_ta: '', 
+        trang_thai: 'Chưa bắt đầu', 
+        uu_tien: 'Trung bình',
+        ngay_bat_dau: '', 
+        ngay_ket_thuc: '', 
+        nguoi_phu_trach: '',
+        tien_do: 0,
+        ghi_chu: ''
+    });
 
     // Add form state
     const [formData, setFormData] = useState({
@@ -137,7 +115,7 @@ export function HopDong() {
         giaTriHD: '',
         giaTriQT: '',
         daThu: '',
-        projectId: 0,
+        projectId: '',
     });
 
     const formatCurrency = (amount: number) => {
@@ -153,12 +131,56 @@ export function HopDong() {
         );
     };
 
+    const loadTasks = async () => {
+        if (!selectedContract?.uuid) {
+            setTasks([]);
+            return;
+        }
+        
+        setLoadingTasks(true);
+        try {
+            const taskList = await taskService.getByHopDongId(selectedContract.uuid);
+            setTasks(taskList);
+            console.log('[HopDong] Loaded tasks:', taskList);
+        } catch (error) {
+            console.error('[HopDong] Error loading tasks:', error);
+            setTasks([]);
+        } finally {
+            setLoadingTasks(false);
+        }
+    };
+
     const handleViewClick = (contract: Contract, projectName: string) => {
+        console.log('handleViewClick - contract:', contract);
         setSelectedContract(contract);
         setSelectedProjectName(projectName);
         setActiveTab('info');
         setIsViewModalOpen(true);
     };
+    
+    // Load tasks when selectedContract changes or when switching to tasks tab
+    useEffect(() => {
+        if (selectedContract?.uuid && activeTab === 'tasks') {
+            loadTasks();
+        }
+    }, [selectedContract?.uuid, activeTab]);
+    
+    // Load tasks when viewing contract info to calculate progress
+    useEffect(() => {
+        if (selectedContract?.uuid && isViewModalOpen) {
+            loadTasks();
+        }
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [selectedContract?.uuid, isViewModalOpen]);
+    
+    // Calculate contract progress based on tasks
+    const calculateContractProgress = () => {
+        if (tasks.length === 0) return 0;
+        const completedTasks = tasks.filter(task => task.tien_do === 100).length;
+        return Math.round((completedTasks / tasks.length) * 100);
+    };
+    
+    const contractProgress = calculateContractProgress();
 
     const closeViewModal = () => {
         setIsViewModalOpen(false);
@@ -226,36 +248,99 @@ export function HopDong() {
             giaTriHD: '',
             giaTriQT: '',
             daThu: '',
-            projectId: items[0]?.id || 0,
+            projectId: projects[0]?.id || '',
         });
         setIsAddModalOpen(true);
     };
 
-    const handleSaveAdd = () => {
+    const handleSaveAdd = async () => {
+        if (!formData.projectId) {
+            setToast({ message: 'Vui lòng chọn dự án', type: 'warning' });
+            return;
+        }
+
         const giaTriHD = Number(formData.giaTriHD) || 0;
         const giaTriQT = Number(formData.giaTriQT) || 0;
         const daThu = Number(formData.daThu) || 0;
-        const newContract: Contract = {
-            id: Date.now(),
-            fileStatus: 'Chưa có file',
-            ngayKyHD: formData.ngayKyHD || new Date().toLocaleDateString('en-US'),
-            soHopDong: formData.soHopDong,
-            tenGoiThau: formData.tenGoiThau,
-            loaiDichVu: formData.loaiDichVu,
-            giaTriHD,
-            giaTriQT,
-            daThu,
-            conPhaiThu: giaTriQT - daThu,
-            ngayUpdate: new Date().toLocaleDateString('en-US'),
-        };
-        setItems(prev => prev.map(project => {
-            if (project.id === formData.projectId) {
-                return { ...project, contracts: [...project.contracts, newContract] };
+
+        const selectedProject = projects.find(p => p.id === formData.projectId);
+
+        // Ghi xuống bảng hop_dong
+        try {
+            const created = await contractService.create({
+                project_name: selectedProject?.ten_du_an || null,
+                so_hop_dong: formData.soHopDong || null,
+                ten_goi_thau: formData.tenGoiThau || null,
+                loai_dich_vu: formData.loaiDichVu || null,
+                ngay_ky_hd: formData.ngayKyHD || null,
+                gia_tri_hd: giaTriHD,
+                gia_tri_qt: giaTriQT,
+                da_thu: daThu,
+                con_phai_thu: giaTriQT - daThu,
+                file_status: 'Chưa có file',
+                ngay_update: new Date().toISOString().slice(0, 10),
+            });
+
+            if (!created) {
+                setToast({ message: 'Không lưu được hợp đồng. Vui lòng thử lại.', type: 'warning' });
+                return;
             }
-            return project;
-        }));
-        setIsAddModalOpen(false);
-        setToast({ message: 'Đã thêm hợp đồng mới thành công!', type: 'success' });
+
+        // Cập nhật UI: nhóm lại theo project_name như useEffect đang làm
+        const projectName = created.project_name || '(Chưa có tên dự án)';
+        setItems(prev => {
+            // tìm group theo projectName
+            const existing = prev.find(p => p.projectName === projectName);
+            const newContract: Contract = {
+                id: Date.now(),
+                uuid: created.id, // Lưu UUID thực sự từ database
+                fileStatus: created.file_status || 'Chưa có file',
+                ngayKyHD: created.ngay_ky_hd ? new Date(created.ngay_ky_hd).toLocaleDateString('vi-VN') : '',
+                soHopDong: created.so_hop_dong || '',
+                tenGoiThau: created.ten_goi_thau || '',
+                loaiDichVu: created.loai_dich_vu || '',
+                giaTriHD: Number(created.gia_tri_hd || 0),
+                giaTriQT: Number(created.gia_tri_qt || 0),
+                daThu: Number(created.da_thu || 0),
+                conPhaiThu: Number(created.con_phai_thu || 0),
+                ngayUpdate: created.ngay_update ? new Date(created.ngay_update).toLocaleDateString('vi-VN') : '',
+            };
+
+            if (!existing) {
+                const newId = (prev[prev.length - 1]?.id || 0) + 1;
+                return [
+                    ...prev,
+                    {
+                        id: newId,
+                        projectName,
+                        contracts: [newContract],
+                    },
+                ];
+            }
+
+            return prev.map(p =>
+                p.projectName === projectName
+                    ? { ...p, contracts: [...p.contracts, newContract] }
+                    : p
+            );
+        });
+
+            setIsAddModalOpen(false);
+            setToast({ message: 'Đã thêm hợp đồng mới thành công!', type: 'success' });
+        } catch (error: any) {
+            console.error('[HopDong] Error saving contract:', error);
+            let errorMessage = 'Không lưu được hợp đồng. Vui lòng thử lại.';
+            
+            if (error?.code === '42501' || error?.message?.includes('permission') || error?.message?.includes('policy')) {
+                errorMessage = 'Lỗi phân quyền. Vui lòng kiểm tra RLS policies trong Supabase.';
+            } else if (error?.code === '23502' || error?.message?.includes('null value')) {
+                errorMessage = 'Thiếu thông tin bắt buộc. Vui lòng kiểm tra lại các trường.';
+            } else if (error?.message) {
+                errorMessage = `Lỗi: ${error.message}`;
+            }
+            
+            setToast({ message: errorMessage, type: 'warning' });
+        }
     };
 
     const handleDeleteClick = (contractId: number) => {
@@ -280,17 +365,95 @@ export function HopDong() {
         setContractToDelete(null);
     };
 
-    // Filter by search term
-    const filteredItems = items.map(project => ({
-        ...project,
-        contracts: project.contracts.filter(c =>
-            !searchTerm ||
-            c.soHopDong.toLowerCase().includes(searchTerm.toLowerCase()) ||
-            c.tenGoiThau.toLowerCase().includes(searchTerm.toLowerCase()) ||
-            c.loaiDichVu.toLowerCase().includes(searchTerm.toLowerCase()) ||
-            project.projectName.toLowerCase().includes(searchTerm.toLowerCase())
-        )
-    })).filter(project => project.contracts.length > 0 || project.projectName.toLowerCase().includes(searchTerm.toLowerCase()));
+    // Load projects from du_an table
+    useEffect(() => {
+        (async () => {
+            const projectList = await projectService.getAll();
+            setProjects(projectList.map(p => ({ id: p.id, ten_du_an: p.ten_du_an })));
+        })();
+    }, []);
+
+    // Load data from hop_dong table
+    useEffect(() => {
+        (async () => {
+            const rows = await contractService.getAll();
+            // Group by project_name
+            const groups = new Map<string, ContractRow[]>();
+            rows.forEach(row => {
+                const key = row.project_name || '(Chưa có tên dự án)';
+                if (!groups.has(key)) groups.set(key, []);
+                groups.get(key)!.push(row);
+            });
+
+            let idCounter = 1;
+            const projectGroups: ProjectGroup[] = Array.from(groups.entries()).map(([projectName, contracts]) => ({
+                id: idCounter++,
+                projectName,
+                contracts: contracts.map((c, idx) => ({
+                    id: idx + 1,
+                    uuid: c.id, // Lưu UUID thực sự từ database
+                    fileStatus: c.file_status || 'Chưa có file',
+                    ngayKyHD: c.ngay_ky_hd ? new Date(c.ngay_ky_hd).toLocaleDateString('vi-VN') : '',
+                    soHopDong: c.so_hop_dong || '',
+                    tenGoiThau: c.ten_goi_thau || '',
+                    loaiDichVu: c.loai_dich_vu || '',
+                    giaTriHD: Number(c.gia_tri_hd || 0),
+                    giaTriQT: Number(c.gia_tri_qt || 0),
+                    daThu: Number(c.da_thu || 0),
+                    conPhaiThu: Number(c.con_phai_thu || 0),
+                    ngayUpdate: c.ngay_update ? new Date(c.ngay_update).toLocaleDateString('vi-VN') : '',
+                })),
+            }));
+
+            setItems(projectGroups);
+            setExpandedProjects(projectGroups.map(p => p.id));
+            
+            // Load tasks for all contracts to calculate progress
+            const tasksMap = new Map<string, TaskRow[]>();
+            await Promise.all(
+                rows.map(async (row) => {
+                    try {
+                        const contractTasks = await taskService.getByHopDongId(row.id);
+                        tasksMap.set(row.id, contractTasks);
+                    } catch (error) {
+                        console.error(`[HopDong] Error loading tasks for contract ${row.id}:`, error);
+                        tasksMap.set(row.id, []);
+                    }
+                })
+            );
+            setTasksByContract(tasksMap);
+        })();
+    }, []);
+    
+    // Calculate progress for a contract
+    const getContractProgress = (contractUuid: string | undefined) => {
+        if (!contractUuid) return 0;
+        const contractTasks = tasksByContract.get(contractUuid) || [];
+        if (contractTasks.length === 0) return 0;
+        const completedTasks = contractTasks.filter(task => task.tien_do === 100).length;
+        return Math.round((completedTasks / contractTasks.length) * 100);
+    };
+
+    // Filter by search term and project filter from URL
+    const filteredItems = items
+        .filter(project => {
+            // Filter theo project từ URL nếu có
+            if (filterProject) {
+                return project.projectName === filterProject;
+            }
+            return true;
+        })
+        .map(project => ({
+            ...project,
+            contracts: project.contracts.filter(c =>
+                !searchTerm ||
+                c.soHopDong.toLowerCase().includes(searchTerm.toLowerCase()) ||
+                c.tenGoiThau.toLowerCase().includes(searchTerm.toLowerCase()) ||
+                c.loaiDichVu.toLowerCase().includes(searchTerm.toLowerCase()) ||
+                project.projectName.toLowerCase().includes(searchTerm.toLowerCase())
+            )
+        }))
+        .filter(project => project.contracts.length > 0 || project.projectName.toLowerCase().includes(searchTerm.toLowerCase()));
 
     return (
         <div className="animate-in fade-in slide-in-from-bottom-4 duration-500 pb-10">
@@ -344,6 +507,7 @@ export function HopDong() {
                                 <th className="py-3.5 px-3 font-semibold text-xs uppercase tracking-wider text-right min-w-[120px]">Giá trị QT</th>
                                 <th className="py-3.5 px-3 font-semibold text-xs uppercase tracking-wider text-right min-w-[110px]">Đã thu</th>
                                 <th className="py-3.5 px-3 font-semibold text-xs uppercase tracking-wider text-right min-w-[110px]">Còn phải thu</th>
+                                <th className="py-3.5 px-3 font-semibold text-xs uppercase tracking-wider min-w-[120px]">Tiến độ</th>
                                 <th className="py-3.5 px-3 font-semibold text-xs uppercase tracking-wider min-w-[100px]">Ngày update</th>
                                 <th className="py-3.5 px-3 pr-6 font-semibold text-xs uppercase tracking-wider text-center w-[100px]">Hành động</th>
                             </tr>
@@ -361,7 +525,7 @@ export function HopDong() {
                                                 <ChevronDown size={16} className="text-slate-400" />
                                             </div>
                                         </td>
-                                        <td colSpan={11} className="py-3 px-3">
+                                        <td colSpan={12} className="py-3 px-3">
                                             <div className="flex items-center gap-2">
                                                 <span className="text-red-500 text-base">★</span>
                                                 <span className="font-semibold text-slate-700 text-[13px] leading-snug">{project.projectName}</span>
@@ -398,6 +562,32 @@ export function HopDong() {
                                                 ) : (
                                                     <span className="text-green-600 font-medium">0</span>
                                                 )}
+                                            </td>
+                                            <td className="py-3 px-3">
+                                                {(() => {
+                                                    const progress = getContractProgress(contract.uuid);
+                                                    const contractTasks = tasksByContract.get(contract.uuid || '') || [];
+                                                    return (
+                                                        <div className="flex items-center gap-2">
+                                                            <div className="flex-1 bg-slate-200 rounded-full h-2 overflow-hidden min-w-[60px]">
+                                                                <div
+                                                                    className={`h-full rounded-full transition-all duration-300 ${
+                                                                        progress === 100 ? 'bg-emerald-500' :
+                                                                        progress >= 75 ? 'bg-blue-500' :
+                                                                        progress >= 50 ? 'bg-yellow-500' :
+                                                                        progress >= 25 ? 'bg-orange-500' :
+                                                                        'bg-slate-400'
+                                                                    }`}
+                                                                    style={{ width: `${progress}%` }}
+                                                                />
+                                                            </div>
+                                                            <span className="text-xs font-medium text-slate-600 w-10 text-right">{progress}%</span>
+                                                            {contractTasks.length > 0 && (
+                                                                <span className="text-xs text-slate-400">({contractTasks.filter(t => t.tien_do === 100).length}/{contractTasks.length})</span>
+                                                            )}
+                                                        </div>
+                                                    );
+                                                })()}
                                             </td>
                                             <td className="py-3 px-3 text-slate-500 text-[12px]">{contract.ngayUpdate}</td>
                                             <td className="py-3 px-3 pr-6 text-center">
@@ -525,6 +715,34 @@ export function HopDong() {
                                         ))}
                                     </div>
 
+                                    {/* Task Progress */}
+                                    <div className="bg-white border text-sm text-slate-700 border-slate-200 shadow-sm rounded-xl">
+                                        <div className="px-4 py-3 border-b border-slate-200 bg-white rounded-t-xl">
+                                            <h3 className="text-sm font-semibold text-slate-800">Tiến độ công việc</h3>
+                                        </div>
+                                        <div className="px-4 py-4">
+                                            <div className="flex items-center justify-between mb-2">
+                                                <span className="text-sm text-slate-600 font-medium">Hoàn thành: {tasks.filter(t => t.tien_do === 100).length} / {tasks.length} task</span>
+                                                <span className="text-sm font-bold text-slate-800">{contractProgress}%</span>
+                                            </div>
+                                            <div className="w-full bg-slate-200 rounded-full h-3 overflow-hidden">
+                                                <div
+                                                    className={`h-full rounded-full transition-all duration-500 ${
+                                                        contractProgress === 100 ? 'bg-emerald-500' :
+                                                        contractProgress >= 75 ? 'bg-blue-500' :
+                                                        contractProgress >= 50 ? 'bg-yellow-500' :
+                                                        contractProgress >= 25 ? 'bg-orange-500' :
+                                                        'bg-slate-400'
+                                                    }`}
+                                                    style={{ width: `${contractProgress}%` }}
+                                                />
+                                            </div>
+                                            {tasks.length === 0 && (
+                                                <p className="text-xs text-slate-400 mt-2 italic">Chưa có task nào</p>
+                                            )}
+                                        </div>
+                                    </div>
+
                                     {/* Financial Summary */}
                                     <div className="bg-white border text-sm text-slate-700 border-slate-200 shadow-sm rounded-xl">
                                         <div className="px-4 py-3 border-b border-slate-200 bg-white rounded-t-xl">
@@ -646,19 +864,143 @@ export function HopDong() {
                                         <div className="px-4 py-3 border-b border-slate-200 bg-white flex items-center justify-between">
                                             <div className="flex items-center gap-2">
                                                 <h3 className="text-sm font-semibold text-slate-800">Công việc CT</h3>
-                                                <span className="px-1.5 py-0.5 bg-slate-100 text-slate-500 rounded text-[10px] font-bold">0</span>
+                                                <span className="px-1.5 py-0.5 bg-slate-100 text-slate-500 rounded text-[10px] font-bold">{tasks.length}</span>
                                             </div>
                                         </div>
-                                        <div className="px-4 py-10 text-center">
-                                            <ClipboardList size={40} className="mx-auto text-slate-300 mb-3" />
-                                            <p className="text-sm text-slate-400 italic">Chưa có dữ liệu</p>
-                                            <p className="text-xs text-slate-400 mt-1">Chưa có công việc nào được thêm</p>
-                                        </div>
+                                        {loadingTasks ? (
+                                            <div className="px-4 py-10 text-center">
+                                                <p className="text-sm text-slate-400">Đang tải...</p>
+                                            </div>
+                                        ) : tasks.length === 0 ? (
+                                            <div className="px-4 py-10 text-center">
+                                                <ClipboardList size={40} className="mx-auto text-slate-300 mb-3" />
+                                                <p className="text-sm text-slate-400 italic">Chưa có dữ liệu</p>
+                                                <p className="text-xs text-slate-400 mt-1">Chưa có công việc nào được thêm</p>
+                                            </div>
+                                        ) : (
+                                            <div className="divide-y divide-slate-100">
+                                                {tasks.map((task) => (
+                                                    <div key={task.id} className="px-4 py-3 hover:bg-slate-50 transition-colors">
+                                                        <div className="flex items-start justify-between gap-3">
+                                                            <div className="flex-1">
+                                                                <div className="flex items-center gap-2 mb-1">
+                                                                    <h4 className="text-sm font-medium text-slate-800">{task.ten_task}</h4>
+                                                                    <span className={`px-2 py-0.5 rounded text-xs font-medium ${
+                                                                        task.trang_thai === 'Hoàn thành' ? 'bg-emerald-100 text-emerald-700' :
+                                                                        task.trang_thai === 'Đang thực hiện' ? 'bg-blue-100 text-blue-700' :
+                                                                        task.trang_thai === 'Tạm dừng' ? 'bg-amber-100 text-amber-700' :
+                                                                        'bg-slate-100 text-slate-700'
+                                                                    }`}>
+                                                                        {task.trang_thai}
+                                                                    </span>
+                                                                    <span className={`px-2 py-0.5 rounded text-xs font-medium ${
+                                                                        task.uu_tien === 'Khẩn cấp' ? 'bg-red-100 text-red-700' :
+                                                                        task.uu_tien === 'Cao' ? 'bg-orange-100 text-orange-700' :
+                                                                        task.uu_tien === 'Trung bình' ? 'bg-blue-100 text-blue-700' :
+                                                                        'bg-slate-100 text-slate-700'
+                                                                    }`}>
+                                                                        {task.uu_tien}
+                                                                    </span>
+                                                                </div>
+                                                                {task.nguoi_phu_trach && (
+                                                                    <p className="text-xs text-slate-500 mb-1">Người phụ trách: {task.nguoi_phu_trach}</p>
+                                                                )}
+                                                                <div className="flex items-center gap-2 text-xs text-slate-500">
+                                                                    {task.ngay_bat_dau && <span>Bắt đầu: {new Date(task.ngay_bat_dau).toLocaleDateString('vi-VN')}</span>}
+                                                                    {task.ngay_ket_thuc && <span>• Kết thúc: {new Date(task.ngay_ket_thuc).toLocaleDateString('vi-VN')}</span>}
+                                                                </div>
+                                                                <div className="mt-2 flex items-center gap-2">
+                                                                    <div className="flex-1 bg-slate-200 rounded-full h-1.5">
+                                                                        <div
+                                                                            className="bg-blue-600 h-1.5 rounded-full transition-all"
+                                                                            style={{ width: `${task.tien_do}%` }}
+                                                                        />
+                                                                    </div>
+                                                                    <span className="text-xs font-medium text-slate-600 w-10 text-right">{task.tien_do}%</span>
+                                                                </div>
+                                                                {(task.link_tai_lieu || task.anh_bang_chung) && (
+                                                                    <div className="mt-2 flex items-center gap-2 text-xs text-slate-500">
+                                                                        {task.link_tai_lieu && (
+                                                                            <a href={task.link_tai_lieu} target="_blank" rel="noopener noreferrer" className="flex items-center gap-1 text-blue-600 hover:underline">
+                                                                                <LinkIcon size={12} />
+                                                                                Tài liệu
+                                                                            </a>
+                                                                        )}
+                                                                        {task.anh_bang_chung && (
+                                                                            <a href={task.anh_bang_chung} target="_blank" rel="noopener noreferrer" className="flex items-center gap-1 text-blue-600 hover:underline">
+                                                                                <ImageIcon size={12} />
+                                                                                Ảnh bằng chứng
+                                                                            </a>
+                                                                        )}
+                                                                    </div>
+                                                                )}
+                                                            </div>
+                                                            <div className="flex items-center gap-1">
+                                                                <button
+                                                                    type="button"
+                                                                    onClick={(e) => {
+                                                                        e.preventDefault();
+                                                                        e.stopPropagation();
+                                                                        setSelectedTaskForNghiemThu(task);
+                                                                        setNghiemThuForm({
+                                                                            tien_do: task.tien_do,
+                                                                            link_tai_lieu: task.link_tai_lieu || '',
+                                                                            anh_bang_chung: null,
+                                                                            anh_bang_chung_url: task.anh_bang_chung || null
+                                                                        });
+                                                                        setIsNghiemThuModalOpen(true);
+                                                                    }}
+                                                                    className="p-1.5 text-emerald-600 hover:text-emerald-700 hover:bg-emerald-50 rounded-md border border-emerald-100 transition-colors"
+                                                                    title="Nghiệm thu"
+                                                                >
+                                                                    <FileCheck size={16} />
+                                                                </button>
+                                                            </div>
+                                                        </div>
+                                                    </div>
+                                                ))}
+                                            </div>
+                                        )}
                                         <div className="bg-white border-t border-slate-100 px-4 py-3 flex justify-end gap-3">
                                             <button
-                                                onClick={() => setIsAddTaskModalOpen(true)}
-                                                className="action-btn p-1.5 text-blue-500 hover:text-blue-700 hover:bg-blue-50 rounded-md border border-blue-100"
+                                                type="button"
+                                                onClick={(e) => {
+                                                    e.preventDefault();
+                                                    e.stopPropagation();
+                                                    console.log('[HopDong] Click thêm công việc');
+                                                    console.log('[HopDong] selectedContract:', selectedContract);
+                                                    console.log('[HopDong] selectedContract.uuid:', selectedContract?.uuid);
+                                                    
+                                                    if (!selectedContract) {
+                                                        console.error('[HopDong] selectedContract is null');
+                                                        setToast({ message: 'Không tìm thấy hợp đồng. Vui lòng thử lại.', type: 'warning' });
+                                                        return;
+                                                    }
+                                                    
+                                                    if (!selectedContract.uuid) {
+                                                        console.error('[HopDong] selectedContract.uuid is missing');
+                                                        setToast({ message: 'Hợp đồng chưa có UUID. Vui lòng tải lại trang.', type: 'warning' });
+                                                        return;
+                                                    }
+                                                    
+                                                    setTaskForm({ 
+                                                        ten_task: '', 
+                                                        mo_ta: '', 
+                                                        trang_thai: 'Chưa bắt đầu', 
+                                                        uu_tien: 'Trung bình',
+                                                        ngay_bat_dau: '', 
+                                                        ngay_ket_thuc: '', 
+                                                        nguoi_phu_trach: '',
+                                                        tien_do: 0,
+                                                        ghi_chu: ''
+                                                    });
+                                                    
+                                                    console.log('[HopDong] Opening task modal');
+                                                    setIsAddTaskModalOpen(true);
+                                                }}
+                                                className="action-btn p-1.5 text-blue-500 hover:text-blue-700 hover:bg-blue-50 rounded-md border border-blue-100 cursor-pointer relative z-10"
                                                 title="Thêm công việc"
+                                                style={{ pointerEvents: 'auto' }}
                                             >
                                                 <Plus size={16} />
                                             </button>
@@ -710,11 +1052,12 @@ export function HopDong() {
                                     <label className="block text-sm font-medium text-slate-700 mb-1">Dự án</label>
                                     <select
                                         value={formData.projectId}
-                                        onChange={(e) => setFormData({ ...formData, projectId: Number(e.target.value) })}
+                                        onChange={(e) => setFormData({ ...formData, projectId: e.target.value })}
                                         className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-purple-500"
                                     >
-                                        {items.map(p => (
-                                            <option key={p.id} value={p.id}>{p.projectName.substring(0, 80)}...</option>
+                                        <option value="">-- Chọn dự án --</option>
+                                        {projects.map(p => (
+                                            <option key={p.id} value={p.id}>{p.ten_du_an}</option>
                                         ))}
                                     </select>
                                 </div>
@@ -734,7 +1077,12 @@ export function HopDong() {
                                 </div>
                                 <div>
                                     <label className="block text-sm font-medium text-slate-700 mb-1">Ngày ký HĐ</label>
-                                    <input type="text" value={formData.ngayKyHD} onChange={(e) => setFormData({ ...formData, ngayKyHD: e.target.value })} className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-purple-500" placeholder="dd/mm/yyyy" />
+                                    <input 
+                                        type="date" 
+                                        value={formData.ngayKyHD} 
+                                        onChange={(e) => setFormData({ ...formData, ngayKyHD: e.target.value })} 
+                                        className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-purple-500" 
+                                    />
                                 </div>
                             </div>
                             <div className="grid grid-cols-3 gap-4">
@@ -789,11 +1137,11 @@ export function HopDong() {
                         <div className="p-6 space-y-4">
                             <div>
                                 <label className="block text-sm font-medium text-slate-700 mb-1">Tên tài liệu</label>
-                                <input type="text" className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-purple-500/20" placeholder="Nhập tên tài liệu..." value={documentForm.name} onChange={e => setDocumentForm({ ...documentForm, name: e.target.value })} />
+                                <input type="text" className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-purple-500/20" placeholder="Nhập tên tài liệu..." value={documentForm.name || ''} onChange={e => setDocumentForm({ ...documentForm, name: e.target.value })} />
                             </div>
                             <div>
                                 <label className="block text-sm font-medium text-slate-700 mb-1">Loại tài liệu</label>
-                                <select className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-purple-500/20 bg-white" value={documentForm.type} onChange={e => setDocumentForm({ ...documentForm, type: e.target.value })}>
+                                <select className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-purple-500/20 bg-white" value={documentForm.type || ''} onChange={e => setDocumentForm({ ...documentForm, type: e.target.value })}>
                                     <option value="">Chọn loại...</option>
                                     <option value="Hợp đồng">Hợp đồng</option>
                                     <option value="Biên bản">Biên bản</option>
@@ -820,18 +1168,18 @@ export function HopDong() {
                         <div className="p-6 space-y-4">
                             <div>
                                 <label className="block text-sm font-medium text-slate-700 mb-1">Loại phiếu</label>
-                                <select className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-purple-500/20 bg-white" value={financeForm.type} onChange={e => setFinanceForm({ ...financeForm, type: e.target.value })}>
+                                <select className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-purple-500/20 bg-white" value={financeForm.type || 'Phiếu thu'} onChange={e => setFinanceForm({ ...financeForm, type: e.target.value })}>
                                     <option value="Phiếu thu">Phiếu thu</option>
                                     <option value="Phiếu chi">Phiếu chi</option>
                                 </select>
                             </div>
                             <div>
                                 <label className="block text-sm font-medium text-slate-700 mb-1">Số tiền</label>
-                                <input type="number" className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-purple-500/20" placeholder="0" value={financeForm.amount} onChange={e => setFinanceForm({ ...financeForm, amount: e.target.value })} />
+                                <input type="number" className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-purple-500/20" placeholder="0" value={financeForm.amount || ''} onChange={e => setFinanceForm({ ...financeForm, amount: e.target.value })} />
                             </div>
                             <div>
                                 <label className="block text-sm font-medium text-slate-700 mb-1">Nội dung</label>
-                                <textarea className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-purple-500/20" placeholder="Nhập nội dung..." rows={3} value={financeForm.note} onChange={e => setFinanceForm({ ...financeForm, note: e.target.value })}></textarea>
+                                <textarea className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-purple-500/20" placeholder="Nhập nội dung..." rows={3} value={financeForm.note || ''} onChange={e => setFinanceForm({ ...financeForm, note: e.target.value })}></textarea>
                             </div>
                         </div>
                         <div className="px-6 py-4 bg-slate-50 border-t border-slate-200 flex justify-end gap-2">
@@ -844,29 +1192,411 @@ export function HopDong() {
 
             {/* Add Task Modal */}
             {isAddTaskModalOpen && (
-                <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 p-4 backdrop-blur-sm animate-in fade-in duration-200">
-                    <div className="bg-white rounded-2xl shadow-xl w-full max-w-md overflow-hidden animate-in zoom-in-95 duration-200">
+                <div className="fixed inset-0 z-[200] flex items-center justify-center bg-black/50 p-4 backdrop-blur-sm animate-in fade-in duration-200" onClick={(e) => {
+                    if (e.target === e.currentTarget) {
+                        setIsAddTaskModalOpen(false);
+                    }
+                }}>
+                    <div className="bg-white rounded-2xl shadow-xl w-full max-w-2xl overflow-hidden animate-in zoom-in-95 duration-200">
                         <div className="px-6 py-4 border-b border-slate-200 flex justify-between items-center bg-white">
                             <h3 className="text-lg font-bold text-slate-800">Thêm công việc mới</h3>
                             <button onClick={() => setIsAddTaskModalOpen(false)} className="text-slate-400 hover:text-slate-600 transition-colors"><X size={20} /></button>
                         </div>
-                        <div className="p-6 space-y-4">
+                        <div className="p-6 space-y-4 max-h-[70vh] overflow-y-auto">
                             <div>
-                                <label className="block text-sm font-medium text-slate-700 mb-1">Tên công việc</label>
-                                <input type="text" className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-purple-500/20" placeholder="Nhập tên công việc..." value={taskForm.name} onChange={e => setTaskForm({ ...taskForm, name: e.target.value })} />
+                                <label className="block text-sm font-medium text-slate-700 mb-1">Tên công việc *</label>
+                                <input 
+                                    type="text" 
+                                    className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-purple-500/20" 
+                                    placeholder="Nhập tên công việc..." 
+                                    value={taskForm.ten_task || ''} 
+                                    onChange={e => setTaskForm({ ...taskForm, ten_task: e.target.value })} 
+                                />
                             </div>
                             <div>
-                                <label className="block text-sm font-medium text-slate-700 mb-1">Deadline</label>
-                                <input type="text" className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-purple-500/20" placeholder="dd/mm/yyyy" value={taskForm.deadline} onChange={e => setTaskForm({ ...taskForm, deadline: e.target.value })} />
+                                <label className="block text-sm font-medium text-slate-700 mb-1">Mô tả</label>
+                                <textarea 
+                                    className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-purple-500/20" 
+                                    rows={3}
+                                    placeholder="Nhập mô tả công việc..." 
+                                    value={taskForm.mo_ta || ''} 
+                                    onChange={e => setTaskForm({ ...taskForm, mo_ta: e.target.value })} 
+                                />
+                            </div>
+                            <div className="grid grid-cols-2 gap-4">
+                                <div>
+                                    <label className="block text-sm font-medium text-slate-700 mb-1">Trạng thái</label>
+                                    <select 
+                                        className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-purple-500/20"
+                                        value={taskForm.trang_thai}
+                                        onChange={e => setTaskForm({ ...taskForm, trang_thai: e.target.value })}
+                                    >
+                                        <option value="Chưa bắt đầu">Chưa bắt đầu</option>
+                                        <option value="Đang thực hiện">Đang thực hiện</option>
+                                        <option value="Hoàn thành">Hoàn thành</option>
+                                        <option value="Tạm dừng">Tạm dừng</option>
+                                    </select>
+                                </div>
+                                <div>
+                                    <label className="block text-sm font-medium text-slate-700 mb-1">Độ ưu tiên</label>
+                                    <select 
+                                        className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-purple-500/20"
+                                        value={taskForm.uu_tien}
+                                        onChange={e => setTaskForm({ ...taskForm, uu_tien: e.target.value })}
+                                    >
+                                        <option value="Thấp">Thấp</option>
+                                        <option value="Trung bình">Trung bình</option>
+                                        <option value="Cao">Cao</option>
+                                        <option value="Khẩn cấp">Khẩn cấp</option>
+                                    </select>
+                                </div>
+                            </div>
+                            <div className="grid grid-cols-2 gap-4">
+                                <div>
+                                    <label className="block text-sm font-medium text-slate-700 mb-1">Ngày bắt đầu</label>
+                                    <input 
+                                        type="date" 
+                                        className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-purple-500/20" 
+                                        value={taskForm.ngay_bat_dau || ''} 
+                                        onChange={e => setTaskForm({ ...taskForm, ngay_bat_dau: e.target.value })} 
+                                    />
+                                </div>
+                                <div>
+                                    <label className="block text-sm font-medium text-slate-700 mb-1">Ngày kết thúc</label>
+                                    <input 
+                                        type="date" 
+                                        className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-purple-500/20" 
+                                        value={taskForm.ngay_ket_thuc || ''} 
+                                        onChange={e => setTaskForm({ ...taskForm, ngay_ket_thuc: e.target.value })} 
+                                    />
+                                </div>
+                            </div>
+                            <div className="grid grid-cols-2 gap-4">
+                                <div>
+                                    <label className="block text-sm font-medium text-slate-700 mb-1">Người phụ trách</label>
+                                    <input 
+                                        type="text" 
+                                        className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-purple-500/20" 
+                                        placeholder="Nhập tên người phụ trách..." 
+                                        value={taskForm.nguoi_phu_trach || ''} 
+                                        onChange={e => setTaskForm({ ...taskForm, nguoi_phu_trach: e.target.value })} 
+                                    />
+                                </div>
+                                <div>
+                                    <label className="block text-sm font-medium text-slate-700 mb-1">Tiến độ (%)</label>
+                                    <input 
+                                        type="number" 
+                                        min="0" 
+                                        max="100" 
+                                        className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-purple-500/20" 
+                                        value={taskForm.tien_do ?? 0} 
+                                        onChange={e => setTaskForm({ ...taskForm, tien_do: parseInt(e.target.value) || 0 })} 
+                                    />
+                                </div>
                             </div>
                             <div>
-                                <label className="block text-sm font-medium text-slate-700 mb-1">Người thực hiện</label>
-                                <input type="text" className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-purple-500/20" placeholder="Nhập tên người thực hiện..." value={taskForm.assignee} onChange={e => setTaskForm({ ...taskForm, assignee: e.target.value })} />
+                                <label className="block text-sm font-medium text-slate-700 mb-1">Ghi chú</label>
+                                <textarea 
+                                    className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-purple-500/20" 
+                                    rows={2}
+                                    placeholder="Nhập ghi chú..." 
+                                    value={taskForm.ghi_chu || ''} 
+                                    onChange={e => setTaskForm({ ...taskForm, ghi_chu: e.target.value })} 
+                                />
                             </div>
                         </div>
                         <div className="px-6 py-4 bg-slate-50 border-t border-slate-200 flex justify-end gap-2">
                             <button onClick={() => setIsAddTaskModalOpen(false)} className="px-4 py-2 text-sm font-medium text-slate-600 hover:bg-slate-200 rounded-lg transition-colors">Hủy</button>
-                            <button onClick={() => { setToast({ message: 'Đã thêm công việc thành công!', type: 'success' }); setIsAddTaskModalOpen(false); }} className="px-4 py-2 text-sm font-bold text-white bg-purple-600 hover:bg-purple-700 rounded-lg shadow-md transition-colors">Thêm</button>
+                            <button 
+                                onClick={async () => {
+                                    if (!selectedContract?.uuid) {
+                                        setToast({ message: 'Không tìm thấy hợp đồng. Vui lòng thử lại.', type: 'warning' });
+                                        return;
+                                    }
+                                    if (!taskForm.ten_task.trim()) {
+                                        setToast({ message: 'Vui lòng nhập tên công việc', type: 'warning' });
+                                        return;
+                                    }
+                                    try {
+                                        console.log('[HopDong] Creating task with payload:', {
+                                            hop_dong_id: selectedContract.uuid,
+                                            ten_task: taskForm.ten_task,
+                                            mo_ta: taskForm.mo_ta || null,
+                                            trang_thai: taskForm.trang_thai,
+                                            uu_tien: taskForm.uu_tien,
+                                            ngay_bat_dau: taskForm.ngay_bat_dau || null,
+                                            ngay_ket_thuc: taskForm.ngay_ket_thuc || null,
+                                            ngay_hoan_thanh: null,
+                                            nguoi_phu_trach: taskForm.nguoi_phu_trach || null,
+                                            tien_do: taskForm.tien_do,
+                                            ghi_chu: taskForm.ghi_chu || null,
+                                        });
+                                        
+                                        const created = await taskService.create({
+                                            hop_dong_id: selectedContract.uuid,
+                                            ten_task: taskForm.ten_task,
+                                            mo_ta: taskForm.mo_ta || null,
+                                            trang_thai: taskForm.trang_thai,
+                                            uu_tien: taskForm.uu_tien,
+                                            ngay_bat_dau: taskForm.ngay_bat_dau || null,
+                                            ngay_ket_thuc: taskForm.ngay_ket_thuc || null,
+                                            ngay_hoan_thanh: null,
+                                            nguoi_phu_trach: taskForm.nguoi_phu_trach || null,
+                                            tien_do: taskForm.tien_do,
+                                            ghi_chu: taskForm.ghi_chu || null,
+                                        });
+                                        
+                                        console.log('[HopDong] Task created successfully:', created);
+                                        
+                                        setToast({ message: 'Đã thêm công việc thành công!', type: 'success' });
+                                        setIsAddTaskModalOpen(false);
+                                        
+                                        // Reload tasks
+                                        await loadTasks();
+                                        
+                                        // Update tasksByContract for progress display
+                                        if (selectedContract?.uuid) {
+                                            try {
+                                                const updatedTasks = await taskService.getByHopDongId(selectedContract.uuid);
+                                                setTasksByContract(prev => {
+                                                    const newMap = new Map(prev);
+                                                    newMap.set(selectedContract.uuid, updatedTasks);
+                                                    return newMap;
+                                                });
+                                            } catch (error) {
+                                                console.error('[HopDong] Error updating tasksByContract:', error);
+                                            }
+                                        }
+                                        
+                                        // Reset form
+                                        setTaskForm({ 
+                                            ten_task: '', 
+                                            mo_ta: '', 
+                                            trang_thai: 'Chưa bắt đầu', 
+                                            uu_tien: 'Trung bình',
+                                            ngay_bat_dau: '', 
+                                            ngay_ket_thuc: '', 
+                                            nguoi_phu_trach: '',
+                                            tien_do: 0,
+                                            ghi_chu: ''
+                                        });
+                                    } catch (error: any) {
+                                        console.error('[HopDong] Error saving task:', error);
+                                        console.error('[HopDong] Error code:', error?.code);
+                                        console.error('[HopDong] Error message:', error?.message);
+                                        console.error('[HopDong] Error details:', JSON.stringify(error, null, 2));
+                                        
+                                        let errorMessage = 'Lỗi khi thêm công việc. Vui lòng thử lại.';
+                                        
+                                        if (error?.code === '42501') {
+                                            errorMessage = 'Lỗi phân quyền (RLS). Vui lòng kiểm tra chính sách bảo mật trong Supabase.';
+                                        } else if (error?.code === '23502') {
+                                            errorMessage = `Thiếu thông tin bắt buộc: ${error.message}.`;
+                                        } else if (error?.code === '23503') {
+                                            errorMessage = 'Hợp đồng không tồn tại. Vui lòng kiểm tra lại.';
+                                        } else if (error?.message) {
+                                            errorMessage = `Lỗi: ${error.message}`;
+                                        }
+                                        
+                                        setToast({ message: errorMessage, type: 'warning' });
+                                    }
+                                }} 
+                                className="px-4 py-2 text-sm font-bold text-white bg-purple-600 hover:bg-purple-700 rounded-lg shadow-md transition-colors"
+                            >
+                                Thêm
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* Nghiệm thu Modal */}
+            {isNghiemThuModalOpen && selectedTaskForNghiemThu && (
+                <div className="fixed inset-0 z-[200] flex items-center justify-center bg-black/50 p-4 backdrop-blur-sm animate-in fade-in duration-200" onClick={(e) => {
+                    if (e.target === e.currentTarget) {
+                        setIsNghiemThuModalOpen(false);
+                    }
+                }}>
+                    <div className="bg-white rounded-2xl shadow-xl w-full max-w-2xl overflow-hidden animate-in zoom-in-95 duration-200">
+                        <div className="px-6 py-4 border-b border-slate-200 flex justify-between items-center bg-white">
+                            <h3 className="text-lg font-bold text-slate-800">Nghiệm thu công việc</h3>
+                            <button onClick={() => setIsNghiemThuModalOpen(false)} className="text-slate-400 hover:text-slate-600 transition-colors"><X size={20} /></button>
+                        </div>
+                        <div className="p-6 space-y-4 max-h-[70vh] overflow-y-auto">
+                            <div>
+                                <label className="block text-sm font-medium text-slate-700 mb-1">Tên công việc</label>
+                                <input 
+                                    type="text" 
+                                    className="w-full px-4 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm" 
+                                    value={selectedTaskForNghiemThu.ten_task} 
+                                    disabled
+                                />
+                            </div>
+                            <div>
+                                <label className="block text-sm font-medium text-slate-700 mb-1">Tiến độ (%) *</label>
+                                <input 
+                                    type="number" 
+                                    min="0" 
+                                    max="100" 
+                                    className="w-full px-4 py-2 bg-slate-50 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500/20 focus:border-purple-500 text-sm" 
+                                    value={nghiemThuForm.tien_do} 
+                                    onChange={e => setNghiemThuForm({ ...nghiemThuForm, tien_do: parseInt(e.target.value) || 0 })} 
+                                />
+                            </div>
+                            <div>
+                                <label className="block text-sm font-medium text-slate-700 mb-1">Link tài liệu</label>
+                                <div className="flex items-center gap-2">
+                                    <LinkIcon size={16} className="text-slate-400" />
+                                    <input 
+                                        type="url" 
+                                        className="flex-1 px-4 py-2 bg-slate-50 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500/20 focus:border-purple-500 text-sm" 
+                                        placeholder="https://..." 
+                                        value={nghiemThuForm.link_tai_lieu || ''} 
+                                        onChange={e => setNghiemThuForm({ ...nghiemThuForm, link_tai_lieu: e.target.value })} 
+                                    />
+                                </div>
+                            </div>
+                            <div>
+                                <label className="block text-sm font-medium text-slate-700 mb-1">Ảnh bằng chứng</label>
+                                {nghiemThuForm.anh_bang_chung_url && !nghiemThuForm.anh_bang_chung && (
+                                    <div className="mb-2">
+                                        <img src={nghiemThuForm.anh_bang_chung_url} alt="Bằng chứng hiện tại" className="max-w-full h-32 object-contain rounded-lg border border-slate-200" />
+                                        <button
+                                            type="button"
+                                            onClick={() => setNghiemThuForm({ ...nghiemThuForm, anh_bang_chung_url: null })}
+                                            className="mt-1 text-xs text-red-600 hover:underline"
+                                        >
+                                            Xóa ảnh hiện tại
+                                        </button>
+                                    </div>
+                                )}
+                                {nghiemThuForm.anh_bang_chung && (
+                                    <div className="mb-2">
+                                        <img src={URL.createObjectURL(nghiemThuForm.anh_bang_chung)} alt="Ảnh mới" className="max-w-full h-32 object-contain rounded-lg border border-slate-200" />
+                                        <button
+                                            type="button"
+                                            onClick={() => setNghiemThuForm({ ...nghiemThuForm, anh_bang_chung: null })}
+                                            className="mt-1 text-xs text-red-600 hover:underline"
+                                        >
+                                            Xóa ảnh mới
+                                        </button>
+                                    </div>
+                                )}
+                                <label className="flex flex-col items-center justify-center w-full h-32 border-2 border-dashed border-slate-300 rounded-lg cursor-pointer bg-slate-50 hover:bg-slate-100 transition-colors">
+                                    <div className="flex flex-col items-center justify-center pt-5 pb-6">
+                                        <ImageIcon size={24} className="text-slate-400 mb-2" />
+                                        <p className="text-sm text-slate-500">Click để chọn ảnh</p>
+                                        <p className="text-xs text-slate-400 mt-1">PNG, JPG, GIF (tối đa 5MB)</p>
+                                    </div>
+                                    <input 
+                                        type="file" 
+                                        className="hidden" 
+                                        accept="image/*"
+                                        onChange={(e) => {
+                                            const file = e.target.files?.[0];
+                                            if (file) {
+                                                if (file.size > 5 * 1024 * 1024) {
+                                                    setToast({ message: 'File quá lớn. Vui lòng chọn file nhỏ hơn 5MB.', type: 'warning' });
+                                                    return;
+                                                }
+                                                setNghiemThuForm({ ...nghiemThuForm, anh_bang_chung: file });
+                                            }
+                                        }} 
+                                    />
+                                </label>
+                            </div>
+                        </div>
+                        <div className="px-6 py-4 bg-slate-50 border-t border-slate-200 flex justify-end gap-2">
+                            <button 
+                                onClick={() => setIsNghiemThuModalOpen(false)} 
+                                className="px-4 py-2 text-sm font-medium text-slate-600 hover:bg-slate-200 rounded-lg transition-colors"
+                            >
+                                Hủy
+                            </button>
+                            <button 
+                                onClick={async () => {
+                                    if (!selectedTaskForNghiemThu) return;
+                                    
+                                    try {
+                                        setUploadingImage(true);
+                                        let imageUrl = nghiemThuForm.anh_bang_chung_url;
+                                        
+                                        // Upload ảnh mới nếu có
+                                        if (nghiemThuForm.anh_bang_chung) {
+                                            const timestamp = Date.now();
+                                            const fileName = `task_${selectedTaskForNghiemThu.id}_${timestamp}_${nghiemThuForm.anh_bang_chung.name}`;
+                                            const filePath = `task-evidence/${fileName}`;
+                                            
+                                            // Kiểm tra bucket có tồn tại không
+                                            const { data: buckets } = await supabase.storage.listBuckets();
+                                            const bucketExists = buckets?.some(b => b.name === 'task-evidence');
+                                            
+                                            if (!bucketExists) {
+                                                setToast({ message: 'Bucket "task-evidence" chưa được tạo. Vui lòng tạo bucket trong Supabase Dashboard > Storage.', type: 'warning' });
+                                                setUploadingImage(false);
+                                                return;
+                                            }
+                                            
+                                            const { data: uploadData, error: uploadError } = await supabase.storage
+                                                .from('task-evidence')
+                                                .upload(filePath, nghiemThuForm.anh_bang_chung, {
+                                                    cacheControl: '3600',
+                                                    upsert: false
+                                                });
+                                            
+                                            if (uploadError) {
+                                                console.error('[HopDong] Error uploading image:', uploadError);
+                                                setToast({ message: `Lỗi khi upload ảnh: ${uploadError.message}`, type: 'warning' });
+                                                setUploadingImage(false);
+                                                return;
+                                            }
+                                            
+                                            // Get public URL
+                                            const { data: urlData } = supabase.storage
+                                                .from('task-evidence')
+                                                .getPublicUrl(uploadData.path);
+                                            
+                                            imageUrl = urlData.publicUrl;
+                                        }
+                                        
+                                        // Cập nhật task
+                                        await taskService.update(selectedTaskForNghiemThu.id, {
+                                            tien_do: nghiemThuForm.tien_do,
+                                            link_tai_lieu: nghiemThuForm.link_tai_lieu || null,
+                                            anh_bang_chung: imageUrl || null,
+                                            trang_thai: nghiemThuForm.tien_do === 100 ? 'Hoàn thành' : nghiemThuForm.tien_do > 0 ? 'Đang thực hiện' : selectedTaskForNghiemThu.trang_thai,
+                                            ngay_hoan_thanh: nghiemThuForm.tien_do === 100 ? new Date().toISOString().slice(0, 10) : null
+                                        });
+                                        
+                                        setToast({ message: 'Đã cập nhật nghiệm thu thành công!', type: 'success' });
+                                        setIsNghiemThuModalOpen(false);
+                                        await loadTasks();
+                                        
+                                        // Update tasksByContract for progress display
+                                        if (selectedTaskForNghiemThu.hop_dong_id) {
+                                            try {
+                                                const updatedTasks = await taskService.getByHopDongId(selectedTaskForNghiemThu.hop_dong_id);
+                                                setTasksByContract(prev => {
+                                                    const newMap = new Map(prev);
+                                                    newMap.set(selectedTaskForNghiemThu.hop_dong_id, updatedTasks);
+                                                    return newMap;
+                                                });
+                                            } catch (error) {
+                                                console.error('[HopDong] Error updating tasksByContract:', error);
+                                            }
+                                        }
+                                    } catch (error: any) {
+                                        console.error('[HopDong] Error updating nghiệm thu:', error);
+                                        setToast({ message: `Lỗi: ${error.message || 'Không thể cập nhật nghiệm thu'}`, type: 'warning' });
+                                    } finally {
+                                        setUploadingImage(false);
+                                    }
+                                }}
+                                disabled={uploadingImage}
+                                className="px-4 py-2 text-sm font-bold text-white bg-emerald-600 hover:bg-emerald-700 rounded-lg shadow-md transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                            >
+                                {uploadingImage ? 'Đang tải...' : 'Lưu nghiệm thu'}
+                            </button>
                         </div>
                     </div>
                 </div>

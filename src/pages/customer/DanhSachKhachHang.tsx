@@ -107,14 +107,18 @@ export function DanhSachKhachHang() {
     const [isAddProjectModalOpen, setIsAddProjectModalOpen] = useState(false);
     const [isAddContractModalOpen, setIsAddContractModalOpen] = useState(false);
     const [contractFormData, setContractFormData] = useState({
+        projectName: '',
         soHopDong: '',
         tenGoiThau: '',
         ngayKyHD: '',
-        fileStatus: 'Chưa có file'
+        fileStatus: 'Chưa có file',
+        progress: 0,
     });
 
     const [isAddFinanceModalOpen, setIsAddFinanceModalOpen] = useState(false);
     const [financeForm, setFinanceForm] = useState({ type: 'Phiếu thu', amount: '', note: '' });
+    const [customerProjects, setCustomerProjects] = useState<{ [customerId: number]: any[] }>({});
+    const [customerContracts, setCustomerContracts] = useState<{ [customerId: number]: any[] }>({});
 
     // Filtered items by search
     const filteredItems = useMemo(() => {
@@ -172,9 +176,28 @@ export function DanhSachKhachHang() {
     };
 
     const handleSaveContract = () => {
-        setToast({ message: 'Đã thêm hợp đồng mới thành công!', type: 'success' });
+        if (selectedCustomer) {
+            const newContract = {
+                id: Date.now(),
+                customerId: selectedCustomer.id,
+                customerName: selectedCustomer.Ten_Don_Vi,
+                projectName: contractFormData.projectName,
+                soHopDong: contractFormData.soHopDong,
+                tenGoiThau: contractFormData.tenGoiThau,
+                ngayKyHD: contractFormData.ngayKyHD,
+                fileStatus: contractFormData.fileStatus,
+                progress: Number(contractFormData.progress) || 0,
+            };
+            setCustomerContracts(prev => ({
+                ...prev,
+                [selectedCustomer.id]: [...(prev[selectedCustomer.id] || []), newContract],
+            }));
+            setToast({ message: 'Đã thêm hợp đồng mới thành công!', type: 'success' });
+        } else {
+            setToast({ message: 'Đã thêm hợp đồng mới thành công!', type: 'success' });
+        }
         setIsAddContractModalOpen(false);
-        setContractFormData({ soHopDong: '', tenGoiThau: '', ngayKyHD: '', fileStatus: 'Chưa có file' });
+        setContractFormData({ projectName: '', soHopDong: '', tenGoiThau: '', ngayKyHD: '', fileStatus: 'Chưa có file', progress: 0 });
     };
 
     const cancelDelete = () => {
@@ -403,9 +426,37 @@ export function DanhSachKhachHang() {
 
                             {activeTab === 'projects' && (
                                 <div className="bg-white border text-sm text-slate-700 border-slate-200 shadow-sm rounded-xl fade-in-up">
-                                    <div className="p-4 border-b border-slate-100">
-                                        <p className="font-semibold text-slate-800">Dự án Tuyến ống D500, D400, D300 và hoàn trả tuyến ống D220 - D63 hiện trạng tuyến đường Quốc lộ 14B...</p>
-                                    </div>
+                                    {customerProjects[selectedCustomer?.id] && customerProjects[selectedCustomer.id].length > 0 ? (
+                                        <div className="divide-y divide-slate-100">
+                                            {customerProjects[selectedCustomer.id].map((project: any) => (
+                                                <div key={project.id} className="p-4 hover:bg-slate-50 transition-colors">
+                                                    <div className="flex items-start justify-between">
+                                                        <div className="flex-1">
+                                                            <p className="font-semibold text-slate-800 mb-1">{project.projectName}</p>
+                                                            <div className="flex items-center gap-4 text-xs text-slate-500 mt-2">
+                                                                {project.date && <span>Ngày: {project.date}</span>}
+                                                                {project.status && (
+                                                                    <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${
+                                                                        project.status === 'Hoàn thành' ? 'bg-emerald-50 text-emerald-600' :
+                                                                        project.status === 'Đang thực hiện' ? 'bg-blue-50 text-blue-600' :
+                                                                        project.status === 'Đang quá hạn' ? 'bg-rose-50 text-rose-600' :
+                                                                        project.status === 'Tạm dừng' ? 'bg-amber-50 text-amber-600' :
+                                                                        'bg-slate-50 text-slate-600'
+                                                                    }`}>
+                                                                        {project.status}
+                                                                    </span>
+                                                                )}
+                                                            </div>
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                            ))}
+                                        </div>
+                                    ) : (
+                                        <div className="p-4 border-b border-slate-100">
+                                            <p className="text-slate-500 italic">Chưa có dự án nào</p>
+                                        </div>
+                                    )}
                                     <div className="bg-white px-4 py-3 flex justify-end gap-3 rounded-b-xl border-t border-slate-100">
                                         <button
                                             onClick={() => navigate('/khach-hang/du-an')}
@@ -415,7 +466,9 @@ export function DanhSachKhachHang() {
                                             <Maximize2 size={16} />
                                         </button>
                                         <button
-                                            onClick={() => setIsAddProjectModalOpen(true)}
+                                            onClick={() => {
+                                                setIsAddProjectModalOpen(true);
+                                            }}
                                             className="action-btn p-1.5 text-blue-500 hover:text-blue-700 hover:bg-blue-50 rounded-md border border-blue-100"
                                             title="Thêm dự án"
                                         >
@@ -431,27 +484,60 @@ export function DanhSachKhachHang() {
                                         <table className="w-full text-left">
                                             <thead className="border-b border-slate-200 text-slate-800 font-semibold bg-white">
                                                 <tr>
+                                                    <th className="px-4 py-3 whitespace-nowrap">Dự án</th>
                                                     <th className="px-4 py-3 whitespace-nowrap">Trạng thái file</th>
+                                                    <th className="px-4 py-3 whitespace-nowrap text-center">Tiến độ</th>
                                                     <th className="px-4 py-3 whitespace-nowrap">Ngày ký HĐ</th>
                                                     <th className="px-4 py-3 whitespace-nowrap">Số hợp đồng</th>
                                                     <th className="px-4 py-3 whitespace-nowrap">Tên gói thầu</th>
                                                 </tr>
                                             </thead>
                                             <tbody className="divide-y divide-slate-100">
-                                                <tr>
-                                                    <td className="px-4 py-3" colSpan={4}>
-                                                        <div className="text-red-600 font-medium flex items-center gap-1">
-                                                            <span>★</span>
-                                                            <span className="italic">Dự án Tuyến ống D500, D400, D300 và hoàn trả tuyến ống D220 - D63 hiện trạng tuyến đường Quốc lộ 14B...</span>
-                                                        </div>
-                                                    </td>
-                                                </tr>
-                                                <tr className="bg-white hover:bg-slate-50 transition-colors">
-                                                    <td className="px-4 py-3 font-semibold text-red-600 italic">Thiếu file: HĐ, BBNT, BBTL, BB...</td>
-                                                    <td className="px-4 py-3 text-slate-600">2/7/2025</td>
-                                                    <td className="px-4 py-3 text-slate-600">12/2025/HĐTV-CTCN</td>
-                                                    <td className="px-4 py-3 text-slate-600 truncate max-w-[150px]">Tư vấn lập hồ sơ t...</td>
-                                                </tr>
+                                                {selectedCustomer && customerContracts[selectedCustomer.id] && customerContracts[selectedCustomer.id].length > 0 ? (
+                                                    customerContracts[selectedCustomer.id].map((contract: any) => (
+                                                        <tr key={contract.id} className="bg-white hover:bg-slate-50 transition-colors">
+                                                            <td className="px-4 py-3 text-slate-700">
+                                                                <span className="italic">{contract.projectName || '(Chưa chọn dự án)'}</span>
+                                                            </td>
+                                                            <td className="px-4 py-3 font-semibold text-red-600 italic">
+                                                                {contract.fileStatus || 'Chưa có thông tin'}
+                                                            </td>
+                                                            <td className="px-4 py-3">
+                                                                <div className="flex items-center gap-3 min-w-[140px]">
+                                                                    <div className="w-full h-2 bg-slate-100 rounded-full overflow-hidden">
+                                                                        <div
+                                                                            className={`h-2 rounded-full ${contract.progress >= 100
+                                                                                ? 'bg-emerald-500'
+                                                                                : contract.progress >= 50
+                                                                                    ? 'bg-blue-500'
+                                                                                    : 'bg-amber-500'
+                                                                                }`}
+                                                                            style={{ width: `${Math.min(Math.max(contract.progress || 0, 0), 100)}%` }}
+                                                                        ></div>
+                                                                    </div>
+                                                                    <span className="text-xs font-semibold text-slate-700 w-10 text-right tabular-nums">
+                                                                        {(contract.progress || 0)}%
+                                                                    </span>
+                                                                </div>
+                                                            </td>
+                                                            <td className="px-4 py-3 text-slate-600">
+                                                                {contract.ngayKyHD || '(Chưa nhập)'}
+                                                            </td>
+                                                            <td className="px-4 py-3 text-slate-600">
+                                                                {contract.soHopDong || '(Chưa nhập)'}
+                                                            </td>
+                                                            <td className="px-4 py-3 text-slate-600 truncate max-w-[150px]">
+                                                                {contract.tenGoiThau || '(Chưa nhập)'}
+                                                            </td>
+                                                        </tr>
+                                                    ))
+                                                ) : (
+                                                    <tr>
+                                                        <td className="px-4 py-3 text-slate-500 italic" colSpan={6}>
+                                                            Chưa có hợp đồng nào
+                                                        </td>
+                                                    </tr>
+                                                )}
                                             </tbody>
                                         </table>
                                     </div>
@@ -464,7 +550,19 @@ export function DanhSachKhachHang() {
                                             <Maximize2 size={16} />
                                         </button>
                                         <button
-                                            onClick={() => setIsAddContractModalOpen(true)}
+                                            onClick={() => {
+                                                // Tự động điền dự án đầu tiên nếu có
+                                                const projects = selectedCustomer ? customerProjects[selectedCustomer.id] || [] : [];
+                                                const firstProject = projects.length > 0 ? projects[0].projectName : '';
+                                                setContractFormData({
+                                                    projectName: firstProject,
+                                                    soHopDong: '',
+                                                    tenGoiThau: '',
+                                                    ngayKyHD: '',
+                                                    fileStatus: 'Chưa có file'
+                                                });
+                                                setIsAddContractModalOpen(true);
+                                            }}
                                             className="action-btn p-1.5 text-blue-500 hover:text-blue-700 hover:bg-blue-50 rounded-md border border-blue-100"
                                             title="Thêm hợp đồng"
                                         >
@@ -546,19 +644,24 @@ export function DanhSachKhachHang() {
                 isOpen={isAddProjectModalOpen}
                 onClose={() => setIsAddProjectModalOpen(false)}
                 onSave={(data) => {
-                    setToast({ message: 'Đã thêm dự án mới thành công!', type: 'success' });
+                    if (selectedCustomer) {
+                        const newProject = {
+                            ...data,
+                            id: Date.now(),
+                            customerId: selectedCustomer.id,
+                            customerName: selectedCustomer.Ten_Don_Vi
+                        };
+                        setCustomerProjects(prev => ({
+                            ...prev,
+                            [selectedCustomer.id]: [...(prev[selectedCustomer.id] || []), newProject]
+                        }));
+                        setToast({ message: 'Đã thêm dự án mới thành công!', type: 'success' });
+                    } else {
+                        setToast({ message: 'Đã thêm dự án mới thành công!', type: 'success' });
+                    }
                     setIsAddProjectModalOpen(false);
                 }}
-            />
-
-            {/* Add Project Modal */}
-            <ThemDuAnModal
-                isOpen={isAddProjectModalOpen}
-                onClose={() => setIsAddProjectModalOpen(false)}
-                onSave={(data) => {
-                    setToast({ message: 'Đã thêm dự án mới thành công!', type: 'success' });
-                    setIsAddProjectModalOpen(false);
-                }}
+                initialData={selectedCustomer ? { customerName: selectedCustomer.Ten_Don_Vi } : undefined}
             />
 
             {/* Add Contract Modal */}
@@ -571,6 +674,31 @@ export function DanhSachKhachHang() {
                         </div>
                         <div className="p-6 space-y-4">
                             <div>
+                                <label className="block text-sm font-medium text-slate-700 mb-1">Dự án</label>
+                                <select
+                                    value={contractFormData.projectName}
+                                    onChange={e => setContractFormData({ ...contractFormData, projectName: e.target.value })}
+                                    className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-purple-500/20 bg-white"
+                                >
+                                    <option value="">Chọn dự án...</option>
+                                    {selectedCustomer && customerProjects[selectedCustomer.id] && customerProjects[selectedCustomer.id].map((project: any) => (
+                                        <option key={project.id} value={project.projectName}>{project.projectName}</option>
+                                    ))}
+                                </select>
+                            </div>
+                            <div>
+                                <label className="block text-sm font-medium text-slate-700 mb-1">% trạng thái (tiến độ)</label>
+                                <input
+                                    type="number"
+                                    min={0}
+                                    max={100}
+                                    className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-purple-500/20"
+                                    placeholder="Nhập % hoàn thành hợp đồng (0 - 100)"
+                                    value={contractFormData.progress}
+                                    onChange={e => setContractFormData({ ...contractFormData, progress: Number(e.target.value) })}
+                                />
+                            </div>
+                            <div>
                                 <label className="block text-sm font-medium text-slate-700 mb-1">Số hợp đồng</label>
                                 <input type="text" className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-purple-500/20" placeholder="VD: 2025/08/HĐ-TT" value={contractFormData.soHopDong} onChange={e => setContractFormData({ ...contractFormData, soHopDong: e.target.value })} />
                             </div>
@@ -580,7 +708,12 @@ export function DanhSachKhachHang() {
                             </div>
                             <div>
                                 <label className="block text-sm font-medium text-slate-700 mb-1">Ngày ký HĐ</label>
-                                <input type="text" className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-purple-500/20" placeholder="dd/mm/yyyy" value={contractFormData.ngayKyHD} onChange={e => setContractFormData({ ...contractFormData, ngayKyHD: e.target.value })} />
+                                <input 
+                                    type="date" 
+                                    className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-purple-500/20" 
+                                    value={contractFormData.ngayKyHD} 
+                                    onChange={e => setContractFormData({ ...contractFormData, ngayKyHD: e.target.value })} 
+                                />
                             </div>
                         </div>
                         <div className="px-6 py-4 bg-slate-50 border-t border-slate-200 flex justify-end gap-2">

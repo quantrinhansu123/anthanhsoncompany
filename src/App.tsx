@@ -29,11 +29,13 @@ import { BonusPenalty } from './pages/administration/BonusPenalty';
 import { SalarySettings } from './pages/administration/SalarySettings';
 import { SalaryTable } from './pages/administration/SalaryTable';
 import { ChungChiHanhNghe } from './pages/administration/ChungChiHanhNghe';
+import { DanhSachTaiLieu } from './pages/administration/DanhSachTaiLieu';
 import { AIAssistant } from './pages/AIAssistant';
 import { DanhSachVanDon } from './pages/logistics/DanhSachVanDon';
 import { DanhSachKhachHang } from './pages/customer/DanhSachKhachHang';
 import { DuAn } from './pages/customer/DuAn';
 import { HopDong } from './pages/customer/HopDong';
+import { Task } from './pages/customer/Task';
 
 export default function App() {
   return (
@@ -51,6 +53,7 @@ export default function App() {
           <Route path="hanh-chinh/thiet-lap-cong-luong" element={<SalarySettings />} />
           <Route path="hanh-chinh/bang-luong" element={<SalaryTable />} />
           <Route path="hanh-chinh/chung-chi-hanh-nghe" element={<ChungChiHanhNghe />} />
+          <Route path="hanh-chinh/danh-sach-tai-lieu" element={<DanhSachTaiLieu />} />
           <Route path="marketing" element={<Marketing />} />
           <Route path="nhan-su" element={<HumanResources />} />
           <Route path="nhan-su/ho-so" element={<RecruitmentList />} />
@@ -67,6 +70,7 @@ export default function App() {
           <Route path="khach-hang/danh-sach" element={<DanhSachKhachHang />} />
           <Route path="khach-hang/du-an" element={<DuAn />} />
           <Route path="khach-hang/hop-dong" element={<HopDong />} />
+          <Route path="khach-hang/task" element={<Task />} />
           <Route path="quy-trinh" element={<Process />} />
           <Route path="quy-trinh/thu-vien-loi" element={<ThuVienLoi />} />
           <Route path="tro-ly-ai" element={<AIAssistant />} />

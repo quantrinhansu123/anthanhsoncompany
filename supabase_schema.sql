@@ -451,10 +451,704 @@ CREATE INDEX IF NOT EXISTS idx_dependents_employee_id ON public.dependents(emplo
 CREATE INDEX IF NOT EXISTS idx_nhan_su_chi_tiet_id_nhan_su ON public.nhan_su_chi_tiet(id_nhan_su);
 CREATE INDEX IF NOT EXISTS idx_nhan_su_chi_tiet_ngay_het_han ON public.nhan_su_chi_tiet(ngay_het_han_cc);
 
+-- =====================================================================
+-- BẢNG KHÁCH HÀNG (khach_hang) - PHỤC VỤ MODULE KHÁCH HÀNG
+-- =====================================================================
+
+-- Tạo bảng khach_hang nếu chưa tồn tại
+CREATE TABLE IF NOT EXISTS public.khach_hang (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  ten_don_vi VARCHAR(500) NOT NULL,        -- Tên đơn vị (Tên khách hàng)
+  loai_hinh VARCHAR(100),                   -- Loại hình: Tư nhân, Doanh nghiệp, Cơ quan nhà nước
+  mst VARCHAR(50),                          -- Mã số thuế
+  dia_chi TEXT,                             -- Địa chỉ
+  nguoi_dai_dien VARCHAR(255),             -- Người đại diện
+  chuc_vu_dai_dien VARCHAR(100),            -- Chức vụ đại diện
+  nguoi_lien_he VARCHAR(255),              -- Người liên hệ
+  chuc_vu_lien_he VARCHAR(100),            -- Chức vụ liên hệ
+  sdt_lien_he VARCHAR(50),                  -- SĐT liên hệ
+  tong_hop_dong DECIMAL(15,2) DEFAULT 0,   -- Tổng hợp đồng
+  gia_tri_quyet_toan DECIMAL(15,2) DEFAULT 0, -- Giá trị quyết toán
+  da_thu DECIMAL(15,2) DEFAULT 0,          -- Đã thu
+  con_phai_thu DECIMAL(15,2) DEFAULT 0,     -- Còn phải thu
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+  updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+-- Đảm bảo các cột tồn tại nếu bảng đã được tạo trước đó
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'khach_hang' AND column_name = 'ten_don_vi') THEN
+    ALTER TABLE public.khach_hang ADD COLUMN ten_don_vi VARCHAR(500) NOT NULL DEFAULT '';
+  END IF;
+  
+  IF NOT EXISTS (SELECT FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'khach_hang' AND column_name = 'loai_hinh') THEN
+    ALTER TABLE public.khach_hang ADD COLUMN loai_hinh VARCHAR(100);
+  END IF;
+  
+  IF NOT EXISTS (SELECT FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'khach_hang' AND column_name = 'mst') THEN
+    ALTER TABLE public.khach_hang ADD COLUMN mst VARCHAR(50);
+  END IF;
+  
+  IF NOT EXISTS (SELECT FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'khach_hang' AND column_name = 'dia_chi') THEN
+    ALTER TABLE public.khach_hang ADD COLUMN dia_chi TEXT;
+  END IF;
+  
+  IF NOT EXISTS (SELECT FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'khach_hang' AND column_name = 'nguoi_dai_dien') THEN
+    ALTER TABLE public.khach_hang ADD COLUMN nguoi_dai_dien VARCHAR(255);
+  END IF;
+  
+  IF NOT EXISTS (SELECT FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'khach_hang' AND column_name = 'chuc_vu_dai_dien') THEN
+    ALTER TABLE public.khach_hang ADD COLUMN chuc_vu_dai_dien VARCHAR(100);
+  END IF;
+  
+  IF NOT EXISTS (SELECT FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'khach_hang' AND column_name = 'nguoi_lien_he') THEN
+    ALTER TABLE public.khach_hang ADD COLUMN nguoi_lien_he VARCHAR(255);
+  END IF;
+  
+  IF NOT EXISTS (SELECT FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'khach_hang' AND column_name = 'chuc_vu_lien_he') THEN
+    ALTER TABLE public.khach_hang ADD COLUMN chuc_vu_lien_he VARCHAR(100);
+  END IF;
+  
+  IF NOT EXISTS (SELECT FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'khach_hang' AND column_name = 'sdt_lien_he') THEN
+    ALTER TABLE public.khach_hang ADD COLUMN sdt_lien_he VARCHAR(50);
+  END IF;
+  
+  IF NOT EXISTS (SELECT FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'khach_hang' AND column_name = 'tong_hop_dong') THEN
+    ALTER TABLE public.khach_hang ADD COLUMN tong_hop_dong DECIMAL(15,2) DEFAULT 0;
+  END IF;
+  
+  IF NOT EXISTS (SELECT FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'khach_hang' AND column_name = 'gia_tri_quyet_toan') THEN
+    ALTER TABLE public.khach_hang ADD COLUMN gia_tri_quyet_toan DECIMAL(15,2) DEFAULT 0;
+  END IF;
+  
+  IF NOT EXISTS (SELECT FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'khach_hang' AND column_name = 'da_thu') THEN
+    ALTER TABLE public.khach_hang ADD COLUMN da_thu DECIMAL(15,2) DEFAULT 0;
+  END IF;
+  
+  IF NOT EXISTS (SELECT FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'khach_hang' AND column_name = 'con_phai_thu') THEN
+    ALTER TABLE public.khach_hang ADD COLUMN con_phai_thu DECIMAL(15,2) DEFAULT 0;
+  END IF;
+  
+  IF NOT EXISTS (SELECT FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'khach_hang' AND column_name = 'created_at') THEN
+    ALTER TABLE public.khach_hang ADD COLUMN created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW();
+  END IF;
+  
+  IF NOT EXISTS (SELECT FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'khach_hang' AND column_name = 'updated_at') THEN
+    ALTER TABLE public.khach_hang ADD COLUMN updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW();
+  END IF;
+END $$;
+
+-- Index cho bảng khach_hang
+CREATE INDEX IF NOT EXISTS idx_khach_hang_ten_don_vi ON public.khach_hang(ten_don_vi);
+CREATE INDEX IF NOT EXISTS idx_khach_hang_mst ON public.khach_hang(mst);
+
+-- =====================================================================
+-- BẢNG HỢP ĐỒNG (hop_dong) - PHỤC VỤ MODULE KHÁCH HÀNG / HỢP ĐỒNG
+-- =====================================================================
+
+-- Tạo bảng hop_dong nếu chưa tồn tại (không có FK constraint ở đây, sẽ thêm sau trong migration)
+CREATE TABLE IF NOT EXISTS public.hop_dong (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  customer_id UUID,                         -- Foreign key đến khach_hang.id (sẽ thêm constraint trong migration)
+  customer_name VARCHAR(255),               -- Tên khách hàng tại thời điểm ký HĐ (snapshot - có thể bỏ sau)
+  project_name VARCHAR(255),                -- Tên dự án
+  so_hop_dong VARCHAR(100),                 -- Số hợp đồng
+  ten_goi_thau TEXT,                        -- Tên gói thầu
+  ngay_ky_hd DATE,                          -- Ngày ký HĐ
+  file_status TEXT,                         -- Trạng thái file: Thiếu HĐ, BBNT, ...
+  progress INTEGER DEFAULT 0,                -- % trạng thái / tiến độ (0-100)
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+  updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+-- Đảm bảo các cột mới tồn tại nếu bảng đã được tạo trước đó
+DO $$
+BEGIN
+  -- Thêm cột customer_id nếu chưa có
+  IF NOT EXISTS (
+    SELECT FROM information_schema.columns 
+    WHERE table_schema = 'public' AND table_name = 'hop_dong' AND column_name = 'customer_id'
+  ) THEN
+    ALTER TABLE public.hop_dong ADD COLUMN customer_id UUID;
+  END IF;
+  
+  -- Thêm cột progress
+  IF NOT EXISTS (
+    SELECT FROM information_schema.columns 
+    WHERE table_schema = 'public' AND table_name = 'hop_dong' AND column_name = 'progress'
+  ) THEN
+    ALTER TABLE public.hop_dong ADD COLUMN progress INTEGER DEFAULT 0;
+  END IF;
+  
+  -- Thêm cột customer_name (snapshot)
+  IF NOT EXISTS (
+    SELECT FROM information_schema.columns 
+    WHERE table_schema = 'public' AND table_name = 'hop_dong' AND column_name = 'customer_name'
+  ) THEN
+    ALTER TABLE public.hop_dong ADD COLUMN customer_name VARCHAR(255);
+  END IF;
+  
+  -- Thêm cột project_name
+  IF NOT EXISTS (
+    SELECT FROM information_schema.columns 
+    WHERE table_schema = 'public' AND table_name = 'hop_dong' AND column_name = 'project_name'
+  ) THEN
+    ALTER TABLE public.hop_dong ADD COLUMN project_name VARCHAR(255);
+  END IF;
+
+  -- Thêm cột file_status
+  IF NOT EXISTS (
+    SELECT FROM information_schema.columns 
+    WHERE table_schema = 'public' AND table_name = 'hop_dong' AND column_name = 'file_status'
+  ) THEN
+    ALTER TABLE public.hop_dong ADD COLUMN file_status TEXT;
+  END IF;
+
+  -- Thêm cột so_hop_dong
+  IF NOT EXISTS (
+    SELECT FROM information_schema.columns 
+    WHERE table_schema = 'public' AND table_name = 'hop_dong' AND column_name = 'so_hop_dong'
+  ) THEN
+    ALTER TABLE public.hop_dong ADD COLUMN so_hop_dong VARCHAR(100);
+  END IF;
+
+  -- Thêm cột ten_goi_thau
+  IF NOT EXISTS (
+    SELECT FROM information_schema.columns 
+    WHERE table_schema = 'public' AND table_name = 'hop_dong' AND column_name = 'ten_goi_thau'
+  ) THEN
+    ALTER TABLE public.hop_dong ADD COLUMN ten_goi_thau TEXT;
+  END IF;
+
+  -- Thêm cột ngay_ky_hd
+  IF NOT EXISTS (
+    SELECT FROM information_schema.columns 
+    WHERE table_schema = 'public' AND table_name = 'hop_dong' AND column_name = 'ngay_ky_hd'
+  ) THEN
+    ALTER TABLE public.hop_dong ADD COLUMN ngay_ky_hd DATE;
+  END IF;
+
+  -- Thêm các cột tài chính và thông tin bổ sung để khớp với view HopDong
+  IF NOT EXISTS (
+    SELECT FROM information_schema.columns 
+    WHERE table_schema = 'public' AND table_name = 'hop_dong' AND column_name = 'gia_tri_hd'
+  ) THEN
+    ALTER TABLE public.hop_dong ADD COLUMN gia_tri_hd NUMERIC(15,2) DEFAULT 0;
+  END IF;
+
+  IF NOT EXISTS (
+    SELECT FROM information_schema.columns 
+    WHERE table_schema = 'public' AND table_name = 'hop_dong' AND column_name = 'gia_tri_qt'
+  ) THEN
+    ALTER TABLE public.hop_dong ADD COLUMN gia_tri_qt NUMERIC(15,2) DEFAULT 0;
+  END IF;
+
+  IF NOT EXISTS (
+    SELECT FROM information_schema.columns 
+    WHERE table_schema = 'public' AND table_name = 'hop_dong' AND column_name = 'da_thu'
+  ) THEN
+    ALTER TABLE public.hop_dong ADD COLUMN da_thu NUMERIC(15,2) DEFAULT 0;
+  END IF;
+
+  IF NOT EXISTS (
+    SELECT FROM information_schema.columns 
+    WHERE table_schema = 'public' AND table_name = 'hop_dong' AND column_name = 'con_phai_thu'
+  ) THEN
+    ALTER TABLE public.hop_dong ADD COLUMN con_phai_thu NUMERIC(15,2) DEFAULT 0;
+  END IF;
+
+  IF NOT EXISTS (
+    SELECT FROM information_schema.columns 
+    WHERE table_schema = 'public' AND table_name = 'hop_dong' AND column_name = 'loai_dich_vu'
+  ) THEN
+    ALTER TABLE public.hop_dong ADD COLUMN loai_dich_vu TEXT;
+  END IF;
+
+  IF NOT EXISTS (
+    SELECT FROM information_schema.columns 
+    WHERE table_schema = 'public' AND table_name = 'hop_dong' AND column_name = 'ngay_update'
+  ) THEN
+    ALTER TABLE public.hop_dong ADD COLUMN ngay_update DATE;
+  END IF;
+  
+  -- Đổi kiểu dữ liệu customer_id sang UUID nếu cần
+  IF EXISTS (
+    SELECT FROM information_schema.columns 
+    WHERE table_schema = 'public' 
+    AND table_name = 'hop_dong' 
+    AND column_name = 'customer_id'
+    AND data_type != 'uuid'
+  ) THEN
+    -- Xóa dữ liệu không hợp lệ (không phải UUID format)
+    DELETE FROM public.hop_dong 
+    WHERE customer_id::text !~ '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$';
+    
+    -- Đổi kiểu dữ liệu sang UUID
+    BEGIN
+      ALTER TABLE public.hop_dong ALTER COLUMN customer_id TYPE UUID USING customer_id::uuid;
+    EXCEPTION WHEN OTHERS THEN
+      -- Nếu không convert được, tạo cột mới
+      ALTER TABLE public.hop_dong ADD COLUMN customer_id_new UUID;
+      -- Copy dữ liệu hợp lệ
+      UPDATE public.hop_dong 
+      SET customer_id_new = customer_id::uuid 
+      WHERE customer_id::text ~ '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$';
+      -- Xóa cột cũ và đổi tên cột mới
+      ALTER TABLE public.hop_dong DROP COLUMN customer_id;
+      ALTER TABLE public.hop_dong RENAME COLUMN customer_id_new TO customer_id;
+    END;
+  END IF;
+  
+  -- Thêm foreign key constraint nếu chưa có
+  IF NOT EXISTS (
+    SELECT FROM pg_constraint 
+    WHERE conname = 'fk_hop_dong_khach_hang'
+  ) THEN
+    -- Xóa constraint cũ nếu có (có thể bị lỗi)
+    ALTER TABLE public.hop_dong DROP CONSTRAINT IF EXISTS fk_hop_dong_khach_hang;
+    
+    -- Đảm bảo customer_id là UUID và có thể NULL tạm thời (sẽ set NOT NULL sau)
+    -- Nếu bảng đã có dữ liệu, có thể cần set NULL trước
+    ALTER TABLE public.hop_dong ALTER COLUMN customer_id TYPE UUID USING customer_id::uuid;
+    
+    -- Thêm foreign key constraint
+    ALTER TABLE public.hop_dong 
+    ADD CONSTRAINT fk_hop_dong_khach_hang 
+    FOREIGN KEY (customer_id) REFERENCES public.khach_hang(id) ON DELETE CASCADE;
+    
+    -- Sau khi có FK, có thể set NOT NULL nếu muốn
+    -- ALTER TABLE public.hop_dong ALTER COLUMN customer_id SET NOT NULL;
+  END IF;
+END $$;
+
+-- Thêm cột phần trăm task hoàn thành vào hop_dong
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT FROM information_schema.columns 
+    WHERE table_schema = 'public' AND table_name = 'hop_dong' AND column_name = 'phan_tram_task_hoan_thanh'
+  ) THEN
+    ALTER TABLE public.hop_dong ADD COLUMN phan_tram_task_hoan_thanh INTEGER DEFAULT 0;
+  END IF;
+END $$;
+
+-- Index hỗ trợ query nhanh theo khách hàng và ngày ký HĐ
+CREATE INDEX IF NOT EXISTS idx_hop_dong_customer_id ON public.hop_dong(customer_id);
+CREATE INDEX IF NOT EXISTS idx_hop_dong_ngay_ky_hd ON public.hop_dong(ngay_ky_hd);
+CREATE INDEX IF NOT EXISTS idx_hop_dong_project_name ON public.hop_dong(project_name);
+
+-- =====================================================================
+-- BẢNG DỰ ÁN (du_an) - PHỤC VỤ MÀN /khach-hang/du-an
+-- =====================================================================
+
+-- Tạo bảng du_an nếu chưa tồn tại
+CREATE TABLE IF NOT EXISTS public.du_an (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  customer_id UUID,                       -- Tham chiếu khach_hang.id (có thể NULL nếu chưa gắn khách hàng)
+  ten_du_an VARCHAR(255) NOT NULL,        -- Tên dự án
+  status VARCHAR(100) DEFAULT 'Đang thực hiện', -- Trạng thái dự án
+  progress INTEGER DEFAULT 0,             -- Tiến độ (%) 0-100
+  manager_img TEXT,                       -- Ảnh người quản lý
+  executor_img TEXT,                      -- Ảnh người thực thi
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+  updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+-- Đảm bảo các cột tồn tại nếu bảng đã được tạo trước đó
+DO $$
+BEGIN
+  -- Thêm cột ten_du_an nếu chưa có
+  IF NOT EXISTS (SELECT FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'du_an' AND column_name = 'ten_du_an') THEN
+    -- Nếu có project_name, copy dữ liệu sang ten_du_an rồi xóa project_name
+    IF EXISTS (SELECT FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'du_an' AND column_name = 'project_name') THEN
+      ALTER TABLE public.du_an ADD COLUMN ten_du_an VARCHAR(255);
+      UPDATE public.du_an SET ten_du_an = project_name WHERE ten_du_an IS NULL;
+      ALTER TABLE public.du_an ALTER COLUMN ten_du_an SET NOT NULL;
+      ALTER TABLE public.du_an DROP COLUMN IF EXISTS project_name;
+    ELSE
+      ALTER TABLE public.du_an ADD COLUMN ten_du_an VARCHAR(255) NOT NULL DEFAULT '';
+    END IF;
+  END IF;
+
+  -- Xóa cột project_name nếu còn tồn tại (migration)
+  IF EXISTS (SELECT FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'du_an' AND column_name = 'project_name') THEN
+    -- Copy dữ liệu nếu ten_du_an chưa có
+    IF EXISTS (SELECT FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'du_an' AND column_name = 'ten_du_an') THEN
+      UPDATE public.du_an SET ten_du_an = project_name WHERE ten_du_an IS NULL OR ten_du_an = '';
+    END IF;
+    ALTER TABLE public.du_an DROP COLUMN IF EXISTS project_name;
+  END IF;
+
+  IF NOT EXISTS (SELECT FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'du_an' AND column_name = 'status') THEN
+    ALTER TABLE public.du_an ADD COLUMN status VARCHAR(100) DEFAULT 'Đang thực hiện';
+  END IF;
+
+  IF NOT EXISTS (SELECT FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'du_an' AND column_name = 'progress') THEN
+    ALTER TABLE public.du_an ADD COLUMN progress INTEGER DEFAULT 0;
+  END IF;
+
+  IF NOT EXISTS (SELECT FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'du_an' AND column_name = 'manager_img') THEN
+    ALTER TABLE public.du_an ADD COLUMN manager_img TEXT;
+  END IF;
+
+  IF NOT EXISTS (SELECT FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'du_an' AND column_name = 'executor_img') THEN
+    ALTER TABLE public.du_an ADD COLUMN executor_img TEXT;
+  END IF;
+
+  IF NOT EXISTS (SELECT FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'du_an' AND column_name = 'customer_id') THEN
+    ALTER TABLE public.du_an ADD COLUMN customer_id UUID;
+  END IF;
+END $$;
+
+-- Index cho bảng du_an
+CREATE INDEX IF NOT EXISTS idx_du_an_ten_du_an ON public.du_an(ten_du_an);
+CREATE INDEX IF NOT EXISTS idx_du_an_customer_id ON public.du_an(customer_id);
+-- Xóa index cũ nếu có
+DROP INDEX IF EXISTS public.idx_du_an_project_name;
+
+-- =====================================================================
+-- BẢNG TASK (task) - PHỤC VỤ MÀN HÌNH TASK, BẢNG CHA LÀ HỢP ĐỒNG
+-- =====================================================================
+
+-- Tạo bảng task nếu chưa tồn tại
+CREATE TABLE IF NOT EXISTS public.task (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  hop_dong_id UUID NOT NULL,                  -- Foreign key đến hop_dong.id
+  ten_task VARCHAR(500) NOT NULL,              -- Tên task
+  mo_ta TEXT,                                  -- Mô tả task
+  trang_thai VARCHAR(50) DEFAULT 'Chưa bắt đầu', -- Trạng thái: Chưa bắt đầu, Đang thực hiện, Hoàn thành, Tạm dừng
+  uu_tien VARCHAR(20) DEFAULT 'Trung bình',   -- Độ ưu tiên: Thấp, Trung bình, Cao, Khẩn cấp
+  ngay_bat_dau DATE,                          -- Ngày bắt đầu
+  ngay_ket_thuc DATE,                          -- Ngày kết thúc
+  ngay_hoan_thanh DATE,                        -- Ngày hoàn thành thực tế
+  nguoi_phu_trach VARCHAR(255),               -- Người phụ trách
+  tien_do INTEGER DEFAULT 0,                  -- Tiến độ task (0-100)
+  ghi_chu TEXT,                                -- Ghi chú
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+  updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+  CONSTRAINT fk_task_hop_dong FOREIGN KEY (hop_dong_id) REFERENCES public.hop_dong(id) ON DELETE CASCADE
+);
+
+-- Đảm bảo các cột tồn tại nếu bảng đã được tạo trước đó
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'task' AND column_name = 'hop_dong_id') THEN
+    ALTER TABLE public.task ADD COLUMN hop_dong_id UUID NOT NULL;
+  END IF;
+  
+  IF NOT EXISTS (SELECT FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'task' AND column_name = 'ten_task') THEN
+    ALTER TABLE public.task ADD COLUMN ten_task VARCHAR(500) NOT NULL DEFAULT '';
+  END IF;
+  
+  IF NOT EXISTS (SELECT FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'task' AND column_name = 'mo_ta') THEN
+    ALTER TABLE public.task ADD COLUMN mo_ta TEXT;
+  END IF;
+  
+  IF NOT EXISTS (SELECT FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'task' AND column_name = 'trang_thai') THEN
+    ALTER TABLE public.task ADD COLUMN trang_thai VARCHAR(50) DEFAULT 'Chưa bắt đầu';
+  END IF;
+  
+  IF NOT EXISTS (SELECT FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'task' AND column_name = 'uu_tien') THEN
+    ALTER TABLE public.task ADD COLUMN uu_tien VARCHAR(20) DEFAULT 'Trung bình';
+  END IF;
+  
+  IF NOT EXISTS (SELECT FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'task' AND column_name = 'ngay_bat_dau') THEN
+    ALTER TABLE public.task ADD COLUMN ngay_bat_dau DATE;
+  END IF;
+  
+  IF NOT EXISTS (SELECT FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'task' AND column_name = 'ngay_ket_thuc') THEN
+    ALTER TABLE public.task ADD COLUMN ngay_ket_thuc DATE;
+  END IF;
+  
+  IF NOT EXISTS (SELECT FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'task' AND column_name = 'ngay_hoan_thanh') THEN
+    ALTER TABLE public.task ADD COLUMN ngay_hoan_thanh DATE;
+  END IF;
+  
+  IF NOT EXISTS (SELECT FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'task' AND column_name = 'nguoi_phu_trach') THEN
+    ALTER TABLE public.task ADD COLUMN nguoi_phu_trach VARCHAR(255);
+  END IF;
+  
+  IF NOT EXISTS (SELECT FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'task' AND column_name = 'tien_do') THEN
+    ALTER TABLE public.task ADD COLUMN tien_do INTEGER DEFAULT 0;
+  END IF;
+  
+  IF NOT EXISTS (SELECT FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'task' AND column_name = 'ghi_chu') THEN
+    ALTER TABLE public.task ADD COLUMN ghi_chu TEXT;
+  END IF;
+  
+  -- Thêm foreign key constraint nếu chưa có
+  IF NOT EXISTS (
+    SELECT FROM pg_constraint 
+    WHERE conname = 'fk_task_hop_dong'
+  ) THEN
+    ALTER TABLE public.task 
+    ADD CONSTRAINT fk_task_hop_dong 
+    FOREIGN KEY (hop_dong_id) REFERENCES public.hop_dong(id) ON DELETE CASCADE;
+  END IF;
+END $$;
+
+-- Index cho bảng task
+CREATE INDEX IF NOT EXISTS idx_task_hop_dong_id ON public.task(hop_dong_id);
+CREATE INDEX IF NOT EXISTS idx_task_trang_thai ON public.task(trang_thai);
+CREATE INDEX IF NOT EXISTS idx_task_ngay_bat_dau ON public.task(ngay_bat_dau);
+
+-- Function để tự động cập nhật phần trăm task hoàn thành trong hop_dong
+CREATE OR REPLACE FUNCTION update_hop_dong_task_percentage()
+RETURNS TRIGGER AS $$
+BEGIN
+  UPDATE public.hop_dong
+  SET phan_tram_task_hoan_thanh = (
+    SELECT COALESCE(
+      ROUND(
+        (COUNT(*) FILTER (WHERE trang_thai = 'Hoàn thành')::NUMERIC / 
+         NULLIF(COUNT(*), 0)) * 100
+      ), 
+      0
+    )
+    FROM public.task
+    WHERE hop_dong_id = COALESCE(NEW.hop_dong_id, OLD.hop_dong_id)
+  )
+  WHERE id = COALESCE(NEW.hop_dong_id, OLD.hop_dong_id);
+  
+  RETURN COALESCE(NEW, OLD);
+END;
+$$ LANGUAGE plpgsql;
+
+-- Trigger để tự động cập nhật phần trăm khi task thay đổi
+DROP TRIGGER IF EXISTS trigger_update_hop_dong_task_percentage ON public.task;
+CREATE TRIGGER trigger_update_hop_dong_task_percentage
+AFTER INSERT OR UPDATE OR DELETE ON public.task
+FOR EACH ROW
+EXECUTE FUNCTION update_hop_dong_task_percentage();
+
+-- =====================================================================
+-- BẢNG THƯ VIỆN LỖI CHECKLIST (thu_vien_loi)
+-- PHỤC VỤ MÀN HÌNH /quy-trinh/thu-vien-loi
+-- =====================================================================
+
+-- Tạo bảng thu_vien_loi nếu chưa tồn tại
+CREATE TABLE IF NOT EXISTS public.thu_vien_loi (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  stt INTEGER,                              -- Số thứ tự hiển thị
+  noi_dung_kiem_tra TEXT NOT NULL,          -- Nội dung kiểm tra
+  checklist_id VARCHAR(100),                -- Mã checklist
+  chuyen_nganh VARCHAR(100),                -- Chuyên ngành (Hạ tầng, Dân dụng, ...)
+  bo_mon VARCHAR(100),                      -- Bộ môn
+  hang_muc TEXT,                            -- Hạng mục
+  hang_muc_kiem_tra TEXT,                   -- Hạng mục kiểm tra
+  dien_giai_kiem_tra TEXT,                  -- Diễn giải kiểm tra (dachGiaiKiemTra)
+  cach_kiem_tra_nhanh TEXT,                 -- Cách kiểm tra nhanh
+  tieu_chuan TEXT,                          -- Tiêu chuẩn
+  trong_cham INTEGER DEFAULT 0,             -- Trọng chấm
+  muc_do_quan_trong VARCHAR(50),            -- Thấp / Trung bình / Cao / Nghiêm trọng
+  canh_bao_loi VARCHAR(50),                 -- Thấp / Trung bình / Vàng / Đỏ / Gấp
+  ghi_chu_ky_thuat TEXT,                    -- Ghi chú kỹ thuật
+  hinh_anh_minh_hoa TEXT,                   -- Đường dẫn / tên file minh họa
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+  updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+-- Đảm bảo các cột tồn tại nếu bảng đã được tạo trước đó
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'thu_vien_loi' AND column_name = 'noi_dung_kiem_tra') THEN
+    ALTER TABLE public.thu_vien_loi ADD COLUMN noi_dung_kiem_tra TEXT;
+  END IF;
+
+  IF NOT EXISTS (SELECT FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'thu_vien_loi' AND column_name = 'checklist_id') THEN
+    ALTER TABLE public.thu_vien_loi ADD COLUMN checklist_id VARCHAR(100);
+  END IF;
+
+  IF NOT EXISTS (SELECT FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'thu_vien_loi' AND column_name = 'chuyen_nganh') THEN
+    ALTER TABLE public.thu_vien_loi ADD COLUMN chuyen_nganh VARCHAR(100);
+  END IF;
+
+  IF NOT EXISTS (SELECT FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'thu_vien_loi' AND column_name = 'bo_mon') THEN
+    ALTER TABLE public.thu_vien_loi ADD COLUMN bo_mon VARCHAR(100);
+  END IF;
+
+  IF NOT EXISTS (SELECT FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'thu_vien_loi' AND column_name = 'hang_muc') THEN
+    ALTER TABLE public.thu_vien_loi ADD COLUMN hang_muc TEXT;
+  END IF;
+
+  IF NOT EXISTS (SELECT FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'thu_vien_loi' AND column_name = 'dien_giai_kiem_tra') THEN
+    ALTER TABLE public.thu_vien_loi ADD COLUMN dien_giai_kiem_tra TEXT;
+  END IF;
+
+  IF NOT EXISTS (SELECT FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'thu_vien_loi' AND column_name = 'trong_cham') THEN
+    ALTER TABLE public.thu_vien_loi ADD COLUMN trong_cham INTEGER DEFAULT 0;
+  END IF;
+
+  IF NOT EXISTS (SELECT FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'thu_vien_loi' AND column_name = 'muc_do_quan_trong') THEN
+    ALTER TABLE public.thu_vien_loi ADD COLUMN muc_do_quan_trong VARCHAR(50);
+  END IF;
+
+  IF NOT EXISTS (SELECT FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'thu_vien_loi' AND column_name = 'canh_bao_loi') THEN
+    ALTER TABLE public.thu_vien_loi ADD COLUMN canh_bao_loi VARCHAR(50);
+  END IF;
+
+  IF NOT EXISTS (SELECT FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'thu_vien_loi' AND column_name = 'ghi_chu_ky_thuat') THEN
+    ALTER TABLE public.thu_vien_loi ADD COLUMN ghi_chu_ky_thuat TEXT;
+  END IF;
+
+  IF NOT EXISTS (SELECT FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'thu_vien_loi' AND column_name = 'hinh_anh_minh_hoa') THEN
+    ALTER TABLE public.thu_vien_loi ADD COLUMN hinh_anh_minh_hoa TEXT;
+  END IF;
+
+  -- Thêm cột hang_muc_kiem_tra
+  IF NOT EXISTS (SELECT FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'thu_vien_loi' AND column_name = 'hang_muc_kiem_tra') THEN
+    ALTER TABLE public.thu_vien_loi ADD COLUMN hang_muc_kiem_tra TEXT;
+  END IF;
+
+  -- Thêm cột cach_kiem_tra_nhanh
+  IF NOT EXISTS (SELECT FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'thu_vien_loi' AND column_name = 'cach_kiem_tra_nhanh') THEN
+    ALTER TABLE public.thu_vien_loi ADD COLUMN cach_kiem_tra_nhanh TEXT;
+  END IF;
+
+  -- Thêm cột tieu_chuan
+  IF NOT EXISTS (SELECT FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'thu_vien_loi' AND column_name = 'tieu_chuan') THEN
+    ALTER TABLE public.thu_vien_loi ADD COLUMN tieu_chuan TEXT;
+  END IF;
+
+  -- Migration: Đổi tên cột nếu cần (giữ nguyên snake_case vì PostgreSQL convention)
+  -- Nếu có cột với tên khác, copy dữ liệu và đổi tên
+  -- Ví dụ: nếu có cột "Chuyen_Nganh" (PascalCase), đổi sang "chuyen_nganh"
+  
+  -- Đổi chuyen_nganh nếu có tên khác
+  IF EXISTS (SELECT FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'thu_vien_loi' AND column_name = 'Chuyen_Nganh') THEN
+    IF NOT EXISTS (SELECT FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'thu_vien_loi' AND column_name = 'chuyen_nganh') THEN
+      ALTER TABLE public.thu_vien_loi ADD COLUMN chuyen_nganh VARCHAR(100);
+    END IF;
+    UPDATE public.thu_vien_loi SET chuyen_nganh = "Chuyen_Nganh" WHERE chuyen_nganh IS NULL;
+    ALTER TABLE public.thu_vien_loi DROP COLUMN IF EXISTS "Chuyen_Nganh";
+  END IF;
+
+  -- Đổi bo_mon nếu có tên khác
+  IF EXISTS (SELECT FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'thu_vien_loi' AND column_name = 'Bo_Mon') THEN
+    IF NOT EXISTS (SELECT FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'thu_vien_loi' AND column_name = 'bo_mon') THEN
+      ALTER TABLE public.thu_vien_loi ADD COLUMN bo_mon VARCHAR(100);
+    END IF;
+    UPDATE public.thu_vien_loi SET bo_mon = "Bo_Mon" WHERE bo_mon IS NULL;
+    ALTER TABLE public.thu_vien_loi DROP COLUMN IF EXISTS "Bo_Mon";
+  END IF;
+
+  -- Đổi hang_muc_kiem_tra nếu có tên khác
+  IF EXISTS (SELECT FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'thu_vien_loi' AND column_name = 'Hang_Muc_Kiem_Tra') THEN
+    IF NOT EXISTS (SELECT FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'thu_vien_loi' AND column_name = 'hang_muc_kiem_tra') THEN
+      ALTER TABLE public.thu_vien_loi ADD COLUMN hang_muc_kiem_tra TEXT;
+    END IF;
+    UPDATE public.thu_vien_loi SET hang_muc_kiem_tra = "Hang_Muc_Kiem_Tra" WHERE hang_muc_kiem_tra IS NULL;
+    ALTER TABLE public.thu_vien_loi DROP COLUMN IF EXISTS "Hang_Muc_Kiem_Tra";
+  END IF;
+
+  -- Đổi noi_dung_kiem_tra nếu có tên khác
+  IF EXISTS (SELECT FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'thu_vien_loi' AND column_name = 'Noi_Dung_Kiem_Tra') THEN
+    IF NOT EXISTS (SELECT FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'thu_vien_loi' AND column_name = 'noi_dung_kiem_tra') THEN
+      ALTER TABLE public.thu_vien_loi ADD COLUMN noi_dung_kiem_tra TEXT;
+    END IF;
+    UPDATE public.thu_vien_loi SET noi_dung_kiem_tra = "Noi_Dung_Kiem_Tra" WHERE noi_dung_kiem_tra IS NULL;
+    ALTER TABLE public.thu_vien_loi DROP COLUMN IF EXISTS "Noi_Dung_Kiem_Tra";
+  END IF;
+
+  -- Đổi cach_kiem_tra_nhanh nếu có tên khác
+  IF EXISTS (SELECT FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'thu_vien_loi' AND column_name = 'Cach_Kiem_Tra_Nhanh') THEN
+    IF NOT EXISTS (SELECT FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'thu_vien_loi' AND column_name = 'cach_kiem_tra_nhanh') THEN
+      ALTER TABLE public.thu_vien_loi ADD COLUMN cach_kiem_tra_nhanh TEXT;
+    END IF;
+    UPDATE public.thu_vien_loi SET cach_kiem_tra_nhanh = "Cach_Kiem_Tra_Nhanh" WHERE cach_kiem_tra_nhanh IS NULL;
+    ALTER TABLE public.thu_vien_loi DROP COLUMN IF EXISTS "Cach_Kiem_Tra_Nhanh";
+  END IF;
+
+  -- Đổi tieu_chuan nếu có tên khác
+  IF EXISTS (SELECT FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'thu_vien_loi' AND column_name = 'Tieu_Chuan') THEN
+    IF NOT EXISTS (SELECT FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'thu_vien_loi' AND column_name = 'tieu_chuan') THEN
+      ALTER TABLE public.thu_vien_loi ADD COLUMN tieu_chuan TEXT;
+    END IF;
+    UPDATE public.thu_vien_loi SET tieu_chuan = "Tieu_Chuan" WHERE tieu_chuan IS NULL;
+    ALTER TABLE public.thu_vien_loi DROP COLUMN IF EXISTS "Tieu_Chuan";
+  END IF;
+
+  -- Đổi muc_do_quan_trong nếu có tên khác
+  IF EXISTS (SELECT FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'thu_vien_loi' AND column_name = 'Muc_Do_Quan_Trong') THEN
+    IF NOT EXISTS (SELECT FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'thu_vien_loi' AND column_name = 'muc_do_quan_trong') THEN
+      ALTER TABLE public.thu_vien_loi ADD COLUMN muc_do_quan_trong VARCHAR(50);
+    END IF;
+    UPDATE public.thu_vien_loi SET muc_do_quan_trong = "Muc_Do_Quan_Trong" WHERE muc_do_quan_trong IS NULL;
+    ALTER TABLE public.thu_vien_loi DROP COLUMN IF EXISTS "Muc_Do_Quan_Trong";
+  END IF;
+
+  -- Đổi canh_bao_loi nếu có tên khác
+  IF EXISTS (SELECT FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'thu_vien_loi' AND column_name = 'Canh_Bao_Loi') THEN
+    IF NOT EXISTS (SELECT FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'thu_vien_loi' AND column_name = 'canh_bao_loi') THEN
+      ALTER TABLE public.thu_vien_loi ADD COLUMN canh_bao_loi VARCHAR(50);
+    END IF;
+    UPDATE public.thu_vien_loi SET canh_bao_loi = "Canh_Bao_Loi" WHERE canh_bao_loi IS NULL;
+    ALTER TABLE public.thu_vien_loi DROP COLUMN IF EXISTS "Canh_Bao_Loi";
+  END IF;
+
+  -- Đổi ghi_chu_ky_thuat nếu có tên khác
+  IF EXISTS (SELECT FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'thu_vien_loi' AND column_name = 'Ghi_Chu_Ky_Thuat') THEN
+    IF NOT EXISTS (SELECT FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'thu_vien_loi' AND column_name = 'ghi_chu_ky_thuat') THEN
+      ALTER TABLE public.thu_vien_loi ADD COLUMN ghi_chu_ky_thuat TEXT;
+    END IF;
+    UPDATE public.thu_vien_loi SET ghi_chu_ky_thuat = "Ghi_Chu_Ky_Thuat" WHERE ghi_chu_ky_thuat IS NULL;
+    ALTER TABLE public.thu_vien_loi DROP COLUMN IF EXISTS "Ghi_Chu_Ky_Thuat";
+  END IF;
+END $$;
+
+-- Index hỗ trợ tìm kiếm nhanh
+CREATE INDEX IF NOT EXISTS idx_thu_vien_loi_checklist_id ON public.thu_vien_loi(checklist_id);
+CREATE INDEX IF NOT EXISTS idx_thu_vien_loi_chuyen_nganh ON public.thu_vien_loi(chuyen_nganh);
+CREATE INDEX IF NOT EXISTS idx_thu_vien_loi_muc_do ON public.thu_vien_loi(muc_do_quan_trong);
+
 -- Enable Row Level Security (RLS) - Tùy chọn, có thể bật sau
 -- ALTER TABLE public.nhan_su ENABLE ROW LEVEL SECURITY;
 -- ALTER TABLE public.dependents ENABLE ROW LEVEL SECURITY;
 -- ALTER TABLE public.nhan_su_chi_tiet ENABLE ROW LEVEL SECURITY;
+
+-- =====================================================================
+-- BẢNG SETTINGS (setting)
+-- PHỤC VỤ MÀN HÌNH /settings
+-- =====================================================================
+
+-- Tạo bảng setting nếu chưa tồn tại
+CREATE TABLE IF NOT EXISTS public.setting (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id VARCHAR(255), -- ID người dùng (có thể là email, username, hoặc UUID)
+  theme VARCHAR(20) DEFAULT 'light', -- light, dark, system
+  color VARCHAR(50) DEFAULT 'blue', -- blue, purple, green, red, yellow, orange, cyan, gray
+  font_family VARCHAR(100) DEFAULT 'Inter', -- Inter, Roboto, Open Sans
+  font_size VARCHAR(50) DEFAULT 'Trung bình', -- Nhỏ, Trung bình, Lớn
+  language VARCHAR(10) DEFAULT 'vi', -- vi, en, ja, ko, zh
+  logo_url TEXT, -- URL logo ứng dụng
+  timezone VARCHAR(100) DEFAULT '(GMT+07:00) Hà Nội, TP HCM, Bangkok', -- Timezone
+  email_notifications BOOLEAN DEFAULT false, -- Thông báo email
+  push_notifications BOOLEAN DEFAULT false, -- Thông báo push
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+  updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+  UNIQUE(user_id) -- Mỗi user chỉ có 1 setting record
+);
+
+-- Index cho user_id để tìm kiếm nhanh
+CREATE INDEX IF NOT EXISTS idx_setting_user_id ON public.setting(user_id);
+
+-- Trigger để tự động cập nhật updated_at
+CREATE OR REPLACE FUNCTION update_setting_updated_at()
+RETURNS TRIGGER AS $$
+BEGIN
+  NEW.updated_at = NOW();
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+-- Xóa trigger cũ nếu tồn tại trước khi tạo mới
+DROP TRIGGER IF EXISTS trigger_update_setting_updated_at ON public.setting;
+
+CREATE TRIGGER trigger_update_setting_updated_at
+BEFORE UPDATE ON public.setting
+FOR EACH ROW
+EXECUTE FUNCTION update_setting_updated_at();
 
 -- Tạo policy để cho phép tất cả operations (tạm thời cho development)
 -- Có thể thay đổi sau khi setup authentication
