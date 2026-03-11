@@ -873,6 +873,7 @@ BEGIN
 
   IF NOT EXISTS (SELECT FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'du_an' AND column_name = 'customer_id') THEN
     ALTER TABLE public.du_an ADD COLUMN customer_id UUID;
+    ALTER TABLE public.du_an ADD COLUMN ten_khach_hang VARCHAR(500);
   END IF;
 END $$;
 

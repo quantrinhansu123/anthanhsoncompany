@@ -66,18 +66,52 @@ export function ThemDuAnModal({ isOpen, onClose, onSave, initialData }: Props) {
         if (isOpen) {
             setErrors({}); // Reset errors khi mở modal
             if (initialData) {
+                // Ưu tiên lấy customerName từ ten_khach_hang hoặc customer_name (từ join)
+                // Nếu ten_khach_hang là ID (UUID format), tìm lại tên từ customers
+                let customerName = initialData.customerName || initialData.ten_khach_hang || initialData.customer_name || '';
+                
+                // Kiểm tra xem ten_khach_hang có phải là ID không (UUID format)
+                const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+                const shortIdPattern = /^[0-9a-f]{8}$/i;
+                if (customerName && (uuidPattern.test(customerName) || shortIdPattern.test(customerName))) {
+                    // Nếu là ID, tìm lại tên từ customers hoặc từ customer_id
+                    if (initialData.customer_id) {
+                        const foundCustomer = customers.find(c => c.id === initialData.customer_id || c.id.toString() === initialData.customer_id);
+                        if (foundCustomer) {
+                            customerName = foundCustomer.ten_don_vi;
+                        }
+                    }
+                    // Nếu vẫn không tìm thấy, dùng customer_name từ join
+                    if (!customerName || uuidPattern.test(customerName) || shortIdPattern.test(customerName)) {
+                        customerName = initialData.customer_name || '';
+                    }
+                }
+                
+                // Đảm bảo managerId và executorId là string để khớp với dropdown
+                const managerId = initialData.manager_id || initialData.managerId;
+                const executorId = initialData.executor_id || initialData.executorId;
+                
                 setFormData({
-                    customerName: initialData.customerName || '',
+                    customerName: customerName,
                     customerId: initialData.customer_id || initialData.customerId || '',
                     projectName: initialData.projectName || '',
                     date: initialData.date || new Date().toISOString().split('T')[0],
                     time: initialData.time || new Date().toLocaleTimeString('en-US', { hour12: false }),
                     status: initialData.status || 'Đang thực hiện',
                     progress: initialData.progress || 0,
-                    managerId: initialData.manager_id || initialData.managerId || '',
-                    executorId: initialData.executor_id || initialData.executorId || '',
+                    managerId: managerId ? managerId.toString() : '',
+                    executorId: executorId ? executorId.toString() : '',
                     managerImg: initialData.manager_img || initialData.managerImg || '',
                     executorImg: initialData.executor_img || initialData.executorImg || ''
+                });
+                
+                console.log('[ThemDuAnModal] Loading initialData:', {
+                    manager_id: initialData.manager_id,
+                    managerId: initialData.managerId,
+                    finalManagerId: managerId ? managerId.toString() : '',
+                    executor_id: initialData.executor_id,
+                    executorId: initialData.executorId,
+                    finalExecutorId: executorId ? executorId.toString() : ''
                 });
             } else {
                 setFormData({
@@ -100,11 +134,23 @@ export function ThemDuAnModal({ isOpen, onClose, onSave, initialData }: Props) {
     // Cập nhật ảnh khi chọn nhân sự
     useEffect(() => {
         if (formData.managerId) {
-            const manager = employees.find(emp => emp.id === formData.managerId);
+            // So sánh với cả string và number để đảm bảo tìm được
+            const manager = employees.find(emp => 
+                emp.id === formData.managerId || 
+                emp.id.toString() === formData.managerId.toString() ||
+                String(emp.id) === String(formData.managerId)
+            );
+            console.log('[ThemDuAnModal] Finding manager:', {
+                managerId: formData.managerId,
+                employeesCount: employees.length,
+                found: manager ? 'YES' : 'NO',
+                managerData: manager
+            });
             if (manager && manager.anh_nhan_su) {
                 setFormData(prev => ({ ...prev, managerImg: manager.anh_nhan_su || '' }));
             } else {
-                setFormData(prev => ({ ...prev, managerImg: '' }));
+                // Nếu không tìm thấy trong employees, giữ nguyên ảnh từ initialData
+                setFormData(prev => ({ ...prev, managerImg: prev.managerImg || '' }));
             }
         } else {
             setFormData(prev => ({ ...prev, managerImg: '' }));
@@ -113,11 +159,23 @@ export function ThemDuAnModal({ isOpen, onClose, onSave, initialData }: Props) {
 
     useEffect(() => {
         if (formData.executorId) {
-            const executor = employees.find(emp => emp.id === formData.executorId);
+            // So sánh với cả string và number để đảm bảo tìm được
+            const executor = employees.find(emp => 
+                emp.id === formData.executorId || 
+                emp.id.toString() === formData.executorId.toString() ||
+                String(emp.id) === String(formData.executorId)
+            );
+            console.log('[ThemDuAnModal] Finding executor:', {
+                executorId: formData.executorId,
+                employeesCount: employees.length,
+                found: executor ? 'YES' : 'NO',
+                executorData: executor
+            });
             if (executor && executor.anh_nhan_su) {
                 setFormData(prev => ({ ...prev, executorImg: executor.anh_nhan_su || '' }));
             } else {
-                setFormData(prev => ({ ...prev, executorImg: '' }));
+                // Nếu không tìm thấy trong employees, giữ nguyên ảnh từ initialData
+                setFormData(prev => ({ ...prev, executorImg: prev.executorImg || '' }));
             }
         } else {
             setFormData(prev => ({ ...prev, executorImg: '' }));
@@ -131,10 +189,12 @@ export function ThemDuAnModal({ isOpen, onClose, onSave, initialData }: Props) {
         if (name === 'customerName') {
             // Khi chọn khách hàng, tìm customerId tương ứng
             const selectedCustomer = customers.find(c => c.ten_don_vi === value);
+            const newCustomerId = selectedCustomer?.id?.toString() || '';
+            console.log('[ThemDuAnModal] Selected customer:', value, 'customerId:', newCustomerId);
             setFormData(prev => ({ 
                 ...prev, 
                 customerName: value,
-                customerId: selectedCustomer?.id?.toString() || ''
+                customerId: newCustomerId
             }));
         } else {
             setFormData(prev => ({ ...prev, [name]: value }));
@@ -167,11 +227,27 @@ export function ThemDuAnModal({ isOpen, onClose, onSave, initialData }: Props) {
         
         setErrors({});
         
+        // Xử lý customerId - đảm bảo không phải empty string
+        let finalCustomerId = formData.customerId && formData.customerId.trim() !== '' ? formData.customerId.trim() : null;
+        let finalTenKhachHang = formData.customerName && formData.customerName.trim() !== '' ? formData.customerName.trim() : null;
+        
+        // Nếu customerId rỗng nhưng có customerName, thử tìm lại
+        if (!finalCustomerId && formData.customerName) {
+            const foundCustomer = customers.find(c => c.ten_don_vi === formData.customerName);
+            if (foundCustomer && foundCustomer.id) {
+                console.log('[ThemDuAnModal] Found customer by name, using id:', foundCustomer.id);
+                finalCustomerId = foundCustomer.id.toString();
+                finalTenKhachHang = foundCustomer.ten_don_vi;
+            }
+        }
+        
         const saveData = {
             ...formData,
             id: initialData?.id || null, // Truyền id từ initialData nếu có
-            customer_id: formData.customerId && formData.customerId.trim() !== '' ? formData.customerId : null,
-            customerId: formData.customerId && formData.customerId.trim() !== '' ? formData.customerId : null,
+            customer_id: finalCustomerId,
+            customerId: finalCustomerId,
+            customerName: formData.customerName, // Giữ lại customerName để dùng làm fallback
+            tenKhachHang: finalTenKhachHang || formData.customerName || null, // Đảm bảo luôn có giá trị
             manager_id: formData.managerId || null,
             executor_id: formData.executorId || null,
             managerImg: formData.managerImg || null,
@@ -179,8 +255,9 @@ export function ThemDuAnModal({ isOpen, onClose, onSave, initialData }: Props) {
         };
         
         console.log('[ThemDuAnModal] Sending data to onSave:', saveData);
-        console.log('[ThemDuAnModal] customerId:', formData.customerId);
-        console.log('[ThemDuAnModal] customerName:', formData.customerName);
+        console.log('[ThemDuAnModal] customerId:', formData.customerId, '-> finalCustomerId:', finalCustomerId);
+        console.log('[ThemDuAnModal] customerName:', formData.customerName, '-> finalTenKhachHang:', finalTenKhachHang);
+        console.log('[ThemDuAnModal] saveData.tenKhachHang:', saveData.tenKhachHang);
         
         // Gửi dữ liệu kèm manager_id và executor_id, customer_id, và id nếu đang edit
         onSave(saveData);

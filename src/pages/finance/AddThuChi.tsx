@@ -55,7 +55,8 @@ export function AddThuChi() {
         duAnId: '',
         hopDongId: '',
         nhanSuId: '',
-        loaiPhieu: 'Phiếu thu',
+        // Mặc định khi mở màn hình thêm mới sẽ là Phiếu chi
+        loaiPhieu: 'Phiếu chi',
         tinhTrangPhieu: 'Tạm ứng',
         ngayTienVe: new Date().toISOString().split('T')[0],
         soTien: 0,
@@ -283,27 +284,29 @@ export function AddThuChi() {
                         </div>
                     </div>
 
-                    {/* Nhân sự (chi cho ai) */}
-                    <div className="flex flex-col md:flex-row md:items-center gap-4 md:gap-8">
-                        <div className="md:w-1/3 md:text-right">
-                            <label className="text-sm font-medium text-slate-500">Nhân sự (chi cho ai)</label>
+                    {/* Nhân sự (chi cho ai) - Chỉ hiển thị với Phiếu chi */}
+                    {formData.loaiPhieu === 'Phiếu chi' && (
+                        <div className="flex flex-col md:flex-row md:items-center gap-4 md:gap-8">
+                            <div className="md:w-1/3 md:text-right">
+                                <label className="text-sm font-medium text-slate-500">Nhân sự (chi cho ai)</label>
+                            </div>
+                            <div className="md:w-2/3 relative flex-1">
+                                <select
+                                    value={formData.nhanSuId}
+                                    onChange={(e) => setFormData({ ...formData, nhanSuId: e.target.value })}
+                                    className="w-full px-4 py-2.5 bg-white border border-slate-300 rounded-md appearance-none focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 text-slate-700"
+                                >
+                                    <option value="">-- Chọn nhân sự (tùy chọn) --</option>
+                                    {employees.map(emp => (
+                                        <option key={emp.id} value={emp.id}>
+                                            {emp.code ? `[${emp.code}] ` : ''}{emp.full_name}
+                                        </option>
+                                    ))}
+                                </select>
+                                <ChevronDown size={16} className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
+                            </div>
                         </div>
-                        <div className="md:w-2/3 relative flex-1">
-                            <select
-                                value={formData.nhanSuId}
-                                onChange={(e) => setFormData({ ...formData, nhanSuId: e.target.value })}
-                                className="w-full px-4 py-2.5 bg-white border border-slate-300 rounded-md appearance-none focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 text-slate-700"
-                            >
-                                <option value="">-- Chọn nhân sự (tùy chọn) --</option>
-                                {employees.map(emp => (
-                                    <option key={emp.id} value={emp.id}>
-                                        {emp.code ? `[${emp.code}] ` : ''}{emp.full_name}
-                                    </option>
-                                ))}
-                            </select>
-                            <ChevronDown size={16} className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
-                        </div>
-                    </div>
+                    )}
 
                     {/* Tình trạng phiếu */}
                     <div className="flex flex-col md:flex-row md:items-center gap-4 md:gap-8">

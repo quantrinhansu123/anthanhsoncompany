@@ -5,6 +5,7 @@ import { useNavigate } from 'react-router-dom';
 import { projectService } from '../../lib/services/projectService';
 import { contractService, ContractRow } from '../../lib/services/contractService';
 import { taskService } from '../../lib/services/taskService';
+import { employeeService } from '../../lib/services/employeeService';
 
 // Toast component
 function Toast({ message, type, onClose }: { message: string; type: 'success' | 'info' | 'warning'; onClose: () => void }) {
@@ -96,6 +97,8 @@ export function DuAn() {
         fileStatus: 'Chưa có file'
     });
     const [projectContracts, setProjectContracts] = useState<{ [projectId: number]: any[] }>({});
+    const [contractToDelete, setContractToDelete] = useState<string | null>(null);
+    const [isDeleteContractModalOpen, setIsDeleteContractModalOpen] = useState(false);
     
     // State để lưu hợp đồng thực tế từ database
     const [realContracts, setRealContracts] = useState<Map<string, ContractRow[]>>(new Map());
@@ -105,6 +108,27 @@ export function DuAn() {
     
     // State để lưu thông tin hợp đồng của từng dự án (để hiển thị số lượng)
     const [projectContractInfo, setProjectContractInfo] = useState<Map<string, { total: number; completed: number }>>(new Map());
+    
+    // State để lưu danh sách nhân sự (để hiển thị tên trong modal chi tiết)
+    const [employees, setEmployees] = useState<Array<{ id: string; full_name: string; code: string; anh_nhan_su?: string | null }>>([]);
+
+    // Load danh sách nhân sự
+    useEffect(() => {
+        (async () => {
+            try {
+                const employeeList = await employeeService.getAll();
+                setEmployees(employeeList.map(emp => ({
+                    id: emp.id.toString(),
+                    full_name: emp.full_name || emp.name || emp.hoTen || '',
+                    code: emp.code || '',
+                    anh_nhan_su: (emp as any).anh_nhan_su || emp.anh_nhan_su || null
+                })));
+                console.log('[DuAn] Loaded employees:', employeeList.length);
+            } catch (error) {
+                console.error('[DuAn] Error loading employees:', error);
+            }
+        })();
+    }, []);
 
     // Load dự án từ bảng du_an và tính tiến độ từ hợp đồng
     useEffect(() => {
@@ -183,21 +207,52 @@ export function DuAn() {
                 const projectName = p.ten_du_an;
                 const calculatedProgress = progressMap.get(projectName) ?? 0;
                 
+                // Ưu tiên lấy customerName từ customer_name (join) hoặc ten_khach_hang
+                // Nếu ten_khach_hang là ID, dùng customer_name từ join
+                let customerName = p.customer_name || null;
+                if (!customerName && p.ten_khach_hang) {
+                    // Kiểm tra xem ten_khach_hang có phải là ID không
+                    const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+                    const shortIdPattern = /^[0-9a-f]{8}$/i;
+                    if (!uuidPattern.test(p.ten_khach_hang) && !shortIdPattern.test(p.ten_khach_hang)) {
+                        // Nếu không phải ID, dùng ten_khach_hang
+                        customerName = p.ten_khach_hang;
+                    }
+                }
+                
+                // Lấy ảnh từ nhân sự: ưu tiên manager_img/executor_img, nếu không có thì lấy từ join
+                const managerImg = p.manager_img || (p.manager && p.manager.anh_nhan_su) || null;
+                const executorImg = p.executor_img || (p.executor && p.executor.anh_nhan_su) || null;
+                
+                // Lấy tên từ manager và executor objects nếu có, nếu không thì dùng manager_name/executor_name đã map
+                const managerName = p.manager 
+                    ? (p.manager.full_name || p.manager.name || p.manager.hoTen || p.manager_name || null)
+                    : (p.manager_name || null);
+                const executorName = p.executor 
+                    ? (p.executor.full_name || p.executor.name || p.executor.hoTen || p.executor_name || null)
+                    : (p.executor_name || null);
+                
                 return {
                     id: p.id,
                     projectName: projectName,
                     status: p.status || 'Đang thực hiện',
                     statusColor: getStatusColor(p.status || 'Đang thực hiện'),
                     progress: calculatedProgress, // Sử dụng tiến độ tính từ hợp đồng
-                    managerImg: p.manager_img || null,
-                    executorImg: p.executor_img || null,
+                    managerImg: managerImg,
+                    executorImg: executorImg,
                     manager_id: p.manager_id || null,
                     executor_id: p.executor_id || null,
-                    manager_name: p.manager_name || null,
-                    executor_name: p.executor_name || null,
+                    managerId: p.manager_id || null, // Thêm managerId để modal edit sử dụng
+                    executorId: p.executor_id || null, // Thêm executorId để modal edit sử dụng
+                    manager_name: managerName,
+                    executor_name: executorName,
                     manager_code: (p.manager && (p.manager.code || p.manager.ma_nv)) || null,
                     executor_code: (p.executor && (p.executor.code || p.executor.ma_nv)) || null,
-                    customer_name: p.customer_name || null,
+                    customer_name: customerName,
+                    customerName: customerName, // Thêm customerName để dùng trong form
+                    // Giữ lại manager và executor objects để có thể truy cập sau
+                    manager: p.manager,
+                    executor: p.executor,
                 };
             });
             setItems(mapped);
@@ -212,19 +267,33 @@ export function DuAn() {
                 console.log('[DuAn] Updating project with id:', data.id);
                 const customerIdValue = (data.customer_id || data.customerId);
                 const finalCustomerId = customerIdValue && customerIdValue.toString().trim() !== '' ? customerIdValue.toString() : null;
-                console.log('[DuAn] Updating with customerId:', finalCustomerId);
+                const finalTenKhachHang = data.tenKhachHang || data.customerName || null;
+                console.log('[DuAn] Updating with customerId:', finalCustomerId, 'tenKhachHang:', finalTenKhachHang);
+                // Xử lý managerId và executorId - đảm bảo không phải string rỗng
+                const managerIdValue = data.manager_id || data.managerId;
+                const executorIdValue = data.executor_id || data.executorId;
+                const finalManagerId = managerIdValue && managerIdValue.toString().trim() !== '' ? managerIdValue.toString().trim() : null;
+                const finalExecutorId = executorIdValue && executorIdValue.toString().trim() !== '' ? executorIdValue.toString().trim() : null;
+                
+                console.log('[DuAn] Updating with managerId:', finalManagerId, 'executorId:', finalExecutorId);
+                
                 const updated = await projectService.update(String(data.id), {
                     projectName: data.projectName,
                     status: data.status,
                     progress: Number(data.progress) || 0,
                     customerId: finalCustomerId,
-                    managerId: data.manager_id || data.managerId || null,
-                    executorId: data.executor_id || data.executorId || null,
+                    tenKhachHang: finalTenKhachHang,
+                    managerId: finalManagerId,
+                    executorId: finalExecutorId,
                     managerImg: data.managerImg || null,
                     executorImg: data.executorImg || null,
                 });
                 if (updated) {
                     setToast({ message: 'Cập nhật dự án thành công!', type: 'success' });
+                    // Lưu projectId trước khi reload để cập nhật selectedProject
+                    const currentProjectId = data.id;
+                    const wasViewModalOpen = isViewModalOpen;
+                    
                     // Reload dữ liệu từ database
                     setTimeout(async () => {
                         const data = await projectService.getAll();
@@ -289,24 +358,76 @@ export function DuAn() {
                             const projectName = p.ten_du_an;
                             const calculatedProgress = progressMap.get(projectName) ?? 0;
                             
+                            // Ưu tiên lấy customerName từ customer_name (join) hoặc ten_khach_hang
+                            // Nếu ten_khach_hang là ID, dùng customer_name từ join
+                            let customerName = p.customer_name || null;
+                            if (!customerName && p.ten_khach_hang) {
+                                // Kiểm tra xem ten_khach_hang có phải là ID không
+                                const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+                                const shortIdPattern = /^[0-9a-f]{8}$/i;
+                                if (!uuidPattern.test(p.ten_khach_hang) && !shortIdPattern.test(p.ten_khach_hang)) {
+                                    // Nếu không phải ID, dùng ten_khach_hang
+                                    customerName = p.ten_khach_hang;
+                                }
+                            }
+                            
+                            // Lấy ảnh từ nhân sự: ưu tiên manager_img/executor_img, nếu không có thì lấy từ join
+                            const managerImg = p.manager_img || (p.manager && p.manager.anh_nhan_su) || null;
+                            const executorImg = p.executor_img || (p.executor && p.executor.anh_nhan_su) || null;
+                            
+                            // Lấy tên từ manager và executor objects nếu có, nếu không thì dùng manager_name/executor_name đã map
+                            const managerName = p.manager 
+                                ? (p.manager.full_name || p.manager.name || p.manager.hoTen || p.manager_name || null)
+                                : (p.manager_name || null);
+                            const executorName = p.executor 
+                                ? (p.executor.full_name || p.executor.name || p.executor.hoTen || p.executor_name || null)
+                                : (p.executor_name || null);
+                            
                             return {
                                 id: p.id,
                                 projectName: projectName,
                                 status: p.status || 'Đang thực hiện',
                                 statusColor: getStatusColor(p.status || 'Đang thực hiện'),
                                 progress: calculatedProgress,
-                                managerImg: p.manager_img || null,
-                                executorImg: p.executor_img || null,
+                                managerImg: managerImg,
+                                executorImg: executorImg,
                                 manager_id: p.manager_id || null,
                                 executor_id: p.executor_id || null,
-                                manager_name: p.manager_name || null,
-                                executor_name: p.executor_name || null,
+                                managerId: p.manager_id || null, // Thêm managerId để modal edit sử dụng
+                                executorId: p.executor_id || null, // Thêm executorId để modal edit sử dụng
+                                manager_name: managerName,
+                                executor_name: executorName,
                                 manager_code: (p.manager && (p.manager.code || p.manager.ma_nv)) || null,
                                 executor_code: (p.executor && (p.executor.code || p.executor.ma_nv)) || null,
-                                customer_name: p.customer_name || null,
+                                customer_name: customerName,
+                                customerName: customerName, // Thêm customerName để dùng trong form
+                                // Giữ lại manager và executor objects để có thể truy cập sau
+                                manager: p.manager,
+                                executor: p.executor,
                             };
                         });
                         setItems(mapped);
+                        
+                        // Cập nhật selectedProject nếu modal chi tiết đang mở
+                        if (wasViewModalOpen) {
+                            const updatedProject = mapped.find((p: any) => p.id === currentProjectId);
+                            if (updatedProject) {
+                                console.log('[DuAn] Updating selectedProject with new data:', {
+                                    id: updatedProject.id,
+                                    manager_id: updatedProject.manager_id,
+                                    executor_id: updatedProject.executor_id,
+                                    manager_name: updatedProject.manager_name,
+                                    executor_name: updatedProject.executor_name,
+                                    manager: updatedProject.manager,
+                                    executor: updatedProject.executor,
+                                    managerImg: updatedProject.managerImg,
+                                    executorImg: updatedProject.executorImg
+                                });
+                                setSelectedProject(updatedProject);
+                            } else {
+                                console.warn('[DuAn] Could not find updated project in mapped data. currentProjectId:', currentProjectId);
+                            }
+                        }
                     }, 500);
                 } else {
                     setToast({ message: 'Cập nhật dự án thất bại!', type: 'warning' });
@@ -316,14 +437,24 @@ export function DuAn() {
                 console.log('[DuAn] Creating new project');
                 const customerIdValue = (data.customer_id || data.customerId);
                 const finalCustomerId = customerIdValue && customerIdValue.toString().trim() !== '' ? customerIdValue.toString() : null;
-                console.log('[DuAn] Creating with customerId:', finalCustomerId);
+                const finalTenKhachHang = data.tenKhachHang || data.customerName || null;
+                console.log('[DuAn] Creating with customerId:', finalCustomerId, 'tenKhachHang:', finalTenKhachHang);
+                // Xử lý managerId và executorId - đảm bảo không phải string rỗng
+                const managerIdValue = data.manager_id || data.managerId;
+                const executorIdValue = data.executor_id || data.executorId;
+                const finalManagerId = managerIdValue && managerIdValue.toString().trim() !== '' ? managerIdValue.toString().trim() : null;
+                const finalExecutorId = executorIdValue && executorIdValue.toString().trim() !== '' ? executorIdValue.toString().trim() : null;
+                
+                console.log('[DuAn] Creating with managerId:', finalManagerId, 'executorId:', finalExecutorId);
+                
                 const created = await projectService.create({
                     projectName: data.projectName,
                     status: data.status,
                     progress: Number(data.progress) || 0,
                     customerId: finalCustomerId,
-                    managerId: data.manager_id || data.managerId || null,
-                    executorId: data.executor_id || data.executorId || null,
+                    tenKhachHang: finalTenKhachHang,
+                    managerId: finalManagerId,
+                    executorId: finalExecutorId,
                     managerImg: data.managerImg || null,
                     executorImg: data.executorImg || null,
                 });
@@ -393,21 +524,52 @@ export function DuAn() {
                             const projectName = p.ten_du_an;
                             const calculatedProgress = progressMap.get(projectName) ?? 0;
                             
+                            // Ưu tiên lấy customerName từ customer_name (join) hoặc ten_khach_hang
+                            // Nếu ten_khach_hang là ID, dùng customer_name từ join
+                            let customerName = p.customer_name || null;
+                            if (!customerName && p.ten_khach_hang) {
+                                // Kiểm tra xem ten_khach_hang có phải là ID không
+                                const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+                                const shortIdPattern = /^[0-9a-f]{8}$/i;
+                                if (!uuidPattern.test(p.ten_khach_hang) && !shortIdPattern.test(p.ten_khach_hang)) {
+                                    // Nếu không phải ID, dùng ten_khach_hang
+                                    customerName = p.ten_khach_hang;
+                                }
+                            }
+                            
+                            // Lấy ảnh từ nhân sự: ưu tiên manager_img/executor_img, nếu không có thì lấy từ join
+                            const managerImg = p.manager_img || (p.manager && p.manager.anh_nhan_su) || null;
+                            const executorImg = p.executor_img || (p.executor && p.executor.anh_nhan_su) || null;
+                            
+                            // Lấy tên từ manager và executor objects nếu có, nếu không thì dùng manager_name/executor_name đã map
+                            const managerName = p.manager 
+                                ? (p.manager.full_name || p.manager.name || p.manager.hoTen || p.manager_name || null)
+                                : (p.manager_name || null);
+                            const executorName = p.executor 
+                                ? (p.executor.full_name || p.executor.name || p.executor.hoTen || p.executor_name || null)
+                                : (p.executor_name || null);
+                            
                             return {
                                 id: p.id,
                                 projectName: projectName,
                                 status: p.status || 'Đang thực hiện',
                                 statusColor: getStatusColor(p.status || 'Đang thực hiện'),
                                 progress: calculatedProgress,
-                                managerImg: p.manager_img || null,
-                                executorImg: p.executor_img || null,
+                                managerImg: managerImg,
+                                executorImg: executorImg,
                                 manager_id: p.manager_id || null,
                                 executor_id: p.executor_id || null,
-                                manager_name: p.manager_name || null,
-                                executor_name: p.executor_name || null,
+                                managerId: p.manager_id || null, // Thêm managerId để modal edit sử dụng
+                                executorId: p.executor_id || null, // Thêm executorId để modal edit sử dụng
+                                manager_name: managerName,
+                                executor_name: executorName,
                                 manager_code: (p.manager && (p.manager.code || p.manager.ma_nv)) || null,
                                 executor_code: (p.executor && (p.executor.code || p.executor.ma_nv)) || null,
-                                customer_name: p.customer_name || null,
+                                customer_name: customerName,
+                                customerName: customerName, // Thêm customerName để dùng trong form
+                                // Giữ lại manager và executor objects để có thể truy cập sau
+                                manager: p.manager,
+                                executor: p.executor,
                             };
                         });
                         setItems(mapped);
@@ -470,6 +632,34 @@ export function DuAn() {
         }
     };
 
+    const handleDeleteContract = async () => {
+        if (!contractToDelete || !selectedProject) return;
+
+        try {
+            await contractService.delete(contractToDelete);
+            
+            // Cập nhật realContracts
+            setRealContracts(prev => {
+                const newMap = new Map(prev);
+                const projectName = selectedProject.projectName;
+                const existing = newMap.get(projectName) || [];
+                const updated = existing.filter(c => c.id !== contractToDelete);
+                newMap.set(projectName, updated);
+                return newMap;
+            });
+
+            setToast({ message: 'Đã xóa hợp đồng thành công!', type: 'success' });
+            setIsDeleteContractModalOpen(false);
+            setContractToDelete(null);
+            
+            // Reload để cập nhật tiến độ
+            window.location.reload();
+        } catch (error: any) {
+            console.error('[DuAn] Error deleting contract:', error);
+            setToast({ message: `Lỗi: ${error.message || 'Không thể xóa hợp đồng'}`, type: 'warning' });
+        }
+    };
+
     return (
         <div className="animate-in fade-in slide-in-from-bottom-4 duration-500 pb-10">
             {/* Toast */}
@@ -498,8 +688,6 @@ export function DuAn() {
                             <tr className="border-b border-slate-200 text-slate-500 bg-slate-50/50">
                                 <th className="py-4 pl-4 md:pl-6 pr-4 font-semibold text-xs uppercase tracking-wider rounded-tl-lg">Tên dự án</th>
                                 <th className="py-4 px-4 font-semibold text-xs uppercase tracking-wider min-w-[150px]">Tên khách hàng</th>
-                                <th className="py-4 px-4 text-center font-semibold text-xs uppercase tracking-wider min-w-[120px]">Người quản lý</th>
-                                <th className="py-4 px-4 text-center font-semibold text-xs uppercase tracking-wider min-w-[120px]">Người thực thi</th>
                                 <th className="py-4 px-4 text-center font-semibold text-xs uppercase tracking-wider min-w-[140px]">Trạng thái</th>
                                 <th className="py-4 pr-4 md:pr-6 pl-4 text-center font-semibold text-xs uppercase tracking-wider min-w-[180px]">Tiến độ</th>
                                 <th className="py-4 px-4 text-center font-semibold text-xs uppercase tracking-wider min-w-[100px] rounded-tr-lg">Hành động</th>
@@ -508,7 +696,7 @@ export function DuAn() {
                         <tbody className="divide-y divide-slate-100">
                             {items.length === 0 && (
                                 <tr>
-                                    <td colSpan={7} className="py-6 text-center text-slate-500 text-sm italic">
+                                    <td colSpan={5} className="py-6 text-center text-slate-500 text-sm italic">
                                         Chưa có dự án nào. Nhấn "Thêm dự án" để tạo mới.
                                     </td>
                                 </tr>
@@ -526,55 +714,6 @@ export function DuAn() {
 
                                     <td className="py-4 px-4 align-middle">
                                         <span className="text-slate-700 text-sm">{item.customer_name || '(Chưa có khách hàng)'}</span>
-                                    </td>
-
-                                    <td className="py-4 px-4 align-middle">
-                                        <div className="flex justify-center">
-                                            <div className="relative">
-                                                {item.managerImg ? (
-                                                    <div className="w-10 h-10 rounded-full overflow-hidden border-2 border-white shadow-sm ring-1 ring-slate-200 group-hover:ring-blue-200 transition-all">
-                                                        <img 
-                                                            src={item.managerImg} 
-                                                            alt="Manager" 
-                                                            className="w-full h-full object-cover"
-                                                            onError={(e) => {
-                                                                (e.target as HTMLImageElement).style.display = 'none';
-                                                            }}
-                                                        />
-                                                    </div>
-                                                ) : (
-                                                    <div className="w-10 h-10 rounded-full bg-slate-200 border-2 border-white shadow-sm ring-1 ring-slate-200 flex items-center justify-center">
-                                                        <User size={16} className="text-slate-400" />
-                                                    </div>
-                                                )}
-                                            </div>
-                                        </div>
-                                    </td>
-
-                                    <td className="py-4 px-4 align-middle">
-                                        <div className="flex flex-col items-center gap-1">
-                                            {item.executorImg ? (
-                                                <div className="w-10 h-10 rounded-full overflow-hidden border-2 border-white shadow-sm ring-1 ring-slate-200 group-hover:ring-blue-200 transition-all">
-                                                    <img 
-                                                        src={item.executorImg} 
-                                                        alt="Executor" 
-                                                        className="w-full h-full object-cover"
-                                                        onError={(e) => {
-                                                            (e.target as HTMLImageElement).style.display = 'none';
-                                                        }}
-                                                    />
-                                                </div>
-                                            ) : (
-                                                <div className="w-10 h-10 rounded-full bg-slate-200 border-2 border-white shadow-sm ring-1 ring-slate-200 flex items-center justify-center">
-                                                    <User size={16} className="text-slate-400" />
-                                                </div>
-                                            )}
-                                            {item.executor_name && (
-                                                <div className="text-xs text-slate-600 text-center max-w-[100px] truncate">
-                                                    {item.executor_code ? `[${item.executor_code}] ` : ''}{item.executor_name}
-                                                </div>
-                                            )}
-                                        </div>
                                     </td>
 
                                     <td className="py-4 px-4 align-middle">
@@ -650,7 +789,7 @@ export function DuAn() {
             {
                 isViewModalOpen && selectedProject && (
                     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 animate-in fade-in duration-200 p-4">
-                        <div className="bg-[#FAF9FB] w-full max-w-4xl rounded-2xl shadow-lg flex flex-col max-h-[90vh]">
+                        <div className="bg-[#FAF9FB] w-full max-w-3xl rounded-2xl shadow-lg flex flex-col max-h-[75vh]">
                             {/* Modal Header */}
                             <div className="px-6 py-4 flex justify-between items-center bg-white rounded-t-2xl">
                                 <h2 className="text-lg font-bold text-slate-800">Chi tiết dự án</h2>
@@ -702,67 +841,6 @@ export function DuAn() {
                                                 <div className="flex-1 text-slate-800 font-medium">{row.value}</div>
                                             </div>
                                         ))}
-                                        
-                                        {/* Nhân sự phụ trách */}
-                                        <div className="px-4 py-3.5 border-b border-slate-100 hover:bg-slate-50 transition-colors">
-                                            <div className="w-[180px] shrink-0 text-slate-500 font-medium mb-2">Người quản lý</div>
-                                            <div className="flex-1 flex items-center gap-3">
-                                                {selectedProject.managerImg ? (
-                                                    <img 
-                                                        src={selectedProject.managerImg} 
-                                                        alt="Manager" 
-                                                        className="w-10 h-10 rounded-full object-cover border border-slate-200"
-                                                        onError={(e) => {
-                                                            (e.target as HTMLImageElement).style.display = 'none';
-                                                        }}
-                                                    />
-                                                ) : (
-                                                    <div className="w-10 h-10 rounded-full bg-slate-200 border border-slate-200 flex items-center justify-center">
-                                                        <User size={16} className="text-slate-400" />
-                                                    </div>
-                                                )}
-                                                <div className="flex-1">
-                                                    <div className="text-slate-800 font-medium">
-                                                        {selectedProject.manager_name || '(Chưa có người quản lý)'}
-                                                    </div>
-                                                    {selectedProject.manager_code && (
-                                                        <div className="text-xs text-slate-500 mt-0.5">
-                                                            Mã: {selectedProject.manager_code}
-                                                        </div>
-                                                    )}
-                                                </div>
-                                            </div>
-                                        </div>
-                                        
-                                        <div className="px-4 py-3.5 border-b border-slate-100 last:border-0 hover:bg-slate-50 transition-colors">
-                                            <div className="w-[180px] shrink-0 text-slate-500 font-medium mb-2">Người thực thi</div>
-                                            <div className="flex-1 flex items-center gap-3">
-                                                {selectedProject.executorImg ? (
-                                                    <img 
-                                                        src={selectedProject.executorImg} 
-                                                        alt="Executor" 
-                                                        className="w-10 h-10 rounded-full object-cover border border-slate-200"
-                                                        onError={(e) => {
-                                                            (e.target as HTMLImageElement).style.display = 'none';
-                                                        }}
-                                                    />
-                                                ) : (
-                                                    <div className="w-10 h-10 rounded-full bg-slate-200 border border-slate-200 flex items-center justify-center">
-                                                        <User size={16} className="text-slate-400" />
-                                                    </div>
-                                                )}
-                                                <div className="flex-1">
-                                                    <div className="text-slate-800 font-medium">
-                                                        {selectedProject.executor_name || '(Chưa có người thực thi)'}
-                                                    </div>
-                                                    {selectedProject.executor_code && (
-                                                        <div className="text-xs text-slate-500 mt-0.5">
-                                                            Mã: {selectedProject.executor_code}
-                                                        </div>
-                                                    )}
-                                                </div>
-                                            </div>
-                                        </div>
                                     </div>
                                 )}
 
@@ -798,11 +876,39 @@ export function DuAn() {
                                                                 <td className="px-4 py-3 text-slate-600 text-right">
                                                                     {contract.gia_tri_hd ? contract.gia_tri_hd.toLocaleString('vi-VN') : '0'}
                                                                 </td>
+                                                                <td className="px-4 py-3 text-center">
+                                                                    <div className="flex items-center justify-center gap-2">
+                                                                        <button
+                                                                            onClick={() => navigate(`/khach-hang/hop-dong?contract=${contract.id}`)}
+                                                                            className="p-1.5 text-blue-500 hover:text-blue-700 hover:bg-blue-50 rounded-md border border-blue-100 transition-colors"
+                                                                            title="Xem chi tiết"
+                                                                        >
+                                                                            <Eye size={16} />
+                                                                        </button>
+                                                                        <button
+                                                                            onClick={() => navigate(`/khach-hang/hop-dong?edit=${contract.id}`)}
+                                                                            className="p-1.5 text-amber-500 hover:text-amber-700 hover:bg-amber-50 rounded-md border border-amber-100 transition-colors"
+                                                                            title="Sửa"
+                                                                        >
+                                                                            <Edit size={16} />
+                                                                        </button>
+                                                                        <button
+                                                                            onClick={() => {
+                                                                                setContractToDelete(contract.id);
+                                                                                setIsDeleteContractModalOpen(true);
+                                                                            }}
+                                                                            className="p-1.5 text-red-500 hover:text-red-700 hover:bg-red-50 rounded-md border border-red-100 transition-colors"
+                                                                            title="Xóa"
+                                                                        >
+                                                                            <Trash2 size={16} />
+                                                                        </button>
+                                                                    </div>
+                                                                </td>
                                                             </tr>
                                                         ))
                                                     ) : (
                                                         <tr>
-                                                            <td className="px-4 py-8 text-slate-500 italic text-center" colSpan={5}>
+                                                            <td className="px-4 py-8 text-slate-500 italic text-center" colSpan={6}>
                                                                 Chưa có hợp đồng nào cho dự án này
                                                             </td>
                                                         </tr>
@@ -877,6 +983,35 @@ export function DuAn() {
                         <div className="px-6 py-4 bg-slate-50 border-t border-slate-200 flex justify-end gap-2">
                             <button onClick={() => setIsAddContractModalOpen(false)} className="px-4 py-2 text-sm font-medium text-slate-600 hover:bg-slate-200 rounded-lg">Hủy</button>
                             <button onClick={handleSaveContract} className="px-4 py-2 text-sm font-bold text-white bg-purple-600 hover:bg-purple-700 rounded-lg shadow-md">Thêm</button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* Delete Contract Confirmation Modal */}
+            {isDeleteContractModalOpen && (
+                <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 p-4">
+                    <div className="bg-white rounded-2xl shadow-xl w-full max-w-sm overflow-hidden">
+                        <div className="px-6 py-5">
+                            <h3 className="text-lg font-bold text-slate-800 mb-2">Xác nhận xóa</h3>
+                            <p className="text-sm text-slate-600">Bạn có chắc chắn muốn xóa hợp đồng này không? Hành động này không thể hoàn tác.</p>
+                        </div>
+                        <div className="px-6 py-4 bg-slate-50 border-t border-slate-200 flex justify-end gap-2">
+                            <button
+                                onClick={() => {
+                                    setIsDeleteContractModalOpen(false);
+                                    setContractToDelete(null);
+                                }}
+                                className="px-4 py-2 text-sm font-medium text-slate-600 hover:bg-slate-200 rounded-lg transition-colors"
+                            >
+                                Hủy
+                            </button>
+                            <button
+                                onClick={handleDeleteContract}
+                                className="px-4 py-2 text-sm font-bold text-white bg-red-600 hover:bg-red-700 rounded-lg shadow-md transition-colors"
+                            >
+                                Xóa
+                            </button>
                         </div>
                     </div>
                 </div>
