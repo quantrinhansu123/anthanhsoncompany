@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import {
     Plus,
     Search,
@@ -14,8 +14,10 @@ import {
     X,
     Pin,
     Grid3x3,
-    ExternalLink
+    ExternalLink,
+    Loader2
 } from 'lucide-react';
+import { taiLieuService, TaiLieuRow } from '../../lib/services/taiLieuService';
 
 interface TaiLieu {
     id: string;
@@ -70,7 +72,8 @@ const mockData: TaiLieu[] = [
 ];
 
 export function DanhSachTaiLieu() {
-    const [items, setItems] = useState<TaiLieu[]>(mockData);
+    const [items, setItems] = useState<TaiLieu[]>([]);
+    const [loading, setLoading] = useState(true);
     const [searchTerm, setSearchTerm] = useState('');
     const [filterHuong, setFilterHuong] = useState('Tất cả');
     const [filterPhongQuanLy, setFilterPhongQuanLy] = useState('Tất cả');
@@ -82,6 +85,41 @@ export function DanhSachTaiLieu() {
     const [isViewLinkModalOpen, setIsViewLinkModalOpen] = useState(false);
     const [viewingLink, setViewingLink] = useState('');
     const [selectedItems, setSelectedItems] = useState<string[]>([]);
+    const [editingId, setEditingId] = useState<string | null>(null);
+
+    // Load data from database
+    useEffect(() => {
+        loadData();
+    }, []);
+
+    const loadData = async () => {
+        try {
+            setLoading(true);
+            const data = await taiLieuService.getAll();
+            // Map từ database format (snake_case) sang component format (camelCase)
+            const mappedData: TaiLieu[] = data.map((row: TaiLieuRow) => ({
+                id: row.id,
+                maTaiLieu: row.ma_tai_lieu || '',
+                tenTaiLieu: row.ten_tai_lieu || '',
+                huong: (row.huong as 'Nội bộ' | 'Văn bản đến' | 'Văn bản đi') || 'Nội bộ',
+                loai: row.loai || '',
+                nhomTaiLieu: row.nhom_tai_lieu || '',
+                trangThai: (row.trang_thai as 'Đã ký' | 'Đã gửi' | 'Chờ duyệt' | 'Đã duyệt') || 'Chờ duyệt',
+                phongQuanLy: row.phong_quan_ly || '',
+                phanQuyen: row.phan_quyen || '',
+                soDen: row.so_den || '',
+                soDi: row.so_di || '',
+                ngayDen: row.ngay_den || '',
+                ngayKy: row.ngay_ky || '',
+                link: row.link || ''
+            }));
+            setItems(mappedData);
+        } catch (error) {
+            console.error('Error loading tai lieu:', error);
+        } finally {
+            setLoading(false);
+        }
+    };
 
     const [formData, setFormData] = useState<Omit<TaiLieu, 'id'>>({
         maTaiLieu: '',
@@ -119,6 +157,7 @@ export function DanhSachTaiLieu() {
     const currentItems = filteredItems.slice(startIndex, startIndex + itemsPerPage);
 
     const handleAdd = () => {
+        setEditingId(null);
         setFormData({
             maTaiLieu: '',
             tenTaiLieu: '',
@@ -137,6 +176,26 @@ export function DanhSachTaiLieu() {
         setIsModalOpen(true);
     };
 
+    const handleEdit = (item: TaiLieu) => {
+        setEditingId(item.id);
+        setFormData({
+            maTaiLieu: item.maTaiLieu,
+            tenTaiLieu: item.tenTaiLieu,
+            huong: item.huong,
+            loai: item.loai,
+            nhomTaiLieu: item.nhomTaiLieu,
+            trangThai: item.trangThai,
+            phongQuanLy: item.phongQuanLy,
+            phanQuyen: item.phanQuyen,
+            soDen: item.soDen,
+            soDi: item.soDi,
+            ngayDen: item.ngayDen,
+            ngayKy: item.ngayKy,
+            link: item.link
+        });
+        setIsModalOpen(true);
+    };
+
     const handleViewLink = (link: string) => {
         if (link && link.trim() !== '') {
             setViewingLink(link);
@@ -150,18 +209,49 @@ export function DanhSachTaiLieu() {
         }
     };
 
-    const handleSave = () => {
-        const newItem: TaiLieu = {
-            id: Date.now().toString(),
-            ...formData
-        };
-        setItems([...items, newItem]);
-        setIsModalOpen(false);
+    const handleSave = async () => {
+        try {
+            // Map từ component format (camelCase) sang database format (snake_case)
+            const payload: Partial<TaiLieuRow> = {
+                ma_tai_lieu: formData.maTaiLieu || null,
+                ten_tai_lieu: formData.tenTaiLieu || null,
+                huong: formData.huong || null,
+                loai: formData.loai || null,
+                nhom_tai_lieu: formData.nhomTaiLieu || null,
+                trang_thai: formData.trangThai || null,
+                phong_quan_ly: formData.phongQuanLy || null,
+                phan_quyen: formData.phanQuyen || null,
+                so_den: formData.soDen || null,
+                so_di: formData.soDi || null,
+                ngay_den: formData.ngayDen || null,
+                ngay_ky: formData.ngayKy || null,
+                link: formData.link || null
+            };
+
+            if (editingId) {
+                await taiLieuService.update(editingId, payload);
+            } else {
+                await taiLieuService.create(payload);
+            }
+
+            await loadData();
+            setIsModalOpen(false);
+            setEditingId(null);
+        } catch (error: any) {
+            console.error('Error saving tai lieu:', error);
+            alert('Lỗi khi lưu tài liệu: ' + (error.message || 'Unknown error'));
+        }
     };
 
-    const handleDelete = (id: string) => {
+    const handleDelete = async (id: string) => {
         if (confirm('Bạn có chắc chắn muốn xóa tài liệu này?')) {
-            setItems(items.filter(item => item.id !== id));
+            try {
+                await taiLieuService.delete(id);
+                await loadData();
+            } catch (error: any) {
+                console.error('Error deleting tai lieu:', error);
+                alert('Lỗi khi xóa tài liệu: ' + (error.message || 'Unknown error'));
+            }
         }
     };
 
@@ -361,7 +451,10 @@ export function DanhSachTaiLieu() {
                                                 <button className="p-1.5 text-blue-600 hover:bg-blue-100 rounded-md transition-colors">
                                                     <Pin size={16} />
                                                 </button>
-                                                <button className="p-1.5 text-amber-600 hover:bg-amber-100 rounded-md transition-colors">
+                                                <button 
+                                                    onClick={() => handleEdit(item)}
+                                                    className="p-1.5 text-amber-600 hover:bg-amber-100 rounded-md transition-colors"
+                                                >
                                                     <Edit size={16} />
                                                 </button>
                                                 <button 
@@ -422,7 +515,9 @@ export function DanhSachTaiLieu() {
                 <div className="fixed inset-0 z-[150] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
                     <div className="bg-white rounded-2xl shadow-2xl w-full max-w-3xl overflow-hidden animate-in zoom-in-95 duration-200">
                         <div className="px-6 py-4 bg-slate-50 border-b border-slate-200 flex items-center justify-between">
-                            <h2 className="text-lg font-bold text-slate-800 uppercase tracking-tight">Thêm tài liệu mới</h2>
+                            <h2 className="text-lg font-bold text-slate-800 uppercase tracking-tight">
+                                {editingId ? 'Chỉnh sửa tài liệu' : 'Thêm tài liệu mới'}
+                            </h2>
                             <button onClick={() => setIsModalOpen(false)} className="p-1.5 hover:bg-slate-200 rounded-lg transition-colors text-slate-400 hover:text-slate-600">
                                 <X size={20} />
                             </button>
@@ -580,7 +675,7 @@ export function DanhSachTaiLieu() {
                                 onClick={handleSave}
                                 className="px-8 py-2 text-sm font-bold text-white bg-blue-600 hover:bg-blue-700 rounded-lg transition-all shadow-md shadow-blue-500/20 active:scale-95 uppercase"
                             >
-                                Lưu
+                                {editingId ? 'Cập nhật' : 'Lưu'}
                             </button>
                         </div>
                     </div>

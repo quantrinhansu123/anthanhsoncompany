@@ -4,6 +4,7 @@ import { useSearchParams } from 'react-router-dom';
 import { contractService, ContractRow } from '../../lib/services/contractService';
 import { projectService } from '../../lib/services/projectService';
 import { taskService, TaskRow } from '../../lib/services/taskService';
+import { employeeService } from '../../lib/services/employeeService';
 import { supabase } from '../../lib/supabase';
 
 interface Contract {
@@ -19,6 +20,9 @@ interface Contract {
     daThu: number;
     conPhaiThu: number;
     ngayUpdate: string;
+    nhanSuId?: string | null;
+    nhanSuTen?: string | null;
+    nhanSuCode?: string | null;
 }
 
 interface ProjectGroup {
@@ -54,6 +58,7 @@ export function HopDong() {
     
     const [items, setItems] = useState<ProjectGroup[]>([]);
     const [projects, setProjects] = useState<Array<{ id: string; ten_du_an: string }>>([]);
+    const [employees, setEmployees] = useState<Array<{ id: string; full_name: string; code: string }>>([]);
     const [searchTerm, setSearchTerm] = useState('');
     const [expandedProjects, setExpandedProjects] = useState<number[]>([]);
     const [isViewModalOpen, setIsViewModalOpen] = useState(false);
@@ -116,6 +121,7 @@ export function HopDong() {
         giaTriQT: '',
         daThu: '',
         projectId: '',
+        nhanSuId: '',
     });
 
     const formatCurrency = (amount: number) => {
@@ -199,44 +205,74 @@ export function HopDong() {
             giaTriQT: contract.giaTriQT.toString(),
             daThu: contract.daThu.toString(),
             projectId: projectId,
+            nhanSuId: contract.nhanSuId || '',
         });
         setIsEditModalOpen(true);
     };
 
-    const handleSaveEdit = () => {
-        if (!editingContract || !editingProjectId) return;
+    const handleSaveEdit = async () => {
+        if (!editingContract?.uuid || !editingProjectId) return;
         const giaTriHD = Number(formData.giaTriHD) || 0;
         const giaTriQT = Number(formData.giaTriQT) || 0;
         const daThu = Number(formData.daThu) || 0;
 
-        setItems(prev => prev.map(project => {
-            if (project.id === editingProjectId) {
-                return {
-                    ...project,
-                    contracts: project.contracts.map(c => {
-                        if (c.id === editingContract.id) {
-                            return {
-                                ...c,
-                                soHopDong: formData.soHopDong,
-                                tenGoiThau: formData.tenGoiThau,
-                                loaiDichVu: formData.loaiDichVu,
-                                ngayKyHD: formData.ngayKyHD,
-                                giaTriHD,
-                                giaTriQT,
-                                daThu,
-                                conPhaiThu: giaTriQT - daThu,
-                                ngayUpdate: new Date().toLocaleDateString('en-US'),
-                            };
-                        }
-                        return c;
-                    })
-                };
-            }
-            return project;
-        }));
-        setIsEditModalOpen(false);
-        setEditingContract(null);
-        setToast({ message: 'Đã cập nhật hợp đồng thành công!', type: 'success' });
+        try {
+            const selectedProject = projects.find(p => p.id === formData.projectId);
+            await contractService.update(editingContract.uuid, {
+                du_an_id: formData.projectId || null,
+                project_name: selectedProject?.ten_du_an || null,
+                nhan_su_id: formData.nhanSuId || null,
+                so_hop_dong: formData.soHopDong || null,
+                ten_goi_thau: formData.tenGoiThau || null,
+                loai_dich_vu: formData.loaiDichVu || null,
+                ngay_ky_hd: formData.ngayKyHD || null,
+                gia_tri_hd: giaTriHD,
+                gia_tri_qt: giaTriQT,
+                da_thu: daThu,
+                con_phai_thu: giaTriQT - daThu,
+                ngay_update: new Date().toISOString().slice(0, 10),
+            });
+
+            // Reload data
+            const rows = await contractService.getAll();
+            const groups = new Map<string, ContractRow[]>();
+            rows.forEach(row => {
+                const key = row.project_name || '(Chưa có tên dự án)';
+                if (!groups.has(key)) groups.set(key, []);
+                groups.get(key)!.push(row);
+            });
+
+            let idCounter = 1;
+            const projectGroups: ProjectGroup[] = Array.from(groups.entries()).map(([projectName, contracts]) => ({
+                id: idCounter++,
+                projectName,
+                contracts: contracts.map((c, idx) => ({
+                    id: idx + 1,
+                    uuid: c.id,
+                    fileStatus: c.file_status || 'Chưa có file',
+                    ngayKyHD: c.ngay_ky_hd ? new Date(c.ngay_ky_hd).toLocaleDateString('vi-VN') : '',
+                    soHopDong: c.so_hop_dong || '',
+                    tenGoiThau: c.ten_goi_thau || '',
+                    loaiDichVu: c.loai_dich_vu || '',
+                    giaTriHD: Number(c.gia_tri_hd || 0),
+                    giaTriQT: Number(c.gia_tri_qt || 0),
+                    daThu: Number(c.da_thu || 0),
+                    conPhaiThu: Number(c.con_phai_thu || 0),
+                    ngayUpdate: c.ngay_update ? new Date(c.ngay_update).toLocaleDateString('vi-VN') : '',
+                    nhanSuId: c.nhan_su_id || null,
+                    nhanSuTen: c.nhan_su_ten || null,
+                    nhanSuCode: c.nhan_su_code || null,
+                })),
+            }));
+            setItems(projectGroups);
+
+            setIsEditModalOpen(false);
+            setEditingContract(null);
+            setToast({ message: 'Đã cập nhật hợp đồng thành công!', type: 'success' });
+        } catch (error: any) {
+            console.error('[HopDong] Error updating contract:', error);
+            setToast({ message: error.message || 'Cập nhật hợp đồng thất bại!', type: 'warning' });
+        }
     };
 
     const handleAddClick = () => {
@@ -249,6 +285,7 @@ export function HopDong() {
             giaTriQT: '',
             daThu: '',
             projectId: projects[0]?.id || '',
+            nhanSuId: '',
         });
         setIsAddModalOpen(true);
     };
@@ -268,7 +305,9 @@ export function HopDong() {
         // Ghi xuống bảng hop_dong
         try {
             const created = await contractService.create({
-                project_name: selectedProject?.ten_du_an || null,
+                du_an_id: formData.projectId || null, // Sử dụng du_an_id thay vì project_name
+                project_name: selectedProject?.ten_du_an || null, // Giữ lại để backward compatibility
+                nhan_su_id: formData.nhanSuId || null, // Foreign key đến nhan_su
                 so_hop_dong: formData.soHopDong || null,
                 ten_goi_thau: formData.tenGoiThau || null,
                 loai_dich_vu: formData.loaiDichVu || null,
@@ -373,6 +412,22 @@ export function HopDong() {
         })();
     }, []);
 
+    // Load employees from nhan_su table
+    useEffect(() => {
+        (async () => {
+            try {
+                const employeeList = await employeeService.getAll();
+                setEmployees(employeeList.map(emp => ({
+                    id: emp.id.toString(),
+                    full_name: emp.full_name || emp.name || emp.hoTen || '',
+                    code: emp.code || ''
+                })));
+            } catch (error) {
+                console.error('Error loading employees:', error);
+            }
+        })();
+    }, []);
+
     // Load data from hop_dong table
     useEffect(() => {
         (async () => {
@@ -402,6 +457,9 @@ export function HopDong() {
                     daThu: Number(c.da_thu || 0),
                     conPhaiThu: Number(c.con_phai_thu || 0),
                     ngayUpdate: c.ngay_update ? new Date(c.ngay_update).toLocaleDateString('vi-VN') : '',
+                    nhanSuId: c.nhan_su_id || null,
+                    nhanSuTen: c.nhan_su_ten || null,
+                    nhanSuCode: c.nhan_su_code || null,
                 })),
             }));
 
@@ -502,6 +560,7 @@ export function HopDong() {
                                 <th className="py-3.5 px-3 font-semibold text-xs uppercase tracking-wider min-w-[100px]">Ngày ký HĐ</th>
                                 <th className="py-3.5 px-3 font-semibold text-xs uppercase tracking-wider min-w-[160px]">Số hợp đồng</th>
                                 <th className="py-3.5 px-3 font-semibold text-xs uppercase tracking-wider min-w-[160px]">Tên gói thầu</th>
+                                <th className="py-3.5 px-3 font-semibold text-xs uppercase tracking-wider min-w-[150px]">Nhân sự phụ trách</th>
                                 <th className="py-3.5 px-3 font-semibold text-xs uppercase tracking-wider min-w-[110px]">Loại dịch vụ</th>
                                 <th className="py-3.5 px-3 font-semibold text-xs uppercase tracking-wider text-right min-w-[120px]">Giá trị HĐ</th>
                                 <th className="py-3.5 px-3 font-semibold text-xs uppercase tracking-wider text-right min-w-[120px]">Giá trị QT</th>
@@ -546,6 +605,16 @@ export function HopDong() {
                                             <td className="py-3 px-3 text-slate-600">{contract.ngayKyHD}</td>
                                             <td className="py-3 px-3 text-slate-700 font-medium text-[12px]">{contract.soHopDong}</td>
                                             <td className="py-3 px-3 text-slate-600 text-[12px]">{contract.tenGoiThau}</td>
+                                            <td className="py-3 px-3 text-slate-600 text-[12px]">
+                                                {contract.nhanSuTen ? (
+                                                    <span className="flex items-center gap-1">
+                                                        {contract.nhanSuCode && <span className="text-slate-400">[{contract.nhanSuCode}]</span>}
+                                                        {contract.nhanSuTen}
+                                                    </span>
+                                                ) : (
+                                                    <span className="text-slate-400 italic">—</span>
+                                                )}
+                                            </td>
                                             <td className="py-3 px-3 text-slate-600">{contract.loaiDichVu || '—'}</td>
                                             <td className="py-3 px-3 text-right">
                                                 <span className="text-slate-700 font-medium">{formatCurrency(contract.giaTriHD)}</span>
@@ -1063,6 +1132,21 @@ export function HopDong() {
                                 </div>
                             )}
                             <div>
+                                <label className="block text-sm font-medium text-slate-700 mb-1">Nhân sự phụ trách</label>
+                                <select
+                                    value={formData.nhanSuId}
+                                    onChange={(e) => setFormData({ ...formData, nhanSuId: e.target.value })}
+                                    className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-purple-500"
+                                >
+                                    <option value="">-- Chọn nhân sự (tùy chọn) --</option>
+                                    {employees.map(emp => (
+                                        <option key={emp.id} value={emp.id}>
+                                            {emp.code ? `${emp.code} - ` : ''}{emp.full_name}
+                                        </option>
+                                    ))}
+                                </select>
+                            </div>
+                            <div>
                                 <label className="block text-sm font-medium text-slate-700 mb-1">Số hợp đồng</label>
                                 <input type="text" value={formData.soHopDong} onChange={(e) => setFormData({ ...formData, soHopDong: e.target.value })} className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-purple-500" placeholder="Nhập số hợp đồng..." />
                             </div>
@@ -1175,7 +1259,20 @@ export function HopDong() {
                             </div>
                             <div>
                                 <label className="block text-sm font-medium text-slate-700 mb-1">Số tiền</label>
-                                <input type="number" className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-purple-500/20" placeholder="0" value={financeForm.amount || ''} onChange={e => setFinanceForm({ ...financeForm, amount: e.target.value })} />
+                                <input 
+                                    type="text" 
+                                    className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-purple-500/20" 
+                                    placeholder="0" 
+                                    value={financeForm.amount ? (typeof financeForm.amount === 'string' ? (Number(financeForm.amount.replace(/\./g, '')) || 0).toLocaleString('vi-VN') : financeForm.amount.toLocaleString('vi-VN')) : ''} 
+                                    onChange={e => {
+                                        const value = e.target.value.replace(/\./g, '').replace(/[^\d]/g, '');
+                                        setFinanceForm({ ...financeForm, amount: value });
+                                    }}
+                                    onBlur={e => {
+                                        const value = e.target.value.replace(/\./g, '').replace(/[^\d]/g, '');
+                                        setFinanceForm({ ...financeForm, amount: value });
+                                    }}
+                                />
                             </div>
                             <div>
                                 <label className="block text-sm font-medium text-slate-700 mb-1">Nội dung</label>
@@ -1557,10 +1654,12 @@ export function HopDong() {
                                                 .getPublicUrl(uploadData.path);
                                             
                                             imageUrl = urlData.publicUrl;
+                                            console.log('[HopDong] Image uploaded successfully, URL:', imageUrl);
                                         }
                                         
+                                        console.log('[HopDong] Updating task with anh_bang_chung:', imageUrl);
                                         // Cập nhật task
-                                        await taskService.update(selectedTaskForNghiemThu.id, {
+                                        const updated = await taskService.update(selectedTaskForNghiemThu.id, {
                                             tien_do: nghiemThuForm.tien_do,
                                             link_tai_lieu: nghiemThuForm.link_tai_lieu || null,
                                             anh_bang_chung: imageUrl || null,
@@ -1568,6 +1667,7 @@ export function HopDong() {
                                             ngay_hoan_thanh: nghiemThuForm.tien_do === 100 ? new Date().toISOString().slice(0, 10) : null
                                         });
                                         
+                                        console.log('[HopDong] Task updated successfully, result:', updated);
                                         setToast({ message: 'Đã cập nhật nghiệm thu thành công!', type: 'success' });
                                         setIsNghiemThuModalOpen(false);
                                         await loadTasks();

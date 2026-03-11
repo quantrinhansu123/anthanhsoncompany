@@ -768,7 +768,20 @@ export function DanhSachKhachHang() {
                             </div>
                             <div>
                                 <label className="block text-sm font-medium text-slate-700 mb-1">Số tiền</label>
-                                <input type="number" className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-purple-500/20" placeholder="0" value={financeForm.amount} onChange={e => setFinanceForm({ ...financeForm, amount: e.target.value })} />
+                                <input 
+                                    type="text" 
+                                    className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-purple-500/20" 
+                                    placeholder="0" 
+                                    value={financeForm.amount ? (typeof financeForm.amount === 'string' ? (Number(financeForm.amount.replace(/\./g, '')) || 0).toLocaleString('vi-VN') : financeForm.amount.toLocaleString('vi-VN')) : ''} 
+                                    onChange={e => {
+                                        const value = e.target.value.replace(/\./g, '').replace(/[^\d]/g, '');
+                                        setFinanceForm({ ...financeForm, amount: value });
+                                    }}
+                                    onBlur={e => {
+                                        const value = e.target.value.replace(/\./g, '').replace(/[^\d]/g, '');
+                                        setFinanceForm({ ...financeForm, amount: value });
+                                    }}
+                                />
                             </div>
                             <div>
                                 <label className="block text-sm font-medium text-slate-700 mb-1">Nội dung</label>

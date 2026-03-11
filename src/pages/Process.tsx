@@ -4,7 +4,8 @@ import {
   Star,
   HelpCircle,
   CheckCircle,
-  X
+  X,
+  ClipboardList
 } from 'lucide-react';
 import { Link } from 'react-router-dom';
 
@@ -80,6 +81,7 @@ const sections = [
     title: '',
     items: [
       { id: 'thu-vien-loi', title: 'Thư viện lỗi', description: 'Quản lý thư viện lỗi, phân loại, xử lý và giải pháp.', icon: BookOpen, color: 'text-blue-600', bgColor: 'bg-blue-50', path: '/quy-trinh/thu-vien-loi' },
+      { id: 'task', title: 'Task', description: 'Quản lý task theo hợp đồng, theo dõi tiến độ công việc với Kanban board.', icon: ClipboardList, color: 'text-orange-600', bgColor: 'bg-orange-50', path: '/quy-trinh/task' },
     ]
   }
 ];

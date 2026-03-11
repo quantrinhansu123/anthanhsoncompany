@@ -69,8 +69,7 @@ export const taskService = {
       const { data, error } = await supabase
         .from('task')
         .insert([payload])
-        .select()
-        .single();
+        .select();
 
       if (error) {
         console.error('[taskService] Error creating task:', error);
@@ -80,8 +79,12 @@ export const taskService = {
         throw error;
       }
 
-      console.log('[taskService] Task created successfully:', data);
-      return data;
+      if (!data || data.length === 0) {
+        throw new Error('No data returned after insert');
+      }
+
+      console.log('[taskService] Task created successfully:', data[0]);
+      return data[0];
     } catch (err) {
       console.error('[taskService] Exception in taskService.create:', err);
       throw err;
@@ -98,15 +101,18 @@ export const taskService = {
           updated_at: new Date().toISOString()
         })
         .eq('id', id)
-        .select()
-        .single();
+        .select();
 
       if (error) {
         console.error('Error updating task:', error);
         throw error;
       }
 
-      return data;
+      if (!data || data.length === 0) {
+        throw new Error('No data returned after update');
+      }
+
+      return data[0];
     } catch (err) {
       console.error('Exception in taskService.update:', err);
       throw err;

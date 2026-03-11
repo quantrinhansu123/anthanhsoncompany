@@ -70,7 +70,8 @@ export function AddEmployee() {
     mstCaNhan: '',
     maSoBHXH: '',
     bangDHChuyenNganh: '',
-    namTotNghiep: 0
+    namTotNghiep: 0,
+    anhNhanSuUrl: '' as string | null // URL ảnh nhân sự (link)
   });
 
   const [dependents, setDependents] = useState<Dependent[]>([]);
@@ -132,7 +133,8 @@ export function AddEmployee() {
         mstCaNhan: emp.mst_ca_nhan || emp.mstCaNhan || '',
         maSoBHXH: emp.ma_so_bhxh || emp.maSoBHXH || '',
         bangDHChuyenNganh: emp.bang_dh_chuyen_nganh || emp.bangDHChuyenNganh || '',
-        namTotNghiep: emp.nam_tot_nghiep || emp.namTotNghiep || 0
+        namTotNghiep: emp.nam_tot_nghiep || emp.namTotNghiep || 0,
+        anhNhanSuUrl: emp.anh_nhan_su || null
       });
 
       // Load dependents
@@ -232,7 +234,10 @@ export function AddEmployee() {
     try {
       setSaving(true);
 
-      // 1. Save employee
+      // 1. Lấy URL ảnh nhân sự (chỉ lưu link, không upload)
+      const anhNhanSuUrl = formData.anhNhanSuUrl?.trim() || null;
+
+      // 2. Save employee
       let finalEmployeeId: string;
 
       // Map form data sang database format - ưu tiên camelCase vì schema đã chuẩn hóa về camelCase
@@ -257,12 +262,17 @@ export function AddEmployee() {
         maSoBHXH: formData.maSoBHXH, // Mã số BHXH - camelCase
         bangDHChuyenNganh: formData.bangDHChuyenNganh, // Bằng đại học - camelCase
         namTotNghiep: formData.namTotNghiep, // Năm tốt nghiệp - camelCase
+        anh_nhan_su: anhNhanSuUrl || null, // URL ảnh nhân sự - sử dụng null thay vì empty string
         status: 'active' as const
       };
 
+      console.log('[AddEmployee] Saving employee with anh_nhan_su:', anhNhanSuUrl);
+
       if (isEditMode && id) {
         // Update existing employee - không cần id và code
-        await employeeService.update(id, employeeData);
+        console.log('[AddEmployee] Updating employee with data:', employeeData);
+        const updated = await employeeService.update(id, employeeData);
+        console.log('[AddEmployee] Employee updated, result:', updated);
         // Đảm bảo id là UUID string
         finalEmployeeId = String(id);
       } else {
@@ -273,7 +283,9 @@ export function AddEmployee() {
         // Đảm bảo không có id trong employeeData để database tự tạo UUID
         delete employeeData.id;
 
+        console.log('[AddEmployee] Creating employee with data:', employeeData);
         const savedEmployee = await employeeService.create(employeeData);
+        console.log('[AddEmployee] Employee created, result:', savedEmployee);
 
         // savedEmployee.id phải là UUID từ database
         if (!savedEmployee || !savedEmployee.id) {
@@ -627,6 +639,47 @@ export function AddEmployee() {
                 <User size={16} />
                 Thông tin cá nhân
               </h3>
+
+              {/* Ảnh nhân sự */}
+              <div className="mb-4">
+                <label className="block text-sm font-medium text-slate-700 mb-1.5 flex items-center gap-2">
+                  <Camera size={16} />
+                  Ảnh nhân sự
+                </label>
+                <div className="space-y-3">
+                  {/* Input URL ảnh */}
+                  <input
+                    type="url"
+                    value={formData.anhNhanSuUrl || ''}
+                    onChange={(e) => setFormData(prev => ({ ...prev, anhNhanSuUrl: e.target.value }))}
+                    placeholder="https://example.com/image.jpg"
+                    className="w-full px-4 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
+                  />
+                  
+                  {/* Preview ảnh nếu có URL */}
+                  {formData.anhNhanSuUrl && formData.anhNhanSuUrl.trim() !== '' && (
+                    <div className="relative inline-block">
+                      <img
+                        src={formData.anhNhanSuUrl}
+                        alt="Ảnh nhân sự"
+                        className="w-32 h-32 object-cover rounded-lg border-2 border-slate-200"
+                        onError={(e) => {
+                          (e.target as HTMLImageElement).style.display = 'none';
+                        }}
+                      />
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setFormData(prev => ({ ...prev, anhNhanSuUrl: null }));
+                        }}
+                        className="absolute -top-2 -right-2 p-1 bg-red-500 text-white rounded-full hover:bg-red-600 transition-colors"
+                      >
+                        <X size={14} />
+                      </button>
+                    </div>
+                  )}
+                </div>
+              </div>
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 {/* Họ tên */}

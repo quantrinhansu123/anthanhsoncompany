@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import {
     X,
@@ -10,6 +10,10 @@ import {
     Info,
     AlertCircle
 } from 'lucide-react';
+import { thuChiService, ThuChiRow } from '../../lib/services/thuChiService';
+import { projectService } from '../../lib/services/projectService';
+import { contractService } from '../../lib/services/contractService';
+import { employeeService } from '../../lib/services/employeeService';
 
 interface ToastProps {
     message: string;
@@ -48,40 +52,128 @@ export function AddThuChi() {
     const [toast, setToast] = useState<{ message: string, type: 'success' | 'error' | 'info' } | null>(null);
 
     const [formData, setFormData] = useState({
+        duAnId: '',
+        hopDongId: '',
+        nhanSuId: '',
         loaiPhieu: 'Phiếu thu',
-        contractId: '',
-        tinhTrangPhieu: '',
+        tinhTrangPhieu: 'Tạm ứng',
         ngayTienVe: new Date().toISOString().split('T')[0],
         soTien: 0,
         noiDung: '',
-        file: null as File | null
+        nguoiNhan: 'Ngân hàng / Đối tác',
+        file: null as File | null,
+        imageUrl: '' as string | null // URL ảnh chứng từ (link)
     });
+    const [projects, setProjects] = useState<Array<{ id: string; ten_du_an: string }>>([]);
+    const [contracts, setContracts] = useState<Array<{ id: string; so_hop_dong: string | null; du_an_id: string | null }>>([]);
+    const [employees, setEmployees] = useState<Array<{ id: string; full_name: string; code: string }>>([]);
+    const [loading, setLoading] = useState(false);
 
-    const handleSave = () => {
-        if (!formData.contractId) {
-            setToast({ message: 'Vui lòng chọn hợp đồng', type: 'error' });
+    // Load projects, contracts and employees
+    useEffect(() => {
+        (async () => {
+            const projectList = await projectService.getAll();
+            setProjects(projectList.map(p => ({ id: p.id, ten_du_an: p.ten_du_an })));
+            
+            const contractList = await contractService.getAll();
+            setContracts(contractList.map(c => ({ id: c.id, so_hop_dong: c.so_hop_dong, du_an_id: c.du_an_id || null })));
+            
+            const employeeList = await employeeService.getAll();
+            setEmployees(employeeList.map(emp => ({
+                id: emp.id.toString(),
+                full_name: emp.full_name || emp.name || emp.hoTen || '',
+                code: emp.code || ''
+            })));
+        })();
+    }, []);
+
+    // Load data if edit mode
+    useEffect(() => {
+        if (isEditMode && id) {
+            loadData(id);
+        }
+    }, [isEditMode, id]);
+
+    const loadData = async (itemId: string) => {
+        try {
+            setLoading(true);
+            const item = await thuChiService.getById(itemId);
+            if (item) {
+                setFormData({
+                    duAnId: item.du_an_id || '',
+                    hopDongId: item.hop_dong_id || '',
+                    nhanSuId: item.nhan_su_id || '',
+                    loaiPhieu: item.loai_phieu,
+                    tinhTrangPhieu: item.tinh_trang_phieu || 'Tạm ứng',
+                    ngayTienVe: item.ngay || new Date().toISOString().split('T')[0],
+                    soTien: item.so_tien,
+                    noiDung: item.noi_dung || '',
+                    nguoiNhan: item.nguoi_nhan || 'Ngân hàng / Đối tác',
+                    file: null,
+                    imageUrl: item.anh_url || null
+                });
+            }
+        } catch (err: any) {
+            setToast({ message: err.message || 'Không thể tải dữ liệu', type: 'error' });
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    const handleSave = async () => {
+        if (!formData.duAnId) {
+            setToast({ message: 'Vui lòng chọn dự án', type: 'error' });
             return;
         }
 
-        // Tạo bản ghi mới đồng bộ với cấu trúc bảng
-        const newRecord = {
-            id: Date.now(),
-            code: `TC-${Math.floor(1000 + Math.random() * 9000)}`,
-            date: new Date(formData.ngayTienVe).toLocaleDateString('vi-VN'),
-            type: formData.loaiPhieu,
-            amount: new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND' }).format(formData.soTien),
-            description: formData.noiDung,
-            person: 'Ngân hàng / Đối tác'
-        };
+        try {
+            setLoading(true);
+            
+            // Upload file nếu có
+            let fileUrl = formData.file ? '' : null;
+            if (formData.file) {
+                try {
+                    const filePath = `thu-chi/${Date.now()}_${formData.file.name}`;
+                    fileUrl = await thuChiService.uploadFile('thu-chi-files', filePath, formData.file);
+                } catch (err: any) {
+                    console.error('Error uploading file:', err);
+                    // Tiếp tục lưu dù upload file thất bại
+                }
+            }
 
-        // Lưu vào localStorage
-        const existingData = JSON.parse(localStorage.getItem('thu_chi_records') || '[]');
-        localStorage.setItem('thu_chi_records', JSON.stringify([newRecord, ...existingData]));
+            // Lấy URL ảnh chứng từ (chỉ lưu link, không upload)
+            const imageUrl = formData.imageUrl?.trim() || null;
 
-        setToast({ message: 'Lưu thông tin thành công!', type: 'success' });
-        setTimeout(() => {
-            navigate('/tai-chinh/thu-chi');
-        }, 1500);
+            const payload: Partial<ThuChiRow> = {
+                du_an_id: formData.duAnId || null,
+                hop_dong_id: formData.hopDongId || null,
+                nhan_su_id: formData.nhanSuId || null,
+                loai_phieu: formData.loaiPhieu,
+                so_tien: formData.soTien,
+                ngay: formData.ngayTienVe,
+                noi_dung: formData.noiDung || null,
+                tinh_trang_phieu: formData.tinhTrangPhieu || null,
+                nguoi_nhan: formData.nguoiNhan || null,
+                file_url: fileUrl || null,
+                anh_url: imageUrl || null
+            };
+
+            if (isEditMode && id) {
+                await thuChiService.update(id, payload);
+                setToast({ message: 'Cập nhật thành công!', type: 'success' });
+            } else {
+                await thuChiService.create(payload);
+                setToast({ message: 'Lưu thông tin thành công!', type: 'success' });
+            }
+
+            setTimeout(() => {
+                navigate('/tai-chinh/thu-chi');
+            }, 1500);
+        } catch (err: any) {
+            setToast({ message: err.message || 'Lưu thất bại!', type: 'error' });
+        } finally {
+            setLoading(false);
+        }
     };
 
     const handleCancel = () => {
@@ -110,9 +202,10 @@ export function AddThuChi() {
                     </button>
                     <button
                         onClick={handleSave}
-                        className="px-4 py-1.5 text-sm font-bold text-white bg-blue-600 border border-blue-700 rounded hover:bg-blue-700 transition-colors shadow-sm"
+                        disabled={loading}
+                        className="px-4 py-1.5 text-sm font-bold text-white bg-blue-600 border border-blue-700 rounded hover:bg-blue-700 transition-colors shadow-sm disabled:opacity-50 disabled:cursor-not-allowed"
                     >
-                        Lưu phiếu
+                        {loading ? 'Đang lưu...' : (isEditMode ? 'Cập nhật' : 'Lưu phiếu')}
                     </button>
                 </div>
             </div>
@@ -139,21 +232,74 @@ export function AddThuChi() {
                         </div>
                     </div>
 
-                    {/* Contract ID */}
+                    {/* Dự án */}
+                    <div className="flex flex-col md:flex-row md:items-center gap-4 md:gap-8">
+                        <div className="md:w-1/3 md:text-right">
+                            <label className="text-sm font-medium text-slate-500">Dự án <span className="text-red-500">*</span></label>
+                        </div>
+                        <div className="md:w-2/3 relative flex-1">
+                            <select
+                                value={formData.duAnId}
+                                onChange={(e) => setFormData({ ...formData, duAnId: e.target.value, hopDongId: '' })}
+                                className="w-full px-4 py-2.5 bg-white border border-slate-300 rounded-md appearance-none focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 text-slate-700"
+                            >
+                                <option value="">-- Chọn dự án --</option>
+                                {projects.map(p => (
+                                    <option key={p.id} value={p.id}>{p.ten_du_an}</option>
+                                ))}
+                            </select>
+                            <ChevronDown size={16} className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
+                        </div>
+                    </div>
+
+                    {/* Hợp đồng */}
                     <div className="flex flex-col md:flex-row md:items-center gap-4 md:gap-8">
                         <div className="md:w-1/3 md:text-right">
                             <label className="text-sm font-medium text-slate-500">Hợp đồng</label>
                         </div>
                         <div className="md:w-2/3 relative flex-1">
                             <select
-                                value={formData.contractId}
-                                onChange={(e) => setFormData({ ...formData, contractId: e.target.value })}
+                                value={formData.hopDongId}
+                                onChange={(e) => setFormData({ ...formData, hopDongId: e.target.value })}
+                                className="w-full px-4 py-2.5 bg-white border border-slate-300 rounded-md appearance-none focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 text-slate-700"
+                                disabled={!formData.duAnId}
+                            >
+                                <option value="">-- Chọn hợp đồng (tùy chọn) --</option>
+                                {contracts
+                                    .filter(c => {
+                                        // Filter contracts by project if duAnId is selected
+                                        if (formData.duAnId) {
+                                            return c.du_an_id === formData.duAnId;
+                                        }
+                                        return true; // Show all if no project selected
+                                    })
+                                    .map(c => (
+                                        <option key={c.id} value={c.id}>
+                                            {c.so_hop_dong || c.id.substring(0, 8)}
+                                        </option>
+                                    ))}
+                            </select>
+                            <ChevronDown size={16} className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
+                        </div>
+                    </div>
+
+                    {/* Nhân sự (chi cho ai) */}
+                    <div className="flex flex-col md:flex-row md:items-center gap-4 md:gap-8">
+                        <div className="md:w-1/3 md:text-right">
+                            <label className="text-sm font-medium text-slate-500">Nhân sự (chi cho ai)</label>
+                        </div>
+                        <div className="md:w-2/3 relative flex-1">
+                            <select
+                                value={formData.nhanSuId}
+                                onChange={(e) => setFormData({ ...formData, nhanSuId: e.target.value })}
                                 className="w-full px-4 py-2.5 bg-white border border-slate-300 rounded-md appearance-none focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 text-slate-700"
                             >
-                                <option value="">-- Chọn hợp đồng --</option>
-                                <option value="01/2025/HĐKS/KDL-TNT, TCK">01/2025/HĐKS/KDL-TNT, TCK</option>
-                                <option value="02/2025/HĐTV/AN-THANH-SON">02/2025/HĐTV/AN-THANH-SON</option>
-                                <option value="05/2025/HĐXD/VINHOME-GRAND">05/2025/HĐXD/VINHOME-GRAND</option>
+                                <option value="">-- Chọn nhân sự (tùy chọn) --</option>
+                                {employees.map(emp => (
+                                    <option key={emp.id} value={emp.id}>
+                                        {emp.code ? `[${emp.code}] ` : ''}{emp.full_name}
+                                    </option>
+                                ))}
                             </select>
                             <ChevronDown size={16} className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
                         </div>
@@ -207,10 +353,18 @@ export function AddThuChi() {
                         </div>
                         <div className="md:w-2/3 relative flex-1">
                             <input
-                                type="number"
-                                value={formData.soTien}
-                                onChange={(e) => setFormData({ ...formData, soTien: Number(e.target.value) })}
-                                className="w-full px-4 py-2.5 pr-20 bg-white border border-slate-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 text-slate-700 [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                                type="text"
+                                value={formData.soTien ? formData.soTien.toLocaleString('vi-VN') : ''}
+                                onChange={(e) => {
+                                    const value = e.target.value.replace(/\./g, '').replace(/[^\d]/g, '');
+                                    setFormData({ ...formData, soTien: value ? Number(value) : 0 });
+                                }}
+                                onBlur={(e) => {
+                                    const value = e.target.value.replace(/\./g, '').replace(/[^\d]/g, '');
+                                    setFormData({ ...formData, soTien: value ? Number(value) : 0 });
+                                }}
+                                placeholder="0"
+                                className="w-full px-4 py-2.5 pr-20 bg-white border border-slate-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 text-slate-700"
                             />
                             <div className="absolute right-2 top-1/2 -translate-y-1/2 flex items-center justify-center gap-2">
                                 <button
@@ -241,6 +395,62 @@ export function AddThuChi() {
                                 onChange={(e) => setFormData({ ...formData, noiDung: e.target.value })}
                                 className="w-full px-4 py-3 bg-white border border-slate-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 text-slate-700 resize-none leading-relaxed"
                             />
+                        </div>
+                    </div>
+
+                    {/* Người nhận */}
+                    <div className="flex flex-col md:flex-row md:items-center gap-4 md:gap-8">
+                        <div className="md:w-1/3 md:text-right">
+                            <label className="text-sm font-medium text-slate-500">Người nộp/nhận</label>
+                        </div>
+                        <div className="md:w-2/3 relative flex-1">
+                            <input
+                                type="text"
+                                value={formData.nguoiNhan}
+                                onChange={(e) => setFormData({ ...formData, nguoiNhan: e.target.value })}
+                                className="w-full px-4 py-2.5 bg-white border border-slate-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 text-slate-700"
+                                placeholder="Ngân hàng / Đối tác"
+                            />
+                        </div>
+                    </div>
+
+                    {/* Ảnh chứng từ (Link) */}
+                    <div className="flex flex-col md:flex-row gap-4 md:gap-8">
+                        <div className="md:w-1/3 md:text-right md:pt-3">
+                            <label className="text-sm font-medium text-slate-500">Ảnh chứng từ (Link)</label>
+                        </div>
+                        <div className="md:w-2/3 flex-1">
+                            <div className="space-y-3">
+                                {/* Input URL ảnh */}
+                                <input
+                                    type="url"
+                                    value={formData.imageUrl || ''}
+                                    onChange={(e) => setFormData({ ...formData, imageUrl: e.target.value })}
+                                    placeholder="https://example.com/image.jpg"
+                                    className="w-full px-4 py-2.5 bg-white border border-slate-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 text-slate-700"
+                                />
+                                
+                                {/* Preview ảnh nếu có URL */}
+                                {formData.imageUrl && formData.imageUrl.trim() !== '' && (
+                                    <div className="relative inline-block">
+                                        <img 
+                                            src={formData.imageUrl} 
+                                            alt="Ảnh chứng từ" 
+                                            className="w-32 h-32 object-cover rounded-lg border border-slate-200"
+                                            onError={(e) => {
+                                                (e.target as HTMLImageElement).style.display = 'none';
+                                            }}
+                                        />
+                                        <button
+                                            type="button"
+                                            onClick={() => setFormData({ ...formData, imageUrl: null })}
+                                            className="absolute -top-2 -right-2 p-1 bg-red-500 text-white rounded-full hover:bg-red-600"
+                                        >
+                                            <X size={14} />
+                                        </button>
+                                    </div>
+                                )}
+                            </div>
                         </div>
                     </div>
 

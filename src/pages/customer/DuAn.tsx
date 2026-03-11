@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { Search, Plus, Eye, Edit, Trash2, X, Maximize2, CheckCircle, PlusCircle } from 'lucide-react';
+import { Search, Plus, Eye, Edit, Trash2, X, Maximize2, CheckCircle, PlusCircle, User } from 'lucide-react';
 import { ThemDuAnModal } from './ThemDuAnModal';
 import { useNavigate } from 'react-router-dom';
 import { projectService } from '../../lib/services/projectService';
@@ -189,8 +189,15 @@ export function DuAn() {
                     status: p.status || 'Đang thực hiện',
                     statusColor: getStatusColor(p.status || 'Đang thực hiện'),
                     progress: calculatedProgress, // Sử dụng tiến độ tính từ hợp đồng
-                    managerImg: p.manager_img || 'https://i.pravatar.cc/150?img=11',
-                    executorImg: p.executor_img || 'https://i.pravatar.cc/150?img=12',
+                    managerImg: p.manager_img || null,
+                    executorImg: p.executor_img || null,
+                    manager_id: p.manager_id || null,
+                    executor_id: p.executor_id || null,
+                    manager_name: p.manager_name || null,
+                    executor_name: p.executor_name || null,
+                    manager_code: (p.manager && (p.manager.code || p.manager.ma_nv)) || null,
+                    executor_code: (p.executor && (p.executor.code || p.executor.ma_nv)) || null,
+                    customer_name: p.customer_name || null,
                 };
             });
             setItems(mapped);
@@ -198,51 +205,220 @@ export function DuAn() {
     }, []);
 
     const handleSaveProject = async (data: any) => {
-        // Cập nhật
-        if (data.id) {
-            const updated = await projectService.update(String(data.id), {
-                projectName: data.projectName,
-                status: data.status,
-                progress: Number(data.progress) || 0,
-                managerImg: data.managerImg,
-                executorImg: data.executorImg,
-            });
-            if (updated) {
-                setItems(items.map((item: any) =>
-                    item.id === data.id
-                        ? {
-                            ...item,
-                            projectName: updated.ten_du_an,
-                            status: updated.status || 'Đang thực hiện',
-                            statusColor: getStatusColor(updated.status || 'Đang thực hiện'),
-                            progress: updated.progress ?? 0,
-                            managerImg: updated.manager_img || item.managerImg,
-                            executorImg: updated.executor_img || item.executorImg,
-                        }
-                        : item
-                ));
+        console.log('[DuAn] handleSaveProject called with data:', data);
+        try {
+            // Cập nhật
+            if (data.id) {
+                console.log('[DuAn] Updating project with id:', data.id);
+                const customerIdValue = (data.customer_id || data.customerId);
+                const finalCustomerId = customerIdValue && customerIdValue.toString().trim() !== '' ? customerIdValue.toString() : null;
+                console.log('[DuAn] Updating with customerId:', finalCustomerId);
+                const updated = await projectService.update(String(data.id), {
+                    projectName: data.projectName,
+                    status: data.status,
+                    progress: Number(data.progress) || 0,
+                    customerId: finalCustomerId,
+                    managerId: data.manager_id || data.managerId || null,
+                    executorId: data.executor_id || data.executorId || null,
+                    managerImg: data.managerImg || null,
+                    executorImg: data.executorImg || null,
+                });
+                if (updated) {
+                    setToast({ message: 'Cập nhật dự án thành công!', type: 'success' });
+                    // Reload dữ liệu từ database
+                    setTimeout(async () => {
+                        const data = await projectService.getAll();
+                        const contracts = await contractService.getAll();
+                        
+                        // Nhóm hợp đồng theo project_name
+                        const contractsByProjectName = new Map<string, ContractRow[]>();
+                        contracts.forEach(contract => {
+                            const projectName = contract.project_name || '(Chưa có tên dự án)';
+                            if (!contractsByProjectName.has(projectName)) {
+                                contractsByProjectName.set(projectName, []);
+                            }
+                            contractsByProjectName.get(projectName)!.push(contract);
+                        });
+                        setRealContracts(contractsByProjectName);
+                        
+                        // Tính tiến độ
+                        const progressMap = new Map<string, number>();
+                        const contractsByProject = new Map<string, string[]>();
+                        contracts.forEach(contract => {
+                            const projectName = contract.project_name || '(Chưa có tên dự án)';
+                            if (!contractsByProject.has(projectName)) {
+                                contractsByProject.set(projectName, []);
+                            }
+                            contractsByProject.get(projectName)!.push(contract.id);
+                        });
+                        
+                        const contractInfoMap = new Map<string, { total: number; completed: number }>();
+                        
+                        await Promise.all(
+                            Array.from(contractsByProject.entries()).map(async ([projectName, contractIds]) => {
+                                let completedContracts = 0;
+                                
+                                await Promise.all(
+                                    contractIds.map(async (contractId) => {
+                                        try {
+                                            const tasks = await taskService.getByHopDongId(contractId);
+                                            if (tasks.length === 0) return;
+                                            const allCompleted = tasks.every(task => task.tien_do === 100);
+                                            if (allCompleted) completedContracts++;
+                                        } catch (error) {
+                                            console.error(`Error loading tasks for contract ${contractId}:`, error);
+                                        }
+                                    })
+                                );
+                                
+                                const totalContracts = contractIds.length;
+                                const progress = totalContracts > 0 
+                                    ? Math.round((completedContracts / totalContracts) * 100)
+                                    : 0;
+                                
+                                progressMap.set(projectName, progress);
+                                contractInfoMap.set(projectName, { total: totalContracts, completed: completedContracts });
+                            })
+                        );
+                        
+                        setProjectProgress(progressMap);
+                        setProjectContractInfo(contractInfoMap);
+                        
+                        // Map dự án với tiến độ
+                        const mapped = (data || []).map((p: any) => {
+                            const projectName = p.ten_du_an;
+                            const calculatedProgress = progressMap.get(projectName) ?? 0;
+                            
+                            return {
+                                id: p.id,
+                                projectName: projectName,
+                                status: p.status || 'Đang thực hiện',
+                                statusColor: getStatusColor(p.status || 'Đang thực hiện'),
+                                progress: calculatedProgress,
+                                managerImg: p.manager_img || null,
+                                executorImg: p.executor_img || null,
+                                manager_id: p.manager_id || null,
+                                executor_id: p.executor_id || null,
+                                manager_name: p.manager_name || null,
+                                executor_name: p.executor_name || null,
+                                manager_code: (p.manager && (p.manager.code || p.manager.ma_nv)) || null,
+                                executor_code: (p.executor && (p.executor.code || p.executor.ma_nv)) || null,
+                                customer_name: p.customer_name || null,
+                            };
+                        });
+                        setItems(mapped);
+                    }, 500);
+                } else {
+                    setToast({ message: 'Cập nhật dự án thất bại!', type: 'warning' });
+                }
+            } else {
+                // Tạo mới
+                console.log('[DuAn] Creating new project');
+                const customerIdValue = (data.customer_id || data.customerId);
+                const finalCustomerId = customerIdValue && customerIdValue.toString().trim() !== '' ? customerIdValue.toString() : null;
+                console.log('[DuAn] Creating with customerId:', finalCustomerId);
+                const created = await projectService.create({
+                    projectName: data.projectName,
+                    status: data.status,
+                    progress: Number(data.progress) || 0,
+                    customerId: finalCustomerId,
+                    managerId: data.manager_id || data.managerId || null,
+                    executorId: data.executor_id || data.executorId || null,
+                    managerImg: data.managerImg || null,
+                    executorImg: data.executorImg || null,
+                });
+                if (created) {
+                    setToast({ message: 'Thêm dự án mới thành công!', type: 'success' });
+                    // Reload dữ liệu từ database
+                    setTimeout(async () => {
+                        const data = await projectService.getAll();
+                        const contracts = await contractService.getAll();
+                        
+                        // Nhóm hợp đồng theo project_name
+                        const contractsByProjectName = new Map<string, ContractRow[]>();
+                        contracts.forEach(contract => {
+                            const projectName = contract.project_name || '(Chưa có tên dự án)';
+                            if (!contractsByProjectName.has(projectName)) {
+                                contractsByProjectName.set(projectName, []);
+                            }
+                            contractsByProjectName.get(projectName)!.push(contract);
+                        });
+                        setRealContracts(contractsByProjectName);
+                        
+                        // Tính tiến độ
+                        const progressMap = new Map<string, number>();
+                        const contractsByProject = new Map<string, string[]>();
+                        contracts.forEach(contract => {
+                            const projectName = contract.project_name || '(Chưa có tên dự án)';
+                            if (!contractsByProject.has(projectName)) {
+                                contractsByProject.set(projectName, []);
+                            }
+                            contractsByProject.get(projectName)!.push(contract.id);
+                        });
+                        
+                        const contractInfoMap = new Map<string, { total: number; completed: number }>();
+                        
+                        await Promise.all(
+                            Array.from(contractsByProject.entries()).map(async ([projectName, contractIds]) => {
+                                let completedContracts = 0;
+                                
+                                await Promise.all(
+                                    contractIds.map(async (contractId) => {
+                                        try {
+                                            const tasks = await taskService.getByHopDongId(contractId);
+                                            if (tasks.length === 0) return;
+                                            const allCompleted = tasks.every(task => task.tien_do === 100);
+                                            if (allCompleted) completedContracts++;
+                                        } catch (error) {
+                                            console.error(`Error loading tasks for contract ${contractId}:`, error);
+                                        }
+                                    })
+                                );
+                                
+                                const totalContracts = contractIds.length;
+                                const progress = totalContracts > 0 
+                                    ? Math.round((completedContracts / totalContracts) * 100)
+                                    : 0;
+                                
+                                progressMap.set(projectName, progress);
+                                contractInfoMap.set(projectName, { total: totalContracts, completed: completedContracts });
+                            })
+                        );
+                        
+                        setProjectProgress(progressMap);
+                        setProjectContractInfo(contractInfoMap);
+                        
+                        // Map dự án với tiến độ
+                        const mapped = (data || []).map((p: any) => {
+                            const projectName = p.ten_du_an;
+                            const calculatedProgress = progressMap.get(projectName) ?? 0;
+                            
+                            return {
+                                id: p.id,
+                                projectName: projectName,
+                                status: p.status || 'Đang thực hiện',
+                                statusColor: getStatusColor(p.status || 'Đang thực hiện'),
+                                progress: calculatedProgress,
+                                managerImg: p.manager_img || null,
+                                executorImg: p.executor_img || null,
+                                manager_id: p.manager_id || null,
+                                executor_id: p.executor_id || null,
+                                manager_name: p.manager_name || null,
+                                executor_name: p.executor_name || null,
+                                manager_code: (p.manager && (p.manager.code || p.manager.ma_nv)) || null,
+                                executor_code: (p.executor && (p.executor.code || p.executor.ma_nv)) || null,
+                                customer_name: p.customer_name || null,
+                            };
+                        });
+                        setItems(mapped);
+                    }, 500);
+                } else {
+                    setToast({ message: 'Thêm dự án thất bại!', type: 'warning' });
+                }
             }
-        } else {
-            // Tạo mới
-            const created = await projectService.create({
-                projectName: data.projectName,
-                status: data.status,
-                progress: Number(data.progress) || 0,
-                managerImg: data.managerImg,
-                executorImg: data.executorImg,
-            });
-            if (created) {
-                const newItem = {
-                    id: created.id,
-                    projectName: created.ten_du_an,
-                    status: created.status || 'Đang thực hiện',
-                    statusColor: getStatusColor(created.status || 'Đang thực hiện'),
-                    progress: created.progress ?? 0,
-                    managerImg: created.manager_img || 'https://i.pravatar.cc/150?img=11',
-                    executorImg: created.executor_img || 'https://i.pravatar.cc/150?img=12',
-                };
-                setItems([newItem, ...items]);
-            }
+        } catch (error: any) {
+            console.error('[DuAn] Error saving project:', error);
+            setToast({ message: `Lỗi: ${error.message || 'Không thể lưu dự án'}`, type: 'warning' });
         }
     };
 
@@ -255,7 +431,8 @@ export function DuAn() {
         try {
             // Lưu hợp đồng vào database
             const created = await contractService.create({
-                project_name: selectedProject.projectName,
+                du_an_id: selectedProject.id || null, // Sử dụng du_an_id thay vì project_name
+                project_name: selectedProject.projectName, // Giữ lại để backward compatibility
                 so_hop_dong: contractFormData.soHopDong || null,
                 ten_goi_thau: contractFormData.tenGoiThau || null,
                 ngay_ky_hd: contractFormData.ngayKyHD || null,
@@ -320,6 +497,7 @@ export function DuAn() {
                         <thead>
                             <tr className="border-b border-slate-200 text-slate-500 bg-slate-50/50">
                                 <th className="py-4 pl-4 md:pl-6 pr-4 font-semibold text-xs uppercase tracking-wider rounded-tl-lg">Tên dự án</th>
+                                <th className="py-4 px-4 font-semibold text-xs uppercase tracking-wider min-w-[150px]">Tên khách hàng</th>
                                 <th className="py-4 px-4 text-center font-semibold text-xs uppercase tracking-wider min-w-[120px]">Người quản lý</th>
                                 <th className="py-4 px-4 text-center font-semibold text-xs uppercase tracking-wider min-w-[120px]">Người thực thi</th>
                                 <th className="py-4 px-4 text-center font-semibold text-xs uppercase tracking-wider min-w-[140px]">Trạng thái</th>
@@ -330,7 +508,7 @@ export function DuAn() {
                         <tbody className="divide-y divide-slate-100">
                             {items.length === 0 && (
                                 <tr>
-                                    <td colSpan={6} className="py-6 text-center text-slate-500 text-sm italic">
+                                    <td colSpan={7} className="py-6 text-center text-slate-500 text-sm italic">
                                         Chưa có dự án nào. Nhấn "Thêm dự án" để tạo mới.
                                     </td>
                                 </tr>
@@ -347,22 +525,55 @@ export function DuAn() {
                                     </td>
 
                                     <td className="py-4 px-4 align-middle">
-                                        <div className="flex justify-center">
-                                            <div className="relative">
-                                                <div className="w-10 h-10 rounded-full overflow-hidden border-2 border-white shadow-sm ring-1 ring-slate-200 group-hover:ring-blue-200 transition-all">
-                                                    <img src={item.managerImg} alt="Manager" className="w-full h-full object-cover" />
-                                                </div>
-                                            </div>
-                                        </div>
+                                        <span className="text-slate-700 text-sm">{item.customer_name || '(Chưa có khách hàng)'}</span>
                                     </td>
 
                                     <td className="py-4 px-4 align-middle">
                                         <div className="flex justify-center">
                                             <div className="relative">
-                                                <div className="w-10 h-10 rounded-full overflow-hidden border-2 border-white shadow-sm ring-1 ring-slate-200 group-hover:ring-blue-200 transition-all">
-                                                    <img src={item.executorImg} alt="Executor" className="w-full h-full object-cover" />
-                                                </div>
+                                                {item.managerImg ? (
+                                                    <div className="w-10 h-10 rounded-full overflow-hidden border-2 border-white shadow-sm ring-1 ring-slate-200 group-hover:ring-blue-200 transition-all">
+                                                        <img 
+                                                            src={item.managerImg} 
+                                                            alt="Manager" 
+                                                            className="w-full h-full object-cover"
+                                                            onError={(e) => {
+                                                                (e.target as HTMLImageElement).style.display = 'none';
+                                                            }}
+                                                        />
+                                                    </div>
+                                                ) : (
+                                                    <div className="w-10 h-10 rounded-full bg-slate-200 border-2 border-white shadow-sm ring-1 ring-slate-200 flex items-center justify-center">
+                                                        <User size={16} className="text-slate-400" />
+                                                    </div>
+                                                )}
                                             </div>
+                                        </div>
+                                    </td>
+
+                                    <td className="py-4 px-4 align-middle">
+                                        <div className="flex flex-col items-center gap-1">
+                                            {item.executorImg ? (
+                                                <div className="w-10 h-10 rounded-full overflow-hidden border-2 border-white shadow-sm ring-1 ring-slate-200 group-hover:ring-blue-200 transition-all">
+                                                    <img 
+                                                        src={item.executorImg} 
+                                                        alt="Executor" 
+                                                        className="w-full h-full object-cover"
+                                                        onError={(e) => {
+                                                            (e.target as HTMLImageElement).style.display = 'none';
+                                                        }}
+                                                    />
+                                                </div>
+                                            ) : (
+                                                <div className="w-10 h-10 rounded-full bg-slate-200 border-2 border-white shadow-sm ring-1 ring-slate-200 flex items-center justify-center">
+                                                    <User size={16} className="text-slate-400" />
+                                                </div>
+                                            )}
+                                            {item.executor_name && (
+                                                <div className="text-xs text-slate-600 text-center max-w-[100px] truncate">
+                                                    {item.executor_code ? `[${item.executor_code}] ` : ''}{item.executor_name}
+                                                </div>
+                                            )}
                                         </div>
                                     </td>
 
@@ -486,11 +697,72 @@ export function DuAn() {
                                             { label: 'Trạng thái', value: selectedProject.status },
                                             { label: 'Tiến độ', value: `${selectedProject.progress}%` },
                                         ].map((row, index) => (
-                                            <div key={index} className="flex px-4 py-3.5 border-b border-slate-100 last:border-0 hover:bg-slate-50 transition-colors">
+                                            <div key={index} className="flex px-4 py-3.5 border-b border-slate-100 hover:bg-slate-50 transition-colors">
                                                 <div className="w-[180px] shrink-0 text-slate-500 font-medium">{row.label}</div>
                                                 <div className="flex-1 text-slate-800 font-medium">{row.value}</div>
                                             </div>
                                         ))}
+                                        
+                                        {/* Nhân sự phụ trách */}
+                                        <div className="px-4 py-3.5 border-b border-slate-100 hover:bg-slate-50 transition-colors">
+                                            <div className="w-[180px] shrink-0 text-slate-500 font-medium mb-2">Người quản lý</div>
+                                            <div className="flex-1 flex items-center gap-3">
+                                                {selectedProject.managerImg ? (
+                                                    <img 
+                                                        src={selectedProject.managerImg} 
+                                                        alt="Manager" 
+                                                        className="w-10 h-10 rounded-full object-cover border border-slate-200"
+                                                        onError={(e) => {
+                                                            (e.target as HTMLImageElement).style.display = 'none';
+                                                        }}
+                                                    />
+                                                ) : (
+                                                    <div className="w-10 h-10 rounded-full bg-slate-200 border border-slate-200 flex items-center justify-center">
+                                                        <User size={16} className="text-slate-400" />
+                                                    </div>
+                                                )}
+                                                <div className="flex-1">
+                                                    <div className="text-slate-800 font-medium">
+                                                        {selectedProject.manager_name || '(Chưa có người quản lý)'}
+                                                    </div>
+                                                    {selectedProject.manager_code && (
+                                                        <div className="text-xs text-slate-500 mt-0.5">
+                                                            Mã: {selectedProject.manager_code}
+                                                        </div>
+                                                    )}
+                                                </div>
+                                            </div>
+                                        </div>
+                                        
+                                        <div className="px-4 py-3.5 border-b border-slate-100 last:border-0 hover:bg-slate-50 transition-colors">
+                                            <div className="w-[180px] shrink-0 text-slate-500 font-medium mb-2">Người thực thi</div>
+                                            <div className="flex-1 flex items-center gap-3">
+                                                {selectedProject.executorImg ? (
+                                                    <img 
+                                                        src={selectedProject.executorImg} 
+                                                        alt="Executor" 
+                                                        className="w-10 h-10 rounded-full object-cover border border-slate-200"
+                                                        onError={(e) => {
+                                                            (e.target as HTMLImageElement).style.display = 'none';
+                                                        }}
+                                                    />
+                                                ) : (
+                                                    <div className="w-10 h-10 rounded-full bg-slate-200 border border-slate-200 flex items-center justify-center">
+                                                        <User size={16} className="text-slate-400" />
+                                                    </div>
+                                                )}
+                                                <div className="flex-1">
+                                                    <div className="text-slate-800 font-medium">
+                                                        {selectedProject.executor_name || '(Chưa có người thực thi)'}
+                                                    </div>
+                                                    {selectedProject.executor_code && (
+                                                        <div className="text-xs text-slate-500 mt-0.5">
+                                                            Mã: {selectedProject.executor_code}
+                                                        </div>
+                                                    )}
+                                                </div>
+                                            </div>
+                                        </div>
                                     </div>
                                 )}
 

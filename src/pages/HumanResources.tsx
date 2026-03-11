@@ -27,6 +27,9 @@ import { employeeService, type Employee } from '@/lib/services/employeeService';
 import { testNhanSuConnection } from '@/lib/utils/testDatabaseConnection';
 import { certificateService, type ProfessionalCertificate } from '@/lib/services/certificateService';
 import { dependentPersonService, type DependentPerson } from '@/lib/services/dependentPersonService';
+import { contractService, ContractRow } from '@/lib/services/contractService';
+import { thuChiService, ThuChiRow } from '@/lib/services/thuChiService';
+import { projectService } from '@/lib/services/projectService';
 
 export function HumanResources() {
   const navigate = useNavigate();
@@ -38,11 +41,16 @@ export function HumanResources() {
   const [currentPage, setCurrentPage] = useState(1);
   const [viewingEmployee, setViewingEmployee] = useState<Employee | null>(null);
   const [showViewModal, setShowViewModal] = useState(false);
-  const [activeTab, setActiveTab] = useState<'employee' | 'license' | 'dependent'>('employee');
+  const [activeTab, setActiveTab] = useState<'employee' | 'license' | 'dependent' | 'finance' | 'projects'>('employee');
   const [certificates, setCertificates] = useState<ProfessionalCertificate[]>([]);
   const [dependentPersons, setDependentPersons] = useState<DependentPerson[]>([]);
   const [loadingCertificates, setLoadingCertificates] = useState(false);
   const [loadingDependents, setLoadingDependents] = useState(false);
+  const [employeeContracts, setEmployeeContracts] = useState<ContractRow[]>([]);
+  const [employeeThuChi, setEmployeeThuChi] = useState<ThuChiRow[]>([]);
+  const [loadingContracts, setLoadingContracts] = useState(false);
+  const [loadingThuChi, setLoadingThuChi] = useState(false);
+  const [projectsByEmployee, setProjectsByEmployee] = useState<Map<string, { project: any; contracts: ContractRow[] }>>(new Map());
   const itemsPerPage = 10;
 
   // Load employees from Supabase
@@ -71,8 +79,15 @@ export function HumanResources() {
         email: emp.email || '',
         phone: emp.sdt_nhan_vien || emp.sdtNhanVien || emp.phone || emp.dien_thoai || '',
         status: emp.status || 'active',
-        ngayVaoLam: emp.ngay_vao_lam || emp.ngayVaoLam || emp.joinDate || ''
+        ngayVaoLam: emp.ngay_vao_lam || emp.ngayVaoLam || emp.joinDate || '',
+        // Giữ lại anh_nhan_su từ database (snake_case)
+        anh_nhan_su: emp.anh_nhan_su || null
       }));
+      
+      console.log('[HumanResources] Normalized employees with avatars:', normalizedData.map((e: any) => ({
+        name: e.full_name,
+        avatar: e.anh_nhan_su
+      })));
 
       setEmployees(normalizedData);
     } catch (err: any) {
@@ -160,6 +175,69 @@ export function HumanResources() {
         setDependentPersons([]);
       } finally {
         setLoadingDependents(false);
+      }
+
+      // Load contracts by nhan_su_id
+      setLoadingContracts(true);
+      try {
+        const allContracts = await contractService.getAll();
+        const employeeContractsList = allContracts.filter(c => c.nhan_su_id === id.toString());
+        setEmployeeContracts(employeeContractsList);
+
+        // Load all projects and filter by manager_id or executor_id
+        const allProjects = await projectService.getAll();
+        const employeeProjects = allProjects.filter(p => 
+          p.manager_id === id.toString() || p.executor_id === id.toString()
+        );
+
+        // Group contracts by du_an_id for projects that employee manages/executes
+        const projectsMap = new Map<string, { project: any; contracts: ContractRow[] }>();
+        
+        // Add projects where employee is manager or executor
+        employeeProjects.forEach(project => {
+          if (!projectsMap.has(project.id)) {
+            projectsMap.set(project.id, { project, contracts: [] });
+          }
+          // Get all contracts for this project
+          const projectContracts = allContracts.filter(c => c.du_an_id === project.id);
+          projectsMap.get(project.id)!.contracts = projectContracts;
+        });
+
+        // Also add projects from contracts that employee is responsible for
+        employeeContractsList.forEach(contract => {
+          if (contract.du_an_id) {
+            const project = allProjects.find(p => p.id === contract.du_an_id);
+            if (project && !projectsMap.has(contract.du_an_id)) {
+              projectsMap.set(contract.du_an_id, { project, contracts: [] });
+            }
+            if (project && projectsMap.has(contract.du_an_id)) {
+              // Add contract if not already in the list
+              const existingContracts = projectsMap.get(contract.du_an_id)!.contracts;
+              if (!existingContracts.find(c => c.id === contract.id)) {
+                existingContracts.push(contract);
+              }
+            }
+          }
+        });
+        
+        setProjectsByEmployee(projectsMap);
+
+        // Load thu chi - lọc theo nhan_su_id trực tiếp
+        setLoadingThuChi(true);
+        try {
+          const allThuChi = await thuChiService.getAll();
+          // Lọc thu chi có nhan_su_id trùng với nhân viên này
+          const employeeThuChiList = allThuChi.filter(tc => tc.nhan_su_id === id.toString());
+          setEmployeeThuChi(employeeThuChiList);
+        } catch (err) {
+          console.error('Error loading thu chi:', err);
+        } finally {
+          setLoadingThuChi(false);
+        }
+      } catch (err) {
+        console.error('Error loading contracts:', err);
+      } finally {
+        setLoadingContracts(false);
       }
     } catch (err: any) {
       console.error('Error loading employee details:', err);
@@ -251,6 +329,7 @@ export function HumanResources() {
                     </button>
                   </th>
                   <th className="p-4 whitespace-nowrap">Mã NV</th>
+                  <th className="p-4 whitespace-nowrap">Ảnh</th>
                   <th className="p-4 whitespace-nowrap">Họ và tên</th>
                   <th className="p-4 whitespace-nowrap">Phòng ban</th>
                   <th className="p-4 whitespace-nowrap">Chức vụ</th>
@@ -278,6 +357,33 @@ export function HumanResources() {
                       </td>
                       <td className="p-4 font-medium text-slate-700">
                         {employee.code || employee.ma_nv || employee.employee_code || '(Trống)'}
+                      </td>
+                      <td className="p-4">
+                        {(() => {
+                          const avatarUrl = (employee as any).anh_nhan_su || employee.anh_nhan_su;
+                          console.log('[HumanResources] Employee avatar URL:', avatarUrl, 'for employee:', employee.full_name || employee.name);
+                          if (avatarUrl && avatarUrl.trim() !== '') {
+                            return (
+                              <img
+                                src={avatarUrl}
+                                alt={employee.full_name || employee.name || employee.hoTen || 'Nhân sự'}
+                                className="w-10 h-10 rounded-full object-cover border-2 border-slate-200"
+                                onError={(e) => {
+                                  console.error('[HumanResources] Error loading avatar:', avatarUrl);
+                                  (e.target as HTMLImageElement).src = 'https://ui-avatars.com/api/?name=' + encodeURIComponent(employee.full_name || employee.name || employee.hoTen || 'NV');
+                                }}
+                                onLoad={() => {
+                                  console.log('[HumanResources] Avatar loaded successfully:', avatarUrl);
+                                }}
+                              />
+                            );
+                          }
+                          return (
+                            <div className="w-10 h-10 rounded-full bg-slate-200 flex items-center justify-center">
+                              <User size={18} className="text-slate-400" />
+                            </div>
+                          );
+                        })()}
                       </td>
                       <td className="p-4 font-medium text-slate-800">
                         {employee.full_name || employee.name || employee.hoTen || employee.ho_ten || '(Trống)'}
@@ -450,6 +556,26 @@ export function HumanResources() {
                 >
                   <Users size={16} />
                   Thông tin người phụ thuộc
+                </button>
+                <button
+                  onClick={() => setActiveTab('finance')}
+                  className={`px-4 py-3 text-sm font-medium transition-colors border-b-2 flex items-center gap-2 ${activeTab === 'finance'
+                    ? 'text-blue-600 border-blue-600 bg-white'
+                    : 'text-slate-600 border-transparent hover:text-slate-800'
+                    }`}
+                >
+                  <CreditCard size={16} />
+                  Thu chi
+                </button>
+                <button
+                  onClick={() => setActiveTab('projects')}
+                  className={`px-4 py-3 text-sm font-medium transition-colors border-b-2 flex items-center gap-2 ${activeTab === 'projects'
+                    ? 'text-blue-600 border-blue-600 bg-white'
+                    : 'text-slate-600 border-transparent hover:text-slate-800'
+                    }`}
+                >
+                  <FileText size={16} />
+                  Dự án phụ trách
                 </button>
               </div>
             </div>
@@ -763,6 +889,166 @@ export function HumanResources() {
                   ) : (
                     <div className="text-center py-8 text-slate-500">
                       <p className="text-sm">Không có dữ liệu người phụ thuộc</p>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Tab Content: Thu chi */}
+              {activeTab === 'finance' && (
+                <div className="space-y-4">
+                  <h4 className="text-sm font-semibold text-slate-700 uppercase tracking-wide border-b border-slate-200 pb-2 mb-4">
+                    Thu chi từ các hợp đồng phụ trách
+                  </h4>
+
+                  {loadingThuChi ? (
+                    <div className="flex items-center justify-center py-8">
+                      <Loader2 className="w-6 h-6 animate-spin text-blue-600" />
+                      <span className="ml-2 text-sm text-slate-600">Đang tải dữ liệu...</span>
+                    </div>
+                  ) : employeeThuChi.length > 0 ? (
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-sm">
+                        <thead className="bg-slate-50 text-slate-700 font-semibold border-b border-slate-200">
+                          <tr>
+                            <th className="p-3 text-left whitespace-nowrap">Loại phiếu</th>
+                            <th className="p-3 text-left whitespace-nowrap">Dự án</th>
+                            <th className="p-3 text-left whitespace-nowrap">Hợp đồng</th>
+                            <th className="p-3 text-left whitespace-nowrap">Ngày</th>
+                            <th className="p-3 text-right whitespace-nowrap">Số tiền</th>
+                            <th className="p-3 text-left whitespace-nowrap">Nội dung</th>
+                            <th className="p-3 text-left whitespace-nowrap">Người nộp/nhận</th>
+                            <th className="p-3 text-left whitespace-nowrap">Tình trạng</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-slate-100">
+                          {employeeThuChi.map((tc, index) => (
+                            <tr key={tc.id || index} className="hover:bg-slate-50">
+                              <td className="p-3 text-slate-700">
+                                <span className={`px-2 py-1 rounded text-xs font-medium ${
+                                  tc.loai_phieu === 'Phiếu thu' 
+                                    ? 'bg-green-100 text-green-700' 
+                                    : 'bg-red-100 text-red-700'
+                                }`}>
+                                  {tc.loai_phieu || '(Trống)'}
+                                </span>
+                              </td>
+                              <td className="p-3 text-slate-700">{tc.ten_du_an || '(Chưa có dự án)'}</td>
+                              <td className="p-3 text-slate-700">{tc.so_hop_dong || '(Chưa có hợp đồng)'}</td>
+                              <td className="p-3 text-slate-700">
+                                {tc.ngay ? new Date(tc.ngay).toLocaleDateString('vi-VN') : '(Trống)'}
+                              </td>
+                              <td className="p-3 text-right text-slate-700 font-medium">
+                                {tc.so_tien ? new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND' }).format(tc.so_tien) : '0 đ'}
+                              </td>
+                              <td className="p-3 text-slate-700">{tc.noi_dung || '(Trống)'}</td>
+                              <td className="p-3 text-slate-700">{tc.nguoi_nhan || '(Trống)'}</td>
+                              <td className="p-3 text-slate-700">{tc.tinh_trang_phieu || '(Trống)'}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  ) : (
+                    <div className="text-center py-8 text-slate-500">
+                      <p className="text-sm">Không có dữ liệu thu chi</p>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Tab Content: Dự án phụ trách */}
+              {activeTab === 'projects' && (
+                <div className="space-y-4">
+                  <h4 className="text-sm font-semibold text-slate-700 uppercase tracking-wide border-b border-slate-200 pb-2 mb-4">
+                    Dự án và hợp đồng phụ trách
+                  </h4>
+
+                  {loadingContracts ? (
+                    <div className="flex items-center justify-center py-8">
+                      <Loader2 className="w-6 h-6 animate-spin text-blue-600" />
+                      <span className="ml-2 text-sm text-slate-600">Đang tải dữ liệu...</span>
+                    </div>
+                  ) : projectsByEmployee.size > 0 ? (
+                    <div className="space-y-6">
+                      {Array.from(projectsByEmployee.entries()).map(([projectId, { project, contracts }]) => {
+                        const isManager = project.manager_id === viewingEmployee?.id;
+                        const isExecutor = project.executor_id === viewingEmployee?.id;
+                        const role = isManager && isExecutor ? 'Quản lý & Thực thi' : isManager ? 'Quản lý' : isExecutor ? 'Thực thi' : 'Phụ trách';
+                        
+                        return (
+                        <div key={projectId} className="border border-slate-200 rounded-lg overflow-hidden">
+                          <div className="bg-slate-50 px-4 py-3 border-b border-slate-200">
+                            <div className="flex items-center justify-between">
+                              <h5 className="font-semibold text-slate-800 flex items-center gap-2">
+                                <FileText size={16} />
+                                {project.ten_du_an || '(Chưa có tên dự án)'}
+                              </h5>
+                              <span className={`px-2 py-1 rounded text-xs font-medium ${
+                                isManager && isExecutor ? 'bg-purple-100 text-purple-700' :
+                                isManager ? 'bg-blue-100 text-blue-700' :
+                                isExecutor ? 'bg-emerald-100 text-emerald-700' :
+                                'bg-slate-100 text-slate-700'
+                              }`}>
+                                {role}
+                              </span>
+                            </div>
+                          </div>
+                          <div className="overflow-x-auto">
+                            <table className="w-full text-sm">
+                              <thead className="bg-slate-50 text-slate-700 font-semibold border-b border-slate-200">
+                                <tr>
+                                  <th className="p-3 text-left whitespace-nowrap">Số hợp đồng</th>
+                                  <th className="p-3 text-left whitespace-nowrap">Tên gói thầu</th>
+                                  <th className="p-3 text-left whitespace-nowrap">Ngày ký HĐ</th>
+                                  <th className="p-3 text-right whitespace-nowrap">Giá trị HĐ</th>
+                                  <th className="p-3 text-right whitespace-nowrap">Đã thu</th>
+                                  <th className="p-3 text-right whitespace-nowrap">Còn phải thu</th>
+                                  <th className="p-3 text-left whitespace-nowrap">Tiến độ</th>
+                                </tr>
+                              </thead>
+                              <tbody className="divide-y divide-slate-100">
+                                {contracts.map((contract, idx) => (
+                                  <tr key={contract.id || idx} className="hover:bg-slate-50">
+                                    <td className="p-3 text-slate-700 font-medium">{contract.so_hop_dong || '(Trống)'}</td>
+                                    <td className="p-3 text-slate-700">{contract.ten_goi_thau || '(Trống)'}</td>
+                                    <td className="p-3 text-slate-700">
+                                      {contract.ngay_ky_hd ? new Date(contract.ngay_ky_hd).toLocaleDateString('vi-VN') : '(Trống)'}
+                                    </td>
+                                    <td className="p-3 text-right text-slate-700">
+                                      {contract.gia_tri_hd ? Number(contract.gia_tri_hd).toLocaleString('vi-VN') : '0'} đ
+                                    </td>
+                                    <td className="p-3 text-right text-slate-700">
+                                      {contract.da_thu ? Number(contract.da_thu).toLocaleString('vi-VN') : '0'} đ
+                                    </td>
+                                    <td className="p-3 text-right text-slate-700">
+                                      {contract.con_phai_thu ? Number(contract.con_phai_thu).toLocaleString('vi-VN') : '0'} đ
+                                    </td>
+                                    <td className="p-3 text-slate-700">
+                                      <div className="flex items-center gap-2">
+                                        <div className="flex-1 bg-slate-200 rounded-full h-2">
+                                          <div 
+                                            className="bg-blue-600 h-2 rounded-full" 
+                                            style={{ width: `${contract.phan_tram_task_hoan_thanh || 0}%` }}
+                                          />
+                                        </div>
+                                        <span className="text-xs text-slate-600 min-w-[40px]">
+                                          {contract.phan_tram_task_hoan_thanh || 0}%
+                                        </span>
+                                      </div>
+                                    </td>
+                                  </tr>
+                                ))}
+                              </tbody>
+                            </table>
+                          </div>
+                        </div>
+                        );
+                      })}
+                    </div>
+                  ) : (
+                    <div className="text-center py-8 text-slate-500">
+                      <p className="text-sm">Không có dự án hoặc hợp đồng phụ trách</p>
                     </div>
                   )}
                 </div>

@@ -16,7 +16,9 @@ import {
     CheckCircle2,
     AlertCircle,
     Info,
-    ArrowUpDown
+    ArrowUpDown,
+    ChevronDown,
+    ChevronUp
 } from 'lucide-react';
 
 // --- Types ---
@@ -113,6 +115,13 @@ export function ThuVienLoi() {
     const [filterMucDoQuanTrong, setFilterMucDoQuanTrong] = useState<string[]>([]);
     const [filterCanhBaoLoi, setFilterCanhBaoLoi] = useState<string[]>([]);
     const [filterGhiChuKyThuat, setFilterGhiChuKyThuat] = useState<string[]>([]);
+    
+    // Dropdown open states
+    const [isTieuChuanOpen, setIsTieuChuanOpen] = useState(false);
+    const [isMucDoQuanTrongOpen, setIsMucDoQuanTrongOpen] = useState(false);
+    const [isCanhBaoLoiOpen, setIsCanhBaoLoiOpen] = useState(false);
+    const [isGhiChuKyThuatOpen, setIsGhiChuKyThuatOpen] = useState(false);
+    
     const [currentPage, setCurrentPage] = useState(1);
     const [itemsPerPage, setItemsPerPage] = useState(10);
     const [toast, setToast] = useState<{ message: string, type: 'success' | 'error' | 'info' } | null>(null);
@@ -243,6 +252,21 @@ export function ThuVienLoi() {
                    matchesTieuChuan && matchesMucDoQuanTrong && matchesCanhBaoLoi && matchesGhiChuKyThuat;
         });
     }, [items, searchTerm, filterChuyenNganh, filterMucDo, filterTieuChuan, filterMucDoQuanTrong, filterCanhBaoLoi, filterGhiChuKyThuat]);
+
+    // Close dropdowns when clicking outside
+    useEffect(() => {
+        const handleClickOutside = (event: MouseEvent) => {
+            const target = event.target as HTMLElement;
+            if (!target.closest('.dropdown-filter-container')) {
+                setIsTieuChuanOpen(false);
+                setIsMucDoQuanTrongOpen(false);
+                setIsCanhBaoLoiOpen(false);
+                setIsGhiChuKyThuatOpen(false);
+            }
+        };
+        document.addEventListener('mousedown', handleClickOutside);
+        return () => document.removeEventListener('mousedown', handleClickOutside);
+    }, []);
 
     const totalPages = Math.ceil(filteredItems.length / itemsPerPage);
     const startIndex = (currentPage - 1) * itemsPerPage;
@@ -478,127 +502,183 @@ export function ThuVienLoi() {
                     </div>
                 </div>
 
-                {/* Checkbox Filters */}
+                {/* Dropdown Filters với Checkbox */}
                 <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm mb-6">
-                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
                         {/* Tiêu chuẩn */}
-                        <div>
-                            <h3 className="text-xs font-bold text-slate-600 uppercase mb-3">Tiêu chuẩn</h3>
-                            <div className="space-y-2 max-h-48 overflow-y-auto">
-                                {uniqueTieuChuan.map((value) => {
-                                    const count = getCountForTieuChuan(value);
-                                    const isChecked = filterTieuChuan.includes(value);
-                                    return (
-                                        <label key={value} className="flex items-center gap-2 cursor-pointer hover:bg-slate-50 p-1 rounded">
-                                            <input
-                                                type="checkbox"
-                                                checked={isChecked}
-                                                onChange={(e) => {
-                                                    if (e.target.checked) {
-                                                        setFilterTieuChuan([...filterTieuChuan, value]);
-                                                    } else {
-                                                        setFilterTieuChuan(filterTieuChuan.filter(v => v !== value));
-                                                    }
-                                                    setCurrentPage(1);
-                                                }}
-                                                className="w-4 h-4 text-blue-600 border-slate-300 rounded focus:ring-blue-500"
-                                            />
-                                            <span className="text-xs text-slate-700 flex-1 truncate">{value}</span>
-                                            <span className="text-xs text-slate-400 bg-slate-100 px-2 py-0.5 rounded">{count}</span>
-                                        </label>
-                                    );
-                                })}
-                            </div>
+                        <div className="relative dropdown-filter-container">
+                            <label className="block text-xs font-bold text-slate-600 uppercase mb-2">Tiêu chuẩn</label>
+                            <button
+                                type="button"
+                                onClick={() => setIsTieuChuanOpen(!isTieuChuanOpen)}
+                                className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 bg-white flex items-center justify-between hover:bg-slate-50"
+                            >
+                                <span className="text-slate-700">
+                                    {filterTieuChuan.length > 0 ? `Đã chọn ${filterTieuChuan.length}` : 'Chọn tiêu chuẩn'}
+                                </span>
+                                {isTieuChuanOpen ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
+                            </button>
+                            {isTieuChuanOpen && (
+                                <div className="absolute z-10 w-full mt-1 bg-white border border-slate-200 rounded-lg shadow-lg max-h-64 overflow-y-auto">
+                                    <div className="p-2 space-y-1">
+                                        {uniqueTieuChuan.map((value) => {
+                                            const count = getCountForTieuChuan(value);
+                                            const isChecked = filterTieuChuan.includes(value);
+                                            return (
+                                                <label key={value} className="flex items-center gap-2 cursor-pointer hover:bg-slate-50 p-2 rounded">
+                                                    <input
+                                                        type="checkbox"
+                                                        checked={isChecked}
+                                                        onChange={(e) => {
+                                                            if (e.target.checked) {
+                                                                setFilterTieuChuan([...filterTieuChuan, value]);
+                                                            } else {
+                                                                setFilterTieuChuan(filterTieuChuan.filter(v => v !== value));
+                                                            }
+                                                            setCurrentPage(1);
+                                                        }}
+                                                        className="w-4 h-4 text-blue-600 border-slate-300 rounded focus:ring-blue-500"
+                                                    />
+                                                    <span className="text-xs text-slate-700 flex-1 truncate">{value}</span>
+                                                    <span className="text-xs text-slate-400 bg-slate-100 px-2 py-0.5 rounded">{count}</span>
+                                                </label>
+                                            );
+                                        })}
+                                    </div>
+                                </div>
+                            )}
                         </div>
 
                         {/* Mức độ quan trọng */}
-                        <div>
-                            <h3 className="text-xs font-bold text-slate-600 uppercase mb-3">Mức độ quan trọng</h3>
-                            <div className="space-y-2 max-h-48 overflow-y-auto">
-                                {uniqueMucDoQuanTrong.map((value) => {
-                                    const count = getCountForMucDoQuanTrong(value);
-                                    const isChecked = filterMucDoQuanTrong.includes(value);
-                                    return (
-                                        <label key={value} className="flex items-center gap-2 cursor-pointer hover:bg-slate-50 p-1 rounded">
-                                            <input
-                                                type="checkbox"
-                                                checked={isChecked}
-                                                onChange={(e) => {
-                                                    if (e.target.checked) {
-                                                        setFilterMucDoQuanTrong([...filterMucDoQuanTrong, value]);
-                                                    } else {
-                                                        setFilterMucDoQuanTrong(filterMucDoQuanTrong.filter(v => v !== value));
-                                                    }
-                                                    setCurrentPage(1);
-                                                }}
-                                                className="w-4 h-4 text-blue-600 border-slate-300 rounded focus:ring-blue-500"
-                                            />
-                                            <span className="text-xs text-slate-700 flex-1 truncate">{value}</span>
-                                            <span className="text-xs text-slate-400 bg-slate-100 px-2 py-0.5 rounded">{count}</span>
-                                        </label>
-                                    );
-                                })}
-                            </div>
+                        <div className="relative dropdown-filter-container">
+                            <label className="block text-xs font-bold text-slate-600 uppercase mb-2">Mức độ quan trọng</label>
+                            <button
+                                type="button"
+                                onClick={() => setIsMucDoQuanTrongOpen(!isMucDoQuanTrongOpen)}
+                                className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 bg-white flex items-center justify-between hover:bg-slate-50"
+                            >
+                                <span className="text-slate-700">
+                                    {filterMucDoQuanTrong.length > 0 ? `Đã chọn ${filterMucDoQuanTrong.length}` : 'Chọn mức độ'}
+                                </span>
+                                {isMucDoQuanTrongOpen ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
+                            </button>
+                            {isMucDoQuanTrongOpen && (
+                                <div className="absolute z-10 w-full mt-1 bg-white border border-slate-200 rounded-lg shadow-lg max-h-64 overflow-y-auto">
+                                    <div className="p-2 space-y-1">
+                                        {uniqueMucDoQuanTrong.map((value) => {
+                                            const count = getCountForMucDoQuanTrong(value);
+                                            const isChecked = filterMucDoQuanTrong.includes(value);
+                                            return (
+                                                <label key={value} className="flex items-center gap-2 cursor-pointer hover:bg-slate-50 p-2 rounded">
+                                                    <input
+                                                        type="checkbox"
+                                                        checked={isChecked}
+                                                        onChange={(e) => {
+                                                            if (e.target.checked) {
+                                                                setFilterMucDoQuanTrong([...filterMucDoQuanTrong, value]);
+                                                            } else {
+                                                                setFilterMucDoQuanTrong(filterMucDoQuanTrong.filter(v => v !== value));
+                                                            }
+                                                            setCurrentPage(1);
+                                                        }}
+                                                        className="w-4 h-4 text-blue-600 border-slate-300 rounded focus:ring-blue-500"
+                                                    />
+                                                    <span className="text-xs text-slate-700 flex-1 truncate">{value}</span>
+                                                    <span className="text-xs text-slate-400 bg-slate-100 px-2 py-0.5 rounded">{count}</span>
+                                                </label>
+                                            );
+                                        })}
+                                    </div>
+                                </div>
+                            )}
                         </div>
 
                         {/* Cảnh báo lỗi */}
-                        <div>
-                            <h3 className="text-xs font-bold text-slate-600 uppercase mb-3">Cảnh báo lỗi</h3>
-                            <div className="space-y-2 max-h-48 overflow-y-auto">
-                                {uniqueCanhBaoLoi.map((value) => {
-                                    const count = getCountForCanhBaoLoi(value);
-                                    const isChecked = filterCanhBaoLoi.includes(value);
-                                    return (
-                                        <label key={value} className="flex items-center gap-2 cursor-pointer hover:bg-slate-50 p-1 rounded">
-                                            <input
-                                                type="checkbox"
-                                                checked={isChecked}
-                                                onChange={(e) => {
-                                                    if (e.target.checked) {
-                                                        setFilterCanhBaoLoi([...filterCanhBaoLoi, value]);
-                                                    } else {
-                                                        setFilterCanhBaoLoi(filterCanhBaoLoi.filter(v => v !== value));
-                                                    }
-                                                    setCurrentPage(1);
-                                                }}
-                                                className="w-4 h-4 text-blue-600 border-slate-300 rounded focus:ring-blue-500"
-                                            />
-                                            <span className="text-xs text-slate-700 flex-1 truncate">{value}</span>
-                                            <span className="text-xs text-slate-400 bg-slate-100 px-2 py-0.5 rounded">{count}</span>
-                                        </label>
-                                    );
-                                })}
-                            </div>
+                        <div className="relative dropdown-filter-container">
+                            <label className="block text-xs font-bold text-slate-600 uppercase mb-2">Cảnh báo lỗi</label>
+                            <button
+                                type="button"
+                                onClick={() => setIsCanhBaoLoiOpen(!isCanhBaoLoiOpen)}
+                                className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 bg-white flex items-center justify-between hover:bg-slate-50"
+                            >
+                                <span className="text-slate-700">
+                                    {filterCanhBaoLoi.length > 0 ? `Đã chọn ${filterCanhBaoLoi.length}` : 'Chọn cảnh báo'}
+                                </span>
+                                {isCanhBaoLoiOpen ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
+                            </button>
+                            {isCanhBaoLoiOpen && (
+                                <div className="absolute z-10 w-full mt-1 bg-white border border-slate-200 rounded-lg shadow-lg max-h-64 overflow-y-auto">
+                                    <div className="p-2 space-y-1">
+                                        {uniqueCanhBaoLoi.map((value) => {
+                                            const count = getCountForCanhBaoLoi(value);
+                                            const isChecked = filterCanhBaoLoi.includes(value);
+                                            return (
+                                                <label key={value} className="flex items-center gap-2 cursor-pointer hover:bg-slate-50 p-2 rounded">
+                                                    <input
+                                                        type="checkbox"
+                                                        checked={isChecked}
+                                                        onChange={(e) => {
+                                                            if (e.target.checked) {
+                                                                setFilterCanhBaoLoi([...filterCanhBaoLoi, value]);
+                                                            } else {
+                                                                setFilterCanhBaoLoi(filterCanhBaoLoi.filter(v => v !== value));
+                                                            }
+                                                            setCurrentPage(1);
+                                                        }}
+                                                        className="w-4 h-4 text-blue-600 border-slate-300 rounded focus:ring-blue-500"
+                                                    />
+                                                    <span className="text-xs text-slate-700 flex-1 truncate">{value}</span>
+                                                    <span className="text-xs text-slate-400 bg-slate-100 px-2 py-0.5 rounded">{count}</span>
+                                                </label>
+                                            );
+                                        })}
+                                    </div>
+                                </div>
+                            )}
                         </div>
 
                         {/* Ghi chú kỹ thuật */}
-                        <div>
-                            <h3 className="text-xs font-bold text-slate-600 uppercase mb-3">Ghi chú kỹ thuật</h3>
-                            <div className="space-y-2 max-h-48 overflow-y-auto">
-                                {uniqueGhiChuKyThuat.map((value) => {
-                                    const count = getCountForGhiChuKyThuat(value);
-                                    const isChecked = filterGhiChuKyThuat.includes(value);
-                                    return (
-                                        <label key={value} className="flex items-center gap-2 cursor-pointer hover:bg-slate-50 p-1 rounded">
-                                            <input
-                                                type="checkbox"
-                                                checked={isChecked}
-                                                onChange={(e) => {
-                                                    if (e.target.checked) {
-                                                        setFilterGhiChuKyThuat([...filterGhiChuKyThuat, value]);
-                                                    } else {
-                                                        setFilterGhiChuKyThuat(filterGhiChuKyThuat.filter(v => v !== value));
-                                                    }
-                                                    setCurrentPage(1);
-                                                }}
-                                                className="w-4 h-4 text-blue-600 border-slate-300 rounded focus:ring-blue-500"
-                                            />
-                                            <span className="text-xs text-slate-700 flex-1 truncate">{value}</span>
-                                            <span className="text-xs text-slate-400 bg-slate-100 px-2 py-0.5 rounded">{count}</span>
-                                        </label>
-                                    );
-                                })}
-                            </div>
+                        <div className="relative dropdown-filter-container">
+                            <label className="block text-xs font-bold text-slate-600 uppercase mb-2">Ghi chú kỹ thuật</label>
+                            <button
+                                type="button"
+                                onClick={() => setIsGhiChuKyThuatOpen(!isGhiChuKyThuatOpen)}
+                                className="w-full px-3 py-2 text-sm border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 bg-white flex items-center justify-between hover:bg-slate-50"
+                            >
+                                <span className="text-slate-700">
+                                    {filterGhiChuKyThuat.length > 0 ? `Đã chọn ${filterGhiChuKyThuat.length}` : 'Chọn ghi chú'}
+                                </span>
+                                {isGhiChuKyThuatOpen ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
+                            </button>
+                            {isGhiChuKyThuatOpen && (
+                                <div className="absolute z-10 w-full mt-1 bg-white border border-slate-200 rounded-lg shadow-lg max-h-64 overflow-y-auto">
+                                    <div className="p-2 space-y-1">
+                                        {uniqueGhiChuKyThuat.map((value) => {
+                                            const count = getCountForGhiChuKyThuat(value);
+                                            const isChecked = filterGhiChuKyThuat.includes(value);
+                                            return (
+                                                <label key={value} className="flex items-center gap-2 cursor-pointer hover:bg-slate-50 p-2 rounded">
+                                                    <input
+                                                        type="checkbox"
+                                                        checked={isChecked}
+                                                        onChange={(e) => {
+                                                            if (e.target.checked) {
+                                                                setFilterGhiChuKyThuat([...filterGhiChuKyThuat, value]);
+                                                            } else {
+                                                                setFilterGhiChuKyThuat(filterGhiChuKyThuat.filter(v => v !== value));
+                                                            }
+                                                            setCurrentPage(1);
+                                                        }}
+                                                        className="w-4 h-4 text-blue-600 border-slate-300 rounded focus:ring-blue-500"
+                                                    />
+                                                    <span className="text-xs text-slate-700 flex-1 truncate">{value}</span>
+                                                    <span className="text-xs text-slate-400 bg-slate-100 px-2 py-0.5 rounded">{count}</span>
+                                                </label>
+                                            );
+                                        })}
+                                    </div>
+                                </div>
+                            )}
                         </div>
                     </div>
                     

@@ -24,6 +24,7 @@ export interface Employee {
   maSoBHXH?: string;
   bangDHChuyenNganh?: string;
   namTotNghiep?: number;
+  anh_nhan_su?: string; // URL ảnh nhân sự
 }
 
 export const employeeService = {
@@ -71,7 +72,7 @@ export const employeeService = {
       .from('nhan_su')
       .select('*')
       .eq('id', id.toString())
-      .single();
+      .maybeSingle();
     
     if (error) throw error;
     return data;
@@ -94,11 +95,13 @@ export const employeeService = {
     const { data, error } = await supabase
       .from('nhan_su')
       .insert([employee])
-      .select()
-      .single();
+      .select();
     
     if (error) throw error;
-    return data;
+    if (!data || data.length === 0) {
+      throw new Error('No data returned after insert');
+    }
+    return data[0];
   },
 
   // Cập nhật nhân viên
@@ -107,11 +110,13 @@ export const employeeService = {
       .from('nhan_su')
       .update(employee)
       .eq('id', id.toString())
-      .select()
-      .single();
+      .select();
     
     if (error) throw error;
-    return data;
+    if (!data || data.length === 0) {
+      throw new Error('No data returned after update');
+    }
+    return data[0];
   },
 
   // Xóa nhân viên
@@ -122,5 +127,57 @@ export const employeeService = {
       .eq('id', id.toString());
     
     if (error) throw error;
+  },
+
+  // Upload ảnh nhân sự
+  async uploadAvatar(bucket: string, path: string, file: File): Promise<string> {
+    try {
+      // Kiểm tra bucket có tồn tại không
+      const { data: buckets, error: listError } = await supabase.storage.listBuckets();
+      
+      if (listError) {
+        console.error('Error listing buckets:', listError);
+        throw new Error(`Không thể truy cập Storage. Vui lòng kiểm tra cấu hình Supabase.`);
+      }
+      
+      const bucketExists = buckets?.some(b => b.name === bucket);
+      
+      if (!bucketExists) {
+        console.warn(`Bucket "${bucket}" không tồn tại. Vui lòng tạo bucket trong Supabase Dashboard > Storage.`);
+        const errorMessage = `Bucket "${bucket}" chưa được tạo.\n\n` +
+          `Vui lòng làm theo các bước sau:\n` +
+          `1. Mở Supabase Dashboard → Storage\n` +
+          `2. Click "New bucket"\n` +
+          `3. Đặt tên: "${bucket}"\n` +
+          `4. Chọn "Public bucket" (QUAN TRỌNG!)\n` +
+          `5. Click "Create bucket"\n` +
+          `6. Chạy script SQL từ file "create_${bucket.replace(/-/g, '_')}_bucket.sql" trong SQL Editor\n\n` +
+          `Xem file "SETUP_STORAGE_BUCKETS.md" để biết thêm chi tiết.`;
+        throw new Error(errorMessage);
+      }
+
+      // Upload file
+      const { data, error: uploadError } = await supabase.storage
+        .from(bucket)
+        .upload(path, file, {
+          cacheControl: '3600',
+          upsert: true
+        });
+
+      if (uploadError) {
+        console.error('Error uploading file:', uploadError);
+        throw uploadError;
+      }
+
+      // Lấy public URL
+      const { data: urlData } = supabase.storage
+        .from(bucket)
+        .getPublicUrl(data.path);
+
+      return urlData.publicUrl;
+    } catch (err: any) {
+      console.error('Exception in uploadAvatar:', err);
+      throw err;
+    }
   }
 };

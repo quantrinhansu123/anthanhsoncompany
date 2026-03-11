@@ -21,7 +21,7 @@ import {
 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { thuChiService, ThuChiRow } from '../../lib/services/thuChiService';
-import { projectService } from '../../lib/services/projectService';
+import { employeeService } from '../../lib/services/employeeService';
 
 interface ToastProps {
     message: string;
@@ -53,7 +53,7 @@ const Toast = ({ message, type, onClose }: ToastProps) => {
     );
 };
 
-export function ThuChi() {
+export function ThuChiNhanSu() {
     const navigate = useNavigate();
     const [items, setItems] = useState<ThuChiRow[]>([]);
     const [loading, setLoading] = useState(false);
@@ -61,51 +61,52 @@ export function ThuChi() {
     const [selectedIds, setSelectedIds] = useState<(string | number)[]>([]);
     const [searchTerm, setSearchTerm] = useState('');
     const [currentPage, setCurrentPage] = useState(1);
-    const [filterDuAnId, setFilterDuAnId] = useState<string | null>(null);
-    const [activeTab, setActiveTab] = useState<'thu' | 'chi'>('thu'); // Tab mặc định: Phiếu thu
-    const [projects, setProjects] = useState<Array<{ id: string; ten_du_an: string }>>([]);
+    const [filterNhanSuId, setFilterNhanSuId] = useState<string | null>(null);
+    const [employees, setEmployees] = useState<Array<{ id: string; full_name: string; code: string }>>([]);
     const itemsPerPage = 10;
     const [toast, setToast] = useState<{ message: string, type: 'success' | 'error' | 'info' } | null>(null);
 
     // Modal states
-    const [isModalOpen, setIsModalOpen] = useState(false);
     const [isViewModalOpen, setIsViewModalOpen] = useState(false);
     const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
-    const [modalMode, setModalMode] = useState<'add' | 'edit'>('add');
     const [selectedItem, setSelectedItem] = useState<ThuChiRow | null>(null);
     const [itemIdToDelete, setItemIdToDelete] = useState<string | number | null>(null);
 
-    const [formData, setFormData] = useState({
-        duAnId: '',
-        hopDongId: '',
-        loaiPhieu: 'Phiếu thu',
-        tinhTrangPhieu: 'Tạm ứng',
-        ngayTienVe: new Date().toISOString().split('T')[0],
-        soTien: 0,
-        noiDung: '',
-        nguoiNhan: 'Ngân hàng / Đối tác'
-    });
-
-    // Load projects
+    // Load employees
     useEffect(() => {
         (async () => {
-            const projectList = await projectService.getAll();
-            setProjects(projectList.map(p => ({ id: p.id, ten_du_an: p.ten_du_an })));
+            try {
+                const employeeList = await employeeService.getAll();
+                setEmployees(employeeList.map(emp => ({
+                    id: emp.id.toString(),
+                    full_name: emp.full_name || emp.name || emp.hoTen || '',
+                    code: emp.code || ''
+                })));
+            } catch (error) {
+                console.error('Error loading employees:', error);
+            }
         })();
     }, []);
 
     // Load data from database
     useEffect(() => {
         loadRecords();
-    }, [filterDuAnId]);
+    }, [filterNhanSuId]);
 
     const loadRecords = async () => {
         try {
             setLoading(true);
             setError(null);
-            const data = await thuChiService.getAll(filterDuAnId || undefined);
+            const data = await thuChiService.getAll();
+            
+            // Filter theo nhân sự nếu có
+            let filteredData = data;
+            if (filterNhanSuId) {
+                filteredData = data.filter(item => item.nhan_su_id === filterNhanSuId);
+            }
+            
             // Map data để hiển thị
-            const mappedData = data.map(item => ({
+            const mappedData = filteredData.map(item => ({
                 ...item,
                 code: item.id.substring(0, 8).toUpperCase(), // Mã chứng từ từ ID
                 date: item.ngay ? new Date(item.ngay).toLocaleDateString('vi-VN') : '',
@@ -120,7 +121,7 @@ export function ThuChi() {
             setItems(mappedData);
         } catch (err: any) {
             setError(err.message || 'Có lỗi xảy ra khi tải dữ liệu');
-            console.error('Error loading thu chi:', err);
+            console.error('Error loading thu chi nhan su:', err);
         } finally {
             setLoading(false);
         }
@@ -162,60 +163,25 @@ export function ThuChi() {
         setIsViewModalOpen(true);
     };
 
-    const handleSave = async () => {
-        try {
-            const payload: Partial<ThuChiRow> = {
-                du_an_id: formData.duAnId || null,
-                hop_dong_id: formData.hopDongId || null,
-                loai_phieu: formData.loaiPhieu,
-                so_tien: formData.soTien,
-                ngay: formData.ngayTienVe,
-                noi_dung: formData.noiDung || null,
-                tinh_trang_phieu: formData.tinhTrangPhieu || null,
-                nguoi_nhan: formData.nguoiNhan || null
-            };
-
-            if (modalMode === 'edit' && selectedItem) {
-                await thuChiService.update(selectedItem.id, payload);
-                setToast({ message: 'Cập nhật thành công!', type: 'success' });
-            } else {
-                await thuChiService.create(payload);
-                setToast({ message: 'Thêm phiếu thành công!', type: 'success' });
-            }
-            
-            setIsModalOpen(false);
-            loadRecords();
-        } catch (err: any) {
-            setToast({ message: err.message || 'Lưu thất bại!', type: 'error' });
-        }
-    };
-
     const toggleSelect = (id: string | number) => {
         setSelectedIds(prev => prev.includes(id) ? prev.filter(i => i !== id) : [...prev, id]);
     };
 
     const isSelected = (id: string | number) => selectedIds.includes(id);
 
-    // Filter theo tab (Phiếu thu hoặc Phiếu chi) và search term
-    const filteredItems = items.filter(item => {
-        // Filter theo tab
-        const matchesTab = activeTab === 'thu' 
-            ? item.type === 'Phiếu thu'
-            : item.type === 'Phiếu chi';
-        
-        // Filter theo search term
-        const matchesSearch = !searchTerm || 
-            item.code?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-            item.description?.toLowerCase().includes(searchTerm.toLowerCase());
-        
-        return matchesTab && matchesSearch;
-    });
-
-    const isAllSelected = filteredItems.length > 0 && filteredItems.every(item => selectedIds.includes(item.id));
+    const isAllSelected = items.length > 0 && items.every(item => selectedIds.includes(item.id));
 
     const toggleSelectAll = () => {
-        setSelectedIds(isAllSelected ? [] : filteredItems.map(item => item.id));
+        setSelectedIds(isAllSelected ? [] : items.map(item => item.id));
     };
+
+    const filteredItems = searchTerm
+        ? items.filter(item =>
+            item.code?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+            item.description?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+            item.nhan_su_display?.toLowerCase().includes(searchTerm.toLowerCase())
+        )
+        : items;
 
     const totalPages = Math.ceil(filteredItems.length / itemsPerPage);
     const startIndex = (currentPage - 1) * itemsPerPage;
@@ -227,51 +193,17 @@ export function ThuChi() {
                 {toast && <Toast message={toast.message} type={toast.type} onClose={() => setToast(null)} />}
                 <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
                     {/* Header */}
-                    <div className="px-4 md:px-6 py-4 border-b border-slate-200 bg-slate-50">
-                        <div className="flex items-center justify-between mb-4">
-                            <div className="flex items-center gap-4">
-                                <button
-                                    onClick={() => navigate('/tai-chinh')}
-                                    className="p-2 hover:bg-slate-200 rounded-lg transition-colors"
-                                >
-                                    <ArrowLeft size={20} className="text-slate-600" />
-                                </button>
-                                <h2 className="text-lg font-bold text-slate-700 uppercase">
-                                    Quản lý Thu chi
-                                </h2>
-                            </div>
-                        </div>
-                        
-                        {/* Tabs */}
-                        <div className="flex gap-2 border-b border-slate-200 -mb-4">
+                    <div className="px-4 md:px-6 py-4 border-b border-slate-200 bg-slate-50 flex items-center justify-between">
+                        <div className="flex items-center gap-4">
                             <button
-                                onClick={() => {
-                                    setActiveTab('thu');
-                                    setCurrentPage(1);
-                                    setSelectedIds([]);
-                                }}
-                                className={`px-4 py-2 text-sm font-semibold transition-colors border-b-2 ${
-                                    activeTab === 'thu'
-                                        ? 'border-emerald-500 text-emerald-600 bg-emerald-50'
-                                        : 'border-transparent text-slate-500 hover:text-slate-700 hover:border-slate-300'
-                                }`}
+                                onClick={() => navigate('/tai-chinh')}
+                                className="p-2 hover:bg-slate-200 rounded-lg transition-colors"
                             >
-                                Phiếu thu
+                                <ArrowLeft size={20} className="text-slate-600" />
                             </button>
-                            <button
-                                onClick={() => {
-                                    setActiveTab('chi');
-                                    setCurrentPage(1);
-                                    setSelectedIds([]);
-                                }}
-                                className={`px-4 py-2 text-sm font-semibold transition-colors border-b-2 ${
-                                    activeTab === 'chi'
-                                        ? 'border-red-500 text-red-600 bg-red-50'
-                                        : 'border-transparent text-slate-500 hover:text-slate-700 hover:border-slate-300'
-                                }`}
-                            >
-                                Phiếu chi
-                            </button>
+                            <h2 className="text-lg font-bold text-slate-700 uppercase">
+                                Quản lý Thu chi nhân sự
+                            </h2>
                         </div>
                     </div>
 
@@ -282,7 +214,7 @@ export function ThuChi() {
                                 <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
                                 <input
                                     type="text"
-                                    placeholder="Tìm theo mã chứng từ, nội dung..."
+                                    placeholder="Tìm theo mã chứng từ, nội dung, nhân sự..."
                                     value={searchTerm}
                                     onChange={(e) => setSearchTerm(e.target.value)}
                                     className="w-full pl-9 pr-4 py-2 text-sm border border-slate-200 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all"
@@ -292,13 +224,15 @@ export function ThuChi() {
                             <div className="relative w-full md:w-64">
                                 <Filter size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
                                 <select
-                                    value={filterDuAnId || ''}
-                                    onChange={(e) => setFilterDuAnId(e.target.value || null)}
+                                    value={filterNhanSuId || ''}
+                                    onChange={(e) => setFilterNhanSuId(e.target.value || null)}
                                     className="w-full pl-9 pr-4 py-2 text-sm border border-slate-200 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all bg-white"
                                 >
-                                    <option value="">Tất cả dự án</option>
-                                    {projects.map(p => (
-                                        <option key={p.id} value={p.id}>{p.ten_du_an}</option>
+                                    <option value="">Tất cả nhân sự</option>
+                                    {employees.map(emp => (
+                                        <option key={emp.id} value={emp.id}>
+                                            {emp.code ? `[${emp.code}] ` : ''}{emp.full_name}
+                                        </option>
                                     ))}
                                 </select>
                             </div>
@@ -326,7 +260,7 @@ export function ThuChi() {
                         <div className="p-8 text-center border-b border-slate-100">
                             <p className="text-sm text-red-600 mb-4">{error}</p>
                             <button
-                                onClick={() => { }}
+                                onClick={() => loadRecords()}
                                 className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition-colors shadow-sm"
                             >
                                 Thử lại
@@ -401,7 +335,7 @@ export function ThuChi() {
                                                 <td className="p-4 text-slate-600">
                                                     {item.person || '(Trống)'}
                                                 </td>
-                                                <td className="p-4 text-slate-600 text-sm">
+                                                <td className="p-4 text-slate-600 text-sm font-medium">
                                                     {item.nhan_su_display || '(Trống)'}
                                                 </td>
                                                 <td className="p-4">
@@ -450,15 +384,13 @@ export function ThuChi() {
                                         <tr>
                                             <td colSpan={11} className="p-8 text-center text-slate-500">
                                                 <div className="flex flex-col items-center gap-2">
-                                                    <p className="text-sm font-medium">
-                                                        {activeTab === 'thu' ? 'Không có phiếu thu' : 'Không có phiếu chi'}
-                                                    </p>
-                                                    <p className="text-xs text-slate-400">Vui lòng thêm phiếu {activeTab === 'thu' ? 'thu' : 'chi'} mới</p>
+                                                    <p className="text-sm font-medium">Không có dữ liệu thu chi nhân sự</p>
+                                                    <p className="text-xs text-slate-400">Vui lòng thêm phiếu thu chi mới</p>
                                                     <button
                                                         onClick={handleAddClick}
                                                         className="mt-4 px-6 py-2 text-sm font-bold bg-blue-600 text-white rounded-md hover:bg-blue-700 transition-all shadow-sm ripple"
                                                     >
-                                                        Thêm phiếu {activeTab === 'thu' ? 'thu' : 'chi'} đầu tiên
+                                                        Thêm phiếu đầu tiên
                                                     </button>
                                                 </div>
                                             </td>
@@ -526,96 +458,6 @@ export function ThuChi() {
             </div>
 
             {/* Modals outside main wrapper - prevent clipping from transforms/overflow */}
-            {isModalOpen && (
-                <div className="fixed inset-0 z-[110] flex items-center justify-center bg-black/50 p-4 backdrop-blur-sm animate-in fade-in duration-200">
-                    <div className="bg-white rounded-2xl shadow-xl w-full max-w-2xl overflow-hidden animate-in zoom-in-95 duration-200">
-                        <div className="px-6 py-4 border-b border-slate-200 flex justify-between items-center bg-white">
-                            <h2 className="text-lg font-bold text-slate-800 uppercase">
-                                {modalMode === 'edit' ? 'Chỉnh sửa phiếu' : 'Thêm phiếu mới'}
-                            </h2>
-                            <button onClick={() => setIsModalOpen(false)} className="text-slate-400 hover:text-slate-600 transition-colors">
-                                <X size={20} />
-                            </button>
-                        </div>
-                        <div className="p-6 overflow-y-auto max-h-[70vh] space-y-4">
-                            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                                <div>
-                                    <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Loại phiếu</label>
-                                    <select
-                                        value={formData.loaiPhieu}
-                                        onChange={(e) => setFormData({ ...formData, loaiPhieu: e.target.value })}
-                                        className="w-full px-3 py-2 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 bg-white"
-                                    >
-                                        <option value="Phiếu thu">Phiếu thu</option>
-                                        <option value="Phiếu chi">Phiếu chi</option>
-                                    </select>
-                                </div>
-                                <div>
-                                    <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Mã hợp đồng / Công trình</label>
-                                    <input
-                                        type="text"
-                                        value={formData.contractId}
-                                        onChange={(e) => setFormData({ ...formData, contractId: e.target.value })}
-                                        className="w-full px-3 py-2 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
-                                        placeholder="Ví dụ: TC-1234..."
-                                    />
-                                </div>
-                                <div>
-                                    <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Ngày chứng từ</label>
-                                    <input
-                                        type="date"
-                                        value={formData.ngayTienVe}
-                                        onChange={(e) => setFormData({ ...formData, ngayTienVe: e.target.value })}
-                                        className="w-full px-3 py-2 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
-                                    />
-                                </div>
-                                <div>
-                                    <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Số tiền</label>
-                                    <input
-                                        type="text"
-                                        value={formData.soTien ? formData.soTien.toLocaleString('vi-VN') : ''}
-                                        onChange={(e) => {
-                                            const value = e.target.value.replace(/\./g, '').replace(/[^\d]/g, '');
-                                            setFormData({ ...formData, soTien: value ? Number(value) : 0 });
-                                        }}
-                                        onBlur={(e) => {
-                                            const value = e.target.value.replace(/\./g, '').replace(/[^\d]/g, '');
-                                            setFormData({ ...formData, soTien: value ? Number(value) : 0 });
-                                        }}
-                                        placeholder="0"
-                                        className="w-full px-3 py-2 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
-                                    />
-                                </div>
-                                <div className="md:col-span-2">
-                                    <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Người nộp/nhận</label>
-                                    <input
-                                        type="text"
-                                        value={formData.person}
-                                        onChange={(e) => setFormData({ ...formData, person: e.target.value })}
-                                        className="w-full px-3 py-2 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
-                                        placeholder="Ngân hàng / Đối tác / Cá nhân..."
-                                    />
-                                </div>
-                                <div className="md:col-span-2">
-                                    <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Nội dung</label>
-                                    <textarea
-                                        value={formData.noiDung}
-                                        onChange={(e) => setFormData({ ...formData, noiDung: e.target.value })}
-                                        className="w-full px-3 py-2 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
-                                        placeholder="Mô tả nội dung thu chi..."
-                                        rows={3}
-                                    />
-                                </div>
-                            </div>
-                        </div>
-                        <div className="px-6 py-4 bg-slate-50 border-t border-slate-200 flex justify-end gap-2">
-                            <button onClick={() => setIsModalOpen(false)} className="px-4 py-2 text-sm font-medium text-slate-600 hover:bg-slate-200 rounded-lg transition-colors">Hủy</button>
-                            <button onClick={handleSave} className="px-4 py-2 text-sm font-bold text-white bg-blue-600 hover:bg-blue-700 rounded-lg transition-colors shadow-md">Lưu phiếu</button>
-                        </div>
-                    </div>
-                </div>
-            )}
-
             {isViewModalOpen && selectedItem && (
                 <div className="fixed inset-0 z-[110] flex items-center justify-center bg-black/40 p-4 backdrop-blur-sm animate-in fade-in duration-200">
                     <div className="bg-white rounded-2xl shadow-xl w-full max-w-md overflow-hidden animate-in zoom-in-95 duration-200">

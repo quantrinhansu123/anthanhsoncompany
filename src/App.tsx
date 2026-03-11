@@ -15,6 +15,7 @@ import { RecruitmentList } from './pages/human-resources/RecruitmentList';
 import { AddEmployee } from './pages/human-resources/AddEmployee';
 import { Finance } from './pages/Finance';
 import { ThuChi } from './pages/finance/ThuChi';
+import { ThuChiNhanSu } from './pages/finance/ThuChiNhanSu';
 import { AddThuChi } from './pages/finance/AddThuChi';
 import { Customer } from './pages/Customer';
 import { Process } from './pages/Process';
@@ -35,7 +36,7 @@ import { DanhSachVanDon } from './pages/logistics/DanhSachVanDon';
 import { DanhSachKhachHang } from './pages/customer/DanhSachKhachHang';
 import { DuAn } from './pages/customer/DuAn';
 import { HopDong } from './pages/customer/HopDong';
-import { Task } from './pages/customer/Task';
+import { Task } from './pages/process/Task';
 
 export default function App() {
   return (
@@ -64,15 +65,16 @@ export default function App() {
           <Route path="he-thong" element={<System />} />
           <Route path="tai-chinh" element={<Finance />} />
           <Route path="tai-chinh/thu-chi" element={<ThuChi />} />
+          <Route path="tai-chinh/thu-chi-nhan-su" element={<ThuChiNhanSu />} />
           <Route path="tai-chinh/thu-chi/them" element={<AddThuChi />} />
           <Route path="tai-chinh/thu-chi/them/:id" element={<AddThuChi />} />
           <Route path="khach-hang" element={<Customer />} />
           <Route path="khach-hang/danh-sach" element={<DanhSachKhachHang />} />
           <Route path="khach-hang/du-an" element={<DuAn />} />
           <Route path="khach-hang/hop-dong" element={<HopDong />} />
-          <Route path="khach-hang/task" element={<Task />} />
           <Route path="quy-trinh" element={<Process />} />
           <Route path="quy-trinh/thu-vien-loi" element={<ThuVienLoi />} />
+          <Route path="quy-trinh/task" element={<Task />} />
           <Route path="tro-ly-ai" element={<AIAssistant />} />
           <Route path="settings" element={<Settings />} />
           {/* Placeholder routes for other paths to avoid 404s inside the layout */}

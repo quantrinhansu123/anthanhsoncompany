@@ -207,6 +207,11 @@ BEGIN
     IF NOT EXISTS (SELECT FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'nhan_su' AND column_name = 'updated_at') THEN
       ALTER TABLE public.nhan_su ADD COLUMN updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW();
     END IF;
+    
+    -- Thêm cột anh_nhan_su (URL ảnh nhân sự)
+    IF NOT EXISTS (SELECT FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'nhan_su' AND column_name = 'anh_nhan_su') THEN
+      ALTER TABLE public.nhan_su ADD COLUMN anh_nhan_su TEXT;
+    END IF;
   END IF;
 END $$;
 
@@ -733,10 +738,70 @@ BEGIN
   END IF;
 END $$;
 
+-- Thêm cột du_an_id (foreign key đến du_an.id) vào hop_dong
+DO $$
+BEGIN
+  -- 1. Thêm cột du_an_id nếu chưa có
+  IF NOT EXISTS (
+    SELECT FROM information_schema.columns 
+    WHERE table_schema = 'public' 
+    AND table_name = 'hop_dong' 
+    AND column_name = 'du_an_id'
+  ) THEN
+    ALTER TABLE public.hop_dong ADD COLUMN du_an_id UUID;
+  END IF;
+  
+  -- 2. Migration dữ liệu: map project_name sang du_an_id
+  -- Tìm id của du_an dựa trên ten_du_an = project_name
+  UPDATE public.hop_dong hd
+  SET du_an_id = da.id
+  FROM public.du_an da
+  WHERE hd.project_name = da.ten_du_an
+    AND hd.du_an_id IS NULL
+    AND hd.project_name IS NOT NULL
+    AND hd.project_name != '';
+  
+  -- 3. Thêm foreign key constraint
+  IF NOT EXISTS (
+    SELECT FROM pg_constraint 
+    WHERE conname = 'fk_hop_dong_du_an'
+  ) THEN
+    ALTER TABLE public.hop_dong 
+    ADD CONSTRAINT fk_hop_dong_du_an 
+    FOREIGN KEY (du_an_id) REFERENCES public.du_an(id) ON DELETE SET NULL;
+  END IF;
+END $$;
+
+-- Thêm cột nhan_su_id (foreign key đến nhan_su.id) vào hop_dong
+DO $$
+BEGIN
+  -- 1. Thêm cột nhan_su_id nếu chưa có
+  IF NOT EXISTS (
+    SELECT FROM information_schema.columns 
+    WHERE table_schema = 'public' 
+    AND table_name = 'hop_dong' 
+    AND column_name = 'nhan_su_id'
+  ) THEN
+    ALTER TABLE public.hop_dong ADD COLUMN nhan_su_id UUID;
+  END IF;
+  
+  -- 2. Thêm foreign key constraint
+  IF NOT EXISTS (
+    SELECT FROM pg_constraint 
+    WHERE conname = 'fk_hop_dong_nhan_su'
+  ) THEN
+    ALTER TABLE public.hop_dong 
+    ADD CONSTRAINT fk_hop_dong_nhan_su 
+    FOREIGN KEY (nhan_su_id) REFERENCES public.nhan_su(id) ON DELETE SET NULL;
+  END IF;
+END $$;
+
 -- Index hỗ trợ query nhanh theo khách hàng và ngày ký HĐ
 CREATE INDEX IF NOT EXISTS idx_hop_dong_customer_id ON public.hop_dong(customer_id);
 CREATE INDEX IF NOT EXISTS idx_hop_dong_ngay_ky_hd ON public.hop_dong(ngay_ky_hd);
 CREATE INDEX IF NOT EXISTS idx_hop_dong_project_name ON public.hop_dong(project_name);
+CREATE INDEX IF NOT EXISTS idx_hop_dong_du_an_id ON public.hop_dong(du_an_id);
+CREATE INDEX IF NOT EXISTS idx_hop_dong_nhan_su_id ON public.hop_dong(nhan_su_id);
 
 -- =====================================================================
 -- BẢNG DỰ ÁN (du_an) - PHỤC VỤ MÀN /khach-hang/du-an
@@ -795,15 +860,51 @@ BEGIN
   IF NOT EXISTS (SELECT FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'du_an' AND column_name = 'executor_img') THEN
     ALTER TABLE public.du_an ADD COLUMN executor_img TEXT;
   END IF;
+  
+  -- Thêm cột manager_id (nhân sự quản lý)
+  IF NOT EXISTS (SELECT FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'du_an' AND column_name = 'manager_id') THEN
+    ALTER TABLE public.du_an ADD COLUMN manager_id UUID;
+  END IF;
+  
+  -- Thêm cột executor_id (nhân sự thực thi)
+  IF NOT EXISTS (SELECT FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'du_an' AND column_name = 'executor_id') THEN
+    ALTER TABLE public.du_an ADD COLUMN executor_id UUID;
+  END IF;
 
   IF NOT EXISTS (SELECT FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'du_an' AND column_name = 'customer_id') THEN
     ALTER TABLE public.du_an ADD COLUMN customer_id UUID;
   END IF;
 END $$;
 
+-- Foreign key constraints cho manager_id và executor_id
+DO $$
+BEGIN
+  -- Foreign key cho manager_id
+  IF NOT EXISTS (
+    SELECT FROM pg_constraint 
+    WHERE conname = 'fk_du_an_manager'
+  ) THEN
+    ALTER TABLE public.du_an 
+    ADD CONSTRAINT fk_du_an_manager 
+    FOREIGN KEY (manager_id) REFERENCES public.nhan_su(id) ON DELETE SET NULL;
+  END IF;
+  
+  -- Foreign key cho executor_id
+  IF NOT EXISTS (
+    SELECT FROM pg_constraint 
+    WHERE conname = 'fk_du_an_executor'
+  ) THEN
+    ALTER TABLE public.du_an 
+    ADD CONSTRAINT fk_du_an_executor 
+    FOREIGN KEY (executor_id) REFERENCES public.nhan_su(id) ON DELETE SET NULL;
+  END IF;
+END $$;
+
 -- Index cho bảng du_an
 CREATE INDEX IF NOT EXISTS idx_du_an_ten_du_an ON public.du_an(ten_du_an);
 CREATE INDEX IF NOT EXISTS idx_du_an_customer_id ON public.du_an(customer_id);
+CREATE INDEX IF NOT EXISTS idx_du_an_manager_id ON public.du_an(manager_id);
+CREATE INDEX IF NOT EXISTS idx_du_an_executor_id ON public.du_an(executor_id);
 -- Xóa index cũ nếu có
 DROP INDEX IF EXISTS public.idx_du_an_project_name;
 
@@ -1149,6 +1250,242 @@ CREATE TRIGGER trigger_update_setting_updated_at
 BEFORE UPDATE ON public.setting
 FOR EACH ROW
 EXECUTE FUNCTION update_setting_updated_at();
+
+-- =====================================================================
+-- BẢNG THU CHI (thu_chi)
+-- PHỤC VỤ MÀN HÌNH /tai-chinh/thu-chi
+-- =====================================================================
+
+-- Tạo bảng thu_chi nếu chưa tồn tại
+CREATE TABLE IF NOT EXISTS public.thu_chi (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  du_an_id UUID,                         -- Foreign key đến du_an.id (có thể NULL nếu không gắn dự án)
+  hop_dong_id UUID,                      -- Foreign key đến hop_dong.id (có thể NULL)
+  loai_phieu VARCHAR(50) NOT NULL,       -- Phiếu thu / Phiếu chi
+  so_tien NUMERIC(15,2) NOT NULL DEFAULT 0, -- Số tiền
+  ngay DATE NOT NULL,                    -- Ngày thu/chi
+  noi_dung TEXT,                         -- Nội dung
+  tinh_trang_phieu VARCHAR(50),          -- Tạm ứng / Thanh toán
+  nguoi_nhan VARCHAR(255),               -- Người nhận / Người chi
+  file_url TEXT,                         -- URL file đính kèm
+  ghi_chu TEXT,                          -- Ghi chú
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+  updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+-- Đảm bảo các cột tồn tại nếu bảng đã được tạo trước đó
+DO $$
+BEGIN
+  -- Thêm cột du_an_id nếu chưa có
+  IF NOT EXISTS (
+    SELECT FROM information_schema.columns 
+    WHERE table_schema = 'public' 
+    AND table_name = 'thu_chi' 
+    AND column_name = 'du_an_id'
+  ) THEN
+    ALTER TABLE public.thu_chi ADD COLUMN du_an_id UUID;
+  END IF;
+  
+  -- Thêm cột hop_dong_id nếu chưa có
+  IF NOT EXISTS (
+    SELECT FROM information_schema.columns 
+    WHERE table_schema = 'public' 
+    AND table_name = 'thu_chi' 
+    AND column_name = 'hop_dong_id'
+  ) THEN
+    ALTER TABLE public.thu_chi ADD COLUMN hop_dong_id UUID;
+  END IF;
+  
+  -- Thêm các cột khác nếu chưa có
+  IF NOT EXISTS (
+    SELECT FROM information_schema.columns 
+    WHERE table_schema = 'public' 
+    AND table_name = 'thu_chi' 
+    AND column_name = 'loai_phieu'
+  ) THEN
+    ALTER TABLE public.thu_chi ADD COLUMN loai_phieu VARCHAR(50) NOT NULL DEFAULT 'Phiếu thu';
+  END IF;
+  
+  IF NOT EXISTS (
+    SELECT FROM information_schema.columns 
+    WHERE table_schema = 'public' 
+    AND table_name = 'thu_chi' 
+    AND column_name = 'so_tien'
+  ) THEN
+    ALTER TABLE public.thu_chi ADD COLUMN so_tien NUMERIC(15,2) NOT NULL DEFAULT 0;
+  END IF;
+  
+  IF NOT EXISTS (
+    SELECT FROM information_schema.columns 
+    WHERE table_schema = 'public' 
+    AND table_name = 'thu_chi' 
+    AND column_name = 'ngay'
+  ) THEN
+    ALTER TABLE public.thu_chi ADD COLUMN ngay DATE NOT NULL DEFAULT CURRENT_DATE;
+  END IF;
+  
+  IF NOT EXISTS (
+    SELECT FROM information_schema.columns 
+    WHERE table_schema = 'public' 
+    AND table_name = 'thu_chi' 
+    AND column_name = 'noi_dung'
+  ) THEN
+    ALTER TABLE public.thu_chi ADD COLUMN noi_dung TEXT;
+  END IF;
+  
+  IF NOT EXISTS (
+    SELECT FROM information_schema.columns 
+    WHERE table_schema = 'public' 
+    AND table_name = 'thu_chi' 
+    AND column_name = 'tinh_trang_phieu'
+  ) THEN
+    ALTER TABLE public.thu_chi ADD COLUMN tinh_trang_phieu VARCHAR(50);
+  END IF;
+  
+  IF NOT EXISTS (
+    SELECT FROM information_schema.columns 
+    WHERE table_schema = 'public' 
+    AND table_name = 'thu_chi' 
+    AND column_name = 'nguoi_nhan'
+  ) THEN
+    ALTER TABLE public.thu_chi ADD COLUMN nguoi_nhan VARCHAR(255);
+  END IF;
+  
+  IF NOT EXISTS (
+    SELECT FROM information_schema.columns 
+    WHERE table_schema = 'public' 
+    AND table_name = 'thu_chi' 
+    AND column_name = 'file_url'
+  ) THEN
+    ALTER TABLE public.thu_chi ADD COLUMN file_url TEXT;
+  END IF;
+  
+  IF NOT EXISTS (
+    SELECT FROM information_schema.columns 
+    WHERE table_schema = 'public' 
+    AND table_name = 'thu_chi' 
+    AND column_name = 'ghi_chu'
+  ) THEN
+    ALTER TABLE public.thu_chi ADD COLUMN ghi_chu TEXT;
+  END IF;
+  
+  -- Thêm cột anh_url (ảnh chứng từ)
+  IF NOT EXISTS (
+    SELECT FROM information_schema.columns 
+    WHERE table_schema = 'public' 
+    AND table_name = 'thu_chi' 
+    AND column_name = 'anh_url'
+  ) THEN
+    ALTER TABLE public.thu_chi ADD COLUMN anh_url TEXT;
+  END IF;
+  
+  -- Thêm cột nhan_su_id (nhân sự chi cho ai)
+  IF NOT EXISTS (
+    SELECT FROM information_schema.columns 
+    WHERE table_schema = 'public' 
+    AND table_name = 'thu_chi' 
+    AND column_name = 'nhan_su_id'
+  ) THEN
+    ALTER TABLE public.thu_chi ADD COLUMN nhan_su_id UUID;
+  END IF;
+  
+  -- Thêm foreign key constraints
+  IF NOT EXISTS (
+    SELECT FROM pg_constraint 
+    WHERE conname = 'fk_thu_chi_du_an'
+  ) THEN
+    ALTER TABLE public.thu_chi 
+    ADD CONSTRAINT fk_thu_chi_du_an 
+    FOREIGN KEY (du_an_id) REFERENCES public.du_an(id) ON DELETE SET NULL;
+  END IF;
+  
+  IF NOT EXISTS (
+    SELECT FROM pg_constraint 
+    WHERE conname = 'fk_thu_chi_hop_dong'
+  ) THEN
+    ALTER TABLE public.thu_chi 
+    ADD CONSTRAINT fk_thu_chi_hop_dong 
+    FOREIGN KEY (hop_dong_id) REFERENCES public.hop_dong(id) ON DELETE SET NULL;
+  END IF;
+  
+  -- Thêm foreign key constraint cho nhan_su_id
+  IF NOT EXISTS (
+    SELECT FROM pg_constraint 
+    WHERE conname = 'fk_thu_chi_nhan_su'
+  ) THEN
+    ALTER TABLE public.thu_chi 
+    ADD CONSTRAINT fk_thu_chi_nhan_su 
+    FOREIGN KEY (nhan_su_id) REFERENCES public.nhan_su(id) ON DELETE SET NULL;
+  END IF;
+END $$;
+
+-- Index hỗ trợ query nhanh
+CREATE INDEX IF NOT EXISTS idx_thu_chi_du_an_id ON public.thu_chi(du_an_id);
+CREATE INDEX IF NOT EXISTS idx_thu_chi_hop_dong_id ON public.thu_chi(hop_dong_id);
+CREATE INDEX IF NOT EXISTS idx_thu_chi_ngay ON public.thu_chi(ngay);
+CREATE INDEX IF NOT EXISTS idx_thu_chi_loai_phieu ON public.thu_chi(loai_phieu);
+CREATE INDEX IF NOT EXISTS idx_thu_chi_nhan_su_id ON public.thu_chi(nhan_su_id);
+
+-- Trigger để tự động cập nhật updated_at
+CREATE OR REPLACE FUNCTION update_thu_chi_updated_at()
+RETURNS TRIGGER AS $$
+BEGIN
+  NEW.updated_at = NOW();
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+DROP TRIGGER IF EXISTS trigger_update_thu_chi_updated_at ON public.thu_chi;
+CREATE TRIGGER trigger_update_thu_chi_updated_at
+BEFORE UPDATE ON public.thu_chi
+FOR EACH ROW
+EXECUTE FUNCTION update_thu_chi_updated_at();
+
+-- =====================================================================
+-- BẢNG TÀI LIỆU (tai_lieu) - PHỤC VỤ MODULE HÀNH CHÍNH / DANH SÁCH TÀI LIỆU
+-- =====================================================================
+
+-- Tạo bảng tai_lieu nếu chưa tồn tại
+CREATE TABLE IF NOT EXISTS public.tai_lieu (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  ma_tai_lieu VARCHAR(100),                    -- Mã tài liệu
+  ten_tai_lieu TEXT,                           -- Tên tài liệu
+  huong VARCHAR(50),                            -- Hướng: Nội bộ, Văn bản đến, Văn bản đi
+  loai VARCHAR(100),                            -- Loại tài liệu
+  nhom_tai_lieu VARCHAR(100),                   -- Nhóm tài liệu
+  trang_thai VARCHAR(50),                       -- Trạng thái: Đã ký, Đã gửi, Chờ duyệt, Đã duyệt
+  phong_quan_ly VARCHAR(100),                   -- Phòng quản lý
+  phan_quyen VARCHAR(100),                       -- Phân quyền
+  so_den VARCHAR(100),                          -- Số đến
+  so_di VARCHAR(100),                           -- Số đi
+  ngay_den DATE,                                -- Ngày đến
+  ngay_ky DATE,                                 -- Ngày ký
+  link TEXT,                                    -- Link để lưu trữ file/tài liệu
+  created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+  updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+-- Trigger để tự động cập nhật updated_at
+CREATE OR REPLACE FUNCTION update_tai_lieu_updated_at()
+RETURNS TRIGGER AS $$
+BEGIN
+  NEW.updated_at = NOW();
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+DROP TRIGGER IF EXISTS trigger_update_tai_lieu_updated_at ON public.tai_lieu;
+CREATE TRIGGER trigger_update_tai_lieu_updated_at
+BEFORE UPDATE ON public.tai_lieu
+FOR EACH ROW
+EXECUTE FUNCTION update_tai_lieu_updated_at();
+
+-- Index hỗ trợ query nhanh
+CREATE INDEX IF NOT EXISTS idx_tai_lieu_ma_tai_lieu ON public.tai_lieu(ma_tai_lieu);
+CREATE INDEX IF NOT EXISTS idx_tai_lieu_huong ON public.tai_lieu(huong);
+CREATE INDEX IF NOT EXISTS idx_tai_lieu_trang_thai ON public.tai_lieu(trang_thai);
+CREATE INDEX IF NOT EXISTS idx_tai_lieu_phong_quan_ly ON public.tai_lieu(phong_quan_ly);
+CREATE INDEX IF NOT EXISTS idx_tai_lieu_loai ON public.tai_lieu(loai);
 
 -- Tạo policy để cho phép tất cả operations (tạm thời cho development)
 -- Có thể thay đổi sau khi setup authentication

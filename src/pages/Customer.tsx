@@ -3,7 +3,6 @@ import {
   UserCircle,
   FolderKanban,
   FileSignature,
-  ClipboardList,
   Star,
   HelpCircle
 } from 'lucide-react';
@@ -56,7 +55,6 @@ const sections = [
       { title: 'DS Khách Hàng', description: 'Danh sách khách hàng, thông tin liên hệ, lịch sử giao dịch.', icon: UserCircle, color: 'text-blue-600', bgColor: 'bg-blue-50', path: '/khach-hang/danh-sach' },
       { title: 'Dự án', description: 'Quản lý dự án, tiến độ, ngân sách, nhân sự.', icon: FolderKanban, color: 'text-emerald-600', bgColor: 'bg-emerald-50', path: '/khach-hang/du-an' },
       { title: 'Hợp đồng', description: 'Quản lý hợp đồng, ký kết, gia hạn, thanh lý.', icon: FileSignature, color: 'text-purple-600', bgColor: 'bg-purple-50', path: '/khach-hang/hop-dong' },
-      { title: 'Task', description: 'Quản lý task theo hợp đồng, theo dõi tiến độ công việc.', icon: ClipboardList, color: 'text-orange-600', bgColor: 'bg-orange-50', path: '/khach-hang/task' },
     ]
   }
 ];

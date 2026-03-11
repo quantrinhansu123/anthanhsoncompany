@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
-import { X, Calendar, Clock, ChevronDown } from 'lucide-react';
+import { X, Calendar, Clock, ChevronDown, User } from 'lucide-react';
 import { customerService, Customer } from '../../lib/services/customerService';
+import { employeeService } from '../../lib/services/employeeService';
 
 interface Props {
     isOpen: boolean;
@@ -12,18 +13,24 @@ interface Props {
 export function ThemDuAnModal({ isOpen, onClose, onSave, initialData }: Props) {
     const [formData, setFormData] = useState({
         customerName: '',
+        customerId: '',
         projectName: '',
         date: '',
         time: '',
         status: 'Đang thực hiện',
         progress: 0,
-        managerImg: 'https://i.pravatar.cc/150?img=11',
-        executorImg: 'https://i.pravatar.cc/150?img=12'
+        managerId: '',
+        executorId: '',
+        managerImg: '',
+        executorImg: ''
     });
     const [customers, setCustomers] = useState<Customer[]>([]);
+    const [employees, setEmployees] = useState<Array<{ id: string; full_name: string; code: string; anh_nhan_su?: string | null }>>([]);
     const [loadingCustomers, setLoadingCustomers] = useState(false);
+    const [loadingEmployees, setLoadingEmployees] = useState(false);
+    const [errors, setErrors] = useState<{ managerId?: string; executorId?: string }>({});
 
-    // Load danh sách khách hàng từ database
+    // Load danh sách khách hàng và nhân sự từ database
     useEffect(() => {
         if (isOpen) {
             setLoadingCustomers(true);
@@ -36,53 +43,153 @@ export function ThemDuAnModal({ isOpen, onClose, onSave, initialData }: Props) {
                     console.error('Error loading customers:', error);
                     setLoadingCustomers(false);
                 });
+            
+            setLoadingEmployees(true);
+            employeeService.getAll()
+                .then((data) => {
+                    setEmployees(data.map(emp => ({
+                        id: emp.id.toString(),
+                        full_name: emp.full_name || emp.name || emp.hoTen || '',
+                        code: emp.code || '',
+                        anh_nhan_su: (emp as any).anh_nhan_su || emp.anh_nhan_su || null
+                    })));
+                    setLoadingEmployees(false);
+                })
+                .catch((error) => {
+                    console.error('Error loading employees:', error);
+                    setLoadingEmployees(false);
+                });
         }
     }, [isOpen]);
 
     useEffect(() => {
         if (isOpen) {
+            setErrors({}); // Reset errors khi mở modal
             if (initialData) {
                 setFormData({
                     customerName: initialData.customerName || '',
+                    customerId: initialData.customer_id || initialData.customerId || '',
                     projectName: initialData.projectName || '',
                     date: initialData.date || new Date().toISOString().split('T')[0],
                     time: initialData.time || new Date().toLocaleTimeString('en-US', { hour12: false }),
                     status: initialData.status || 'Đang thực hiện',
                     progress: initialData.progress || 0,
-                    managerImg: initialData.managerImg || `https://i.pravatar.cc/150?img=${Math.floor(Math.random() * 50)}`,
-                    executorImg: initialData.executorImg || `https://i.pravatar.cc/150?img=${Math.floor(Math.random() * 50)}`
+                    managerId: initialData.manager_id || initialData.managerId || '',
+                    executorId: initialData.executor_id || initialData.executorId || '',
+                    managerImg: initialData.manager_img || initialData.managerImg || '',
+                    executorImg: initialData.executor_img || initialData.executorImg || ''
                 });
             } else {
                 setFormData({
                     customerName: '',
+                    customerId: '',
                     projectName: '',
                     date: new Date().toISOString().split('T')[0],
                     time: new Date().toLocaleTimeString('en-US', { hour12: false }),
                     status: 'Đang thực hiện',
                     progress: 0,
-                    managerImg: `https://i.pravatar.cc/150?img=${Math.floor(Math.random() * 50)}`,
-                    executorImg: `https://i.pravatar.cc/150?img=${Math.floor(Math.random() * 50)}`
+                    managerId: '',
+                    executorId: '',
+                    managerImg: '',
+                    executorImg: ''
                 });
             }
         }
     }, [isOpen, initialData]);
 
+    // Cập nhật ảnh khi chọn nhân sự
+    useEffect(() => {
+        if (formData.managerId) {
+            const manager = employees.find(emp => emp.id === formData.managerId);
+            if (manager && manager.anh_nhan_su) {
+                setFormData(prev => ({ ...prev, managerImg: manager.anh_nhan_su || '' }));
+            } else {
+                setFormData(prev => ({ ...prev, managerImg: '' }));
+            }
+        } else {
+            setFormData(prev => ({ ...prev, managerImg: '' }));
+        }
+    }, [formData.managerId, employees]);
+
+    useEffect(() => {
+        if (formData.executorId) {
+            const executor = employees.find(emp => emp.id === formData.executorId);
+            if (executor && executor.anh_nhan_su) {
+                setFormData(prev => ({ ...prev, executorImg: executor.anh_nhan_su || '' }));
+            } else {
+                setFormData(prev => ({ ...prev, executorImg: '' }));
+            }
+        } else {
+            setFormData(prev => ({ ...prev, executorImg: '' }));
+        }
+    }, [formData.executorId, employees]);
+
     if (!isOpen) return null;
 
     const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
         const { name, value } = e.target;
-        setFormData(prev => ({ ...prev, [name]: value }));
+        if (name === 'customerName') {
+            // Khi chọn khách hàng, tìm customerId tương ứng
+            const selectedCustomer = customers.find(c => c.ten_don_vi === value);
+            setFormData(prev => ({ 
+                ...prev, 
+                customerName: value,
+                customerId: selectedCustomer?.id?.toString() || ''
+            }));
+        } else {
+            setFormData(prev => ({ ...prev, [name]: value }));
+            // Xóa lỗi khi người dùng chọn
+            if (name === 'managerId' || name === 'executorId') {
+                setErrors(prev => ({ ...prev, [name]: undefined }));
+            }
+        }
     };
 
     const handleSubmit = (e: React.FormEvent) => {
         e.preventDefault();
-        onSave(formData);
+        
+        console.log('[ThemDuAnModal] Form data before validation:', formData);
+        
+        // Validation: Kiểm tra nhân sự phụ trách
+        const newErrors: { managerId?: string; executorId?: string } = {};
+        if (!formData.managerId) {
+            newErrors.managerId = 'Vui lòng chọn người quản lý';
+        }
+        if (!formData.executorId) {
+            newErrors.executorId = 'Vui lòng chọn người thực thi';
+        }
+        
+        if (Object.keys(newErrors).length > 0) {
+            console.log('[ThemDuAnModal] Validation errors:', newErrors);
+            setErrors(newErrors);
+            return;
+        }
+        
+        setErrors({});
+        
+        const saveData = {
+            ...formData,
+            id: initialData?.id || null, // Truyền id từ initialData nếu có
+            customer_id: formData.customerId && formData.customerId.trim() !== '' ? formData.customerId : null,
+            customerId: formData.customerId && formData.customerId.trim() !== '' ? formData.customerId : null,
+            manager_id: formData.managerId || null,
+            executor_id: formData.executorId || null,
+            managerImg: formData.managerImg || null,
+            executorImg: formData.executorImg || null
+        };
+        
+        console.log('[ThemDuAnModal] Sending data to onSave:', saveData);
+        console.log('[ThemDuAnModal] customerId:', formData.customerId);
+        console.log('[ThemDuAnModal] customerName:', formData.customerName);
+        
+        // Gửi dữ liệu kèm manager_id và executor_id, customer_id, và id nếu đang edit
+        onSave(saveData);
         onClose();
     };
 
     return (
-        <div className="fixed inset-0 z-50 flex items-start justify-center pt-10 px-4 sm:px-0 bg-black/50 overflow-y-auto">
-            <div className="bg-white rounded-2xl shadow-xl w-full max-w-4xl flex flex-col mb-10 animate-in fade-in zoom-in-95 duration-200">
+        <div className="fixed inset-0 z-50 flex items-start justify-center pt-20 px-4 sm:px-0 bg-black/50 overflow-y-auto">
+            <div className="bg-white rounded-2xl shadow-xl w-full max-w-4xl flex flex-col mb-10 mt-10 animate-in fade-in zoom-in-95 duration-200">
                 {/* Header */}
                 <div className="flex items-center justify-between px-6 py-4 border-b border-slate-200 bg-white sticky top-0 z-10">
                     <div className="flex items-center gap-4 flex-1 min-w-0 pr-4">
@@ -210,6 +317,98 @@ export function ThemDuAnModal({ isOpen, onClose, onSave, initialData }: Props) {
                                 max="100"
                                 className="w-full px-4 py-3 border border-slate-300 rounded-md focus:outline-none focus:border-blue-500 text-sm text-slate-800"
                             />
+                        </div>
+
+                        {/* Người quản lý */}
+                        <div className="space-y-2">
+                            <label className="text-[13px] text-slate-500">
+                                Người quản lý <span className="text-red-500">*</span>
+                            </label>
+                            <div className="flex items-center gap-3">
+                                <div className="relative flex-1">
+                                    <select
+                                        name="managerId"
+                                        value={formData.managerId}
+                                        onChange={handleChange}
+                                        disabled={loadingEmployees}
+                                        className={`w-full pl-4 pr-10 py-3 border rounded-md focus:outline-none focus:border-blue-500 text-sm text-slate-800 bg-white appearance-none disabled:bg-slate-100 disabled:cursor-not-allowed ${
+                                            errors.managerId ? 'border-red-500' : 'border-slate-300'
+                                        }`}
+                                        required
+                                    >
+                                        <option value="">{loadingEmployees ? 'Đang tải...' : 'Chọn người quản lý...'}</option>
+                                        {employees.map((emp) => (
+                                            <option key={emp.id} value={emp.id}>
+                                                {emp.code ? `[${emp.code}] ` : ''}{emp.full_name}
+                                            </option>
+                                        ))}
+                                    </select>
+                                    <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" size={18} />
+                                </div>
+                                {formData.managerImg ? (
+                                    <img 
+                                        src={formData.managerImg} 
+                                        alt="Manager" 
+                                        className="w-16 h-16 rounded-full object-cover border border-slate-200"
+                                        onError={(e) => {
+                                            (e.target as HTMLImageElement).style.display = 'none';
+                                        }}
+                                    />
+                                ) : (
+                                    <div className="w-16 h-16 rounded-full bg-slate-200 border border-slate-200 flex items-center justify-center">
+                                        <User size={20} className="text-slate-400" />
+                                    </div>
+                                )}
+                            </div>
+                            {errors.managerId && (
+                                <p className="text-xs text-red-500 mt-1">{errors.managerId}</p>
+                            )}
+                        </div>
+
+                        {/* Người thực thi */}
+                        <div className="space-y-2">
+                            <label className="text-[13px] text-slate-500">
+                                Người thực thi <span className="text-red-500">*</span>
+                            </label>
+                            <div className="flex items-center gap-3">
+                                <div className="relative flex-1">
+                                    <select
+                                        name="executorId"
+                                        value={formData.executorId}
+                                        onChange={handleChange}
+                                        disabled={loadingEmployees}
+                                        className={`w-full pl-4 pr-10 py-3 border rounded-md focus:outline-none focus:border-blue-500 text-sm text-slate-800 bg-white appearance-none disabled:bg-slate-100 disabled:cursor-not-allowed ${
+                                            errors.executorId ? 'border-red-500' : 'border-slate-300'
+                                        }`}
+                                        required
+                                    >
+                                        <option value="">{loadingEmployees ? 'Đang tải...' : 'Chọn người thực thi...'}</option>
+                                        {employees.map((emp) => (
+                                            <option key={emp.id} value={emp.id}>
+                                                {emp.code ? `[${emp.code}] ` : ''}{emp.full_name}
+                                            </option>
+                                        ))}
+                                    </select>
+                                    <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" size={18} />
+                                </div>
+                                {formData.executorImg ? (
+                                    <img 
+                                        src={formData.executorImg} 
+                                        alt="Executor" 
+                                        className="w-16 h-16 rounded-full object-cover border border-slate-200"
+                                        onError={(e) => {
+                                            (e.target as HTMLImageElement).style.display = 'none';
+                                        }}
+                                    />
+                                ) : (
+                                    <div className="w-16 h-16 rounded-full bg-slate-200 border border-slate-200 flex items-center justify-center">
+                                        <User size={20} className="text-slate-400" />
+                                    </div>
+                                )}
+                            </div>
+                            {errors.executorId && (
+                                <p className="text-xs text-red-500 mt-1">{errors.executorId}</p>
+                            )}
                         </div>
 
                     </form>
