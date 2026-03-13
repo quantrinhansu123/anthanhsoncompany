@@ -28,8 +28,7 @@ export const projectService = {
         .select(`
           *,
           manager:manager_id(id, full_name, name, hoTen, code, anh_nhan_su),
-          executor:executor_id(id, full_name, name, hoTen, code, anh_nhan_su),
-          customer:customer_id(id, ten_don_vi)
+          executor:executor_id(id, full_name, name, hoTen, code, anh_nhan_su)
         `)
         .order('created_at', { ascending: false });
 
@@ -42,7 +41,6 @@ export const projectService = {
       return (data || []).map((row: any) => {
         const manager = row.manager;
         const executor = row.executor;
-        const customer = row.customer;
         
         // Lấy ảnh từ nhân sự: ưu tiên manager_img/executor_img từ du_an, nếu không có thì lấy từ anh_nhan_su
         const managerImg = row.manager_img || (manager?.anh_nhan_su || null);
@@ -52,7 +50,7 @@ export const projectService = {
           ...row,
           manager_name: manager ? (manager.full_name || manager.name || manager.hoTen || '') : null,
           executor_name: executor ? (executor.full_name || executor.name || executor.hoTen || '') : null,
-          customer_name: customer ? (customer.ten_don_vi || '') : null,
+          customer_name: row.ten_khach_hang || null, // Sử dụng ten_khach_hang từ du_an thay vì join
           // Lấy ảnh từ nhân sự nếu không có manager_img/executor_img
           manager_img: managerImg,
           executor_img: executorImg,

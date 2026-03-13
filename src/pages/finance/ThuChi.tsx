@@ -17,11 +17,17 @@ import {
     Info,
     AlertCircle,
     X,
-    Filter
+    Filter,
+    Bookmark,
+    Briefcase,
+    ChevronDown,
+    Calendar
 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { thuChiService, ThuChiRow } from '../../lib/services/thuChiService';
 import { projectService } from '../../lib/services/projectService';
+import { contractService } from '../../lib/services/contractService';
+import { employeeService } from '../../lib/services/employeeService';
 
 interface ToastProps {
     message: string;
@@ -61,9 +67,25 @@ export function ThuChi() {
     const [selectedIds, setSelectedIds] = useState<(string | number)[]>([]);
     const [searchTerm, setSearchTerm] = useState('');
     const [currentPage, setCurrentPage] = useState(1);
-    const [filterDuAnId, setFilterDuAnId] = useState<string | null>(null);
     const [activeTab, setActiveTab] = useState<'thu' | 'chi'>('thu'); // Tab mặc định: Phiếu thu
     const [projects, setProjects] = useState<Array<{ id: string; ten_du_an: string }>>([]);
+    const [contracts, setContracts] = useState<Array<{ id: string; so_hop_dong: string | null; du_an_id: string | null }>>([]);
+    const [employees, setEmployees] = useState<Array<{ id: string; full_name: string; code: string }>>([]);
+    
+    // Filter states - sử dụng mảng để có thể chọn nhiều
+    const [selectedDuAnIds, setSelectedDuAnIds] = useState<string[]>([]);
+    const [selectedHopDongIds, setSelectedHopDongIds] = useState<string[]>([]);
+    const [selectedNhanSuIds, setSelectedNhanSuIds] = useState<string[]>([]);
+    
+    // Date filter states
+    const [dateFrom, setDateFrom] = useState<string>('');
+    const [dateTo, setDateTo] = useState<string>('');
+    const [quickDateFilter, setQuickDateFilter] = useState<string>('');
+    const [selectedMonth, setSelectedMonth] = useState<string>('');
+    
+    // Column filter dropdown states
+    const [openColumnFilter, setOpenColumnFilter] = useState<string | null>(null);
+    
     const itemsPerPage = 10;
     const [toast, setToast] = useState<{ message: string, type: 'success' | 'error' | 'info' } | null>(null);
 
@@ -86,24 +108,43 @@ export function ThuChi() {
         nguoiNhan: 'Ngân hàng / Đối tác'
     });
 
-    // Load projects
+    // Load projects, contracts, employees
     useEffect(() => {
         (async () => {
-            const projectList = await projectService.getAll();
-            setProjects(projectList.map(p => ({ id: p.id, ten_du_an: p.ten_du_an })));
+            try {
+                const projectList = await projectService.getAll();
+                setProjects(projectList.map(p => ({ id: p.id, ten_du_an: p.ten_du_an })));
+                
+                const contractList = await contractService.getAll();
+                setContracts(contractList.map(c => ({ 
+                    id: c.id, 
+                    so_hop_dong: c.so_hop_dong, 
+                    du_an_id: c.du_an_id || null 
+                })));
+                
+                const employeeList = await employeeService.getAll();
+                setEmployees(employeeList.map(emp => ({
+                    id: emp.id.toString(),
+                    full_name: emp.full_name || emp.name || emp.hoTen || '',
+                    code: emp.code || ''
+                })));
+            } catch (error) {
+                console.error('Error loading filter data:', error);
+            }
         })();
     }, []);
 
     // Load data from database
     useEffect(() => {
         loadRecords();
-    }, [filterDuAnId]);
+    }, [selectedDuAnIds, selectedHopDongIds, selectedNhanSuIds, dateFrom, dateTo, quickDateFilter, selectedMonth]);
 
     const loadRecords = async () => {
         try {
             setLoading(true);
             setError(null);
-            const data = await thuChiService.getAll(filterDuAnId || undefined);
+            const data = await thuChiService.getAll();
+            
             // Map data để hiển thị
             const mappedData = data.map(item => ({
                 ...item,
@@ -196,7 +237,94 @@ export function ThuChi() {
 
     const isSelected = (id: string | number) => selectedIds.includes(id);
 
-    // Filter theo tab (Phiếu thu hoặc Phiếu chi) và search term
+    // Filter handlers
+    const toggleDuAnFilter = (id: string) => {
+        setSelectedDuAnIds(prev => {
+            const newIds = prev.includes(id) ? prev.filter(i => i !== id) : [...prev, id];
+            // Khi bỏ chọn dự án, cũng bỏ chọn các hợp đồng thuộc dự án đó
+            if (!newIds.includes(id)) {
+                const contractsToRemove = contracts
+                    .filter(c => c.du_an_id === id)
+                    .map(c => c.id);
+                setSelectedHopDongIds(prevHd => 
+                    prevHd.filter(hdId => !contractsToRemove.includes(hdId))
+                );
+            }
+            return newIds;
+        });
+    };
+
+    const toggleHopDongFilter = (id: string) => {
+        setSelectedHopDongIds(prev => 
+            prev.includes(id) ? prev.filter(i => i !== id) : [...prev, id]
+        );
+    };
+
+    const toggleNhanSuFilter = (id: string) => {
+        setSelectedNhanSuIds(prev => 
+            prev.includes(id) ? prev.filter(i => i !== id) : [...prev, id]
+        );
+    };
+
+    // Lấy danh sách hợp đồng theo dự án đã chọn
+    const getFilteredContracts = () => {
+        if (selectedDuAnIds.length === 0) {
+            return [];
+        }
+        return contracts.filter(c => 
+            c.du_an_id && selectedDuAnIds.includes(c.du_an_id)
+        );
+    };
+
+    // Xử lý quick date filter
+    const handleQuickDateFilter = (filter: string) => {
+        setQuickDateFilter(filter);
+        setSelectedMonth('');
+        
+        const today = new Date();
+        let fromDate = '';
+        let toDate = '';
+        
+        switch (filter) {
+            case 'today':
+                fromDate = today.toISOString().split('T')[0];
+                toDate = today.toISOString().split('T')[0];
+                break;
+            case 'yesterday':
+                const yesterday = new Date(today);
+                yesterday.setDate(yesterday.getDate() - 1);
+                fromDate = yesterday.toISOString().split('T')[0];
+                toDate = yesterday.toISOString().split('T')[0];
+                break;
+            case 'thisMonth':
+                fromDate = new Date(today.getFullYear(), today.getMonth(), 1).toISOString().split('T')[0];
+                toDate = new Date(today.getFullYear(), today.getMonth() + 1, 0).toISOString().split('T')[0];
+                break;
+            default:
+                return;
+        }
+        
+        setDateFrom(fromDate);
+        setDateTo(toDate);
+    };
+
+    // Xử lý chọn tháng
+    const handleMonthSelect = (month: string) => {
+        setSelectedMonth(month);
+        setQuickDateFilter('');
+        
+        if (month) {
+            const today = new Date();
+            const year = today.getFullYear();
+            const monthNum = parseInt(month);
+            const fromDate = new Date(year, monthNum - 1, 1).toISOString().split('T')[0];
+            const toDate = new Date(year, monthNum, 0).toISOString().split('T')[0];
+            setDateFrom(fromDate);
+            setDateTo(toDate);
+        }
+    };
+
+    // Filter theo tab (Phiếu thu hoặc Phiếu chi), search term và các bộ lọc
     const filteredItems = items.filter(item => {
         // Filter theo tab
         const matchesTab = activeTab === 'thu' 
@@ -208,8 +336,36 @@ export function ThuChi() {
             item.code?.toLowerCase().includes(searchTerm.toLowerCase()) ||
             item.description?.toLowerCase().includes(searchTerm.toLowerCase());
         
-        return matchesTab && matchesSearch;
+        // Filter theo dự án
+        const matchesDuAn = selectedDuAnIds.length === 0 || 
+            (item.du_an_id && selectedDuAnIds.includes(item.du_an_id));
+        
+        // Filter theo hợp đồng
+        const matchesHopDong = selectedHopDongIds.length === 0 || 
+            (item.hop_dong_id && selectedHopDongIds.includes(item.hop_dong_id));
+        
+        // Filter theo nhân sự
+        const matchesNhanSu = selectedNhanSuIds.length === 0 || 
+            (item.nhan_su_id && selectedNhanSuIds.includes(item.nhan_su_id));
+        
+        // Filter theo ngày
+        let matchesDate = true;
+        if (dateFrom || dateTo) {
+            const itemDate = item.ngay ? new Date(item.ngay).toISOString().split('T')[0] : '';
+            if (dateFrom && itemDate < dateFrom) {
+                matchesDate = false;
+            }
+            if (dateTo && itemDate > dateTo) {
+                matchesDate = false;
+            }
+        }
+        
+        return matchesTab && matchesSearch && matchesDuAn && matchesHopDong && matchesNhanSu && matchesDate;
     });
+
+    // Tính tổng số tiền theo các bộ lọc
+    const totalAmount = filteredItems.reduce((sum, item) => sum + (item.so_tien || 0), 0);
+    const formattedTotalAmount = new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND' }).format(totalAmount);
 
     const isAllSelected = filteredItems.length > 0 && filteredItems.every(item => selectedIds.includes(item.id));
 
@@ -276,41 +432,279 @@ export function ThuChi() {
                     </div>
 
                     {/* Toolbar */}
-                    <div className="px-4 md:px-6 py-4 border-b border-slate-200 flex flex-col md:flex-row gap-4 justify-between items-start md:items-center">
-                        <div className="flex flex-col md:flex-row gap-4 flex-1">
+                    <div className="px-4 md:px-6 py-4 border-b border-slate-200">
+                        <div className="flex flex-col md:flex-row gap-4 justify-between items-start md:items-center mb-4">
                             <div className="relative w-full md:w-80">
                                 <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
                                 <input
                                     type="text"
-                                    placeholder="Tìm theo mã chứng từ, nội dung..."
+                                    placeholder="Tìm kiếm..."
                                     value={searchTerm}
                                     onChange={(e) => setSearchTerm(e.target.value)}
                                     className="w-full pl-9 pr-4 py-2 text-sm border border-slate-200 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all"
                                 />
                             </div>
-                            
-                            <div className="relative w-full md:w-64">
-                                <Filter size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
-                                <select
-                                    value={filterDuAnId || ''}
-                                    onChange={(e) => setFilterDuAnId(e.target.value || null)}
-                                    className="w-full pl-9 pr-4 py-2 text-sm border border-slate-200 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all bg-white"
-                                >
-                                    <option value="">Tất cả dự án</option>
-                                    {projects.map(p => (
-                                        <option key={p.id} value={p.id}>{p.ten_du_an}</option>
-                                    ))}
-                                </select>
+
+                            <div className="flex items-center gap-2 relative">
+                                <div className="relative">
+                                    <button 
+                                        onClick={(e) => {
+                                            e.stopPropagation();
+                                            setOpenColumnFilter(openColumnFilter === 'status' ? null : 'status');
+                                        }}
+                                        className="flex items-center gap-2 px-3 py-1.5 text-sm text-slate-600 bg-white border border-slate-200 rounded-md hover:bg-slate-50 whitespace-nowrap"
+                                    >
+                                        <Bookmark size={14} className="text-slate-400" />
+                                        Trạng thái
+                                        <ChevronDown size={14} className="text-slate-400" />
+                                    </button>
+                                    {openColumnFilter === 'status' && (
+                                        <div 
+                                            className="absolute top-full left-0 mt-1 bg-white border border-slate-200 rounded-lg shadow-lg z-20 min-w-[200px]"
+                                            onClick={(e) => e.stopPropagation()}
+                                        >
+                                            <div className="p-2 space-y-1">
+                                                <label className="flex items-center gap-2 cursor-pointer hover:bg-slate-50 p-1 rounded">
+                                                    <input type="checkbox" className="w-3 h-3 text-blue-600 border-slate-300 rounded" />
+                                                    <span className="text-xs">Tạm ứng</span>
+                                                </label>
+                                                <label className="flex items-center gap-2 cursor-pointer hover:bg-slate-50 p-1 rounded">
+                                                    <input type="checkbox" className="w-3 h-3 text-blue-600 border-slate-300 rounded" />
+                                                    <span className="text-xs">Thanh toán</span>
+                                                </label>
+                                            </div>
+                                        </div>
+                                    )}
+                                </div>
+                                <div className="relative">
+                                    <button 
+                                        onClick={(e) => {
+                                            e.stopPropagation();
+                                            setOpenColumnFilter(openColumnFilter === 'topProject' ? null : 'topProject');
+                                        }}
+                                        className={`flex items-center gap-2 px-3 py-1.5 text-sm rounded-md whitespace-nowrap ${
+                                            selectedDuAnIds.length > 0
+                                                ? 'bg-blue-600 text-white border border-blue-600'
+                                                : 'text-slate-600 bg-white border border-slate-200 hover:bg-slate-50'
+                                        }`}
+                                    >
+                                        <Briefcase size={14} className={selectedDuAnIds.length > 0 ? 'text-white' : 'text-slate-400'} />
+                                        Dự án
+                                        {selectedDuAnIds.length > 0 && (
+                                            <span className="bg-white text-blue-600 rounded-full px-1.5 py-0.5 text-xs font-bold">
+                                                {selectedDuAnIds.length}
+                                            </span>
+                                        )}
+                                        <ChevronDown size={14} className={selectedDuAnIds.length > 0 ? 'text-white' : 'text-slate-400'} />
+                                    </button>
+                                    {openColumnFilter === 'topProject' && (
+                                        <div 
+                                            className="absolute top-full left-0 mt-1 bg-white border border-slate-200 rounded-lg shadow-lg z-20 min-w-[250px] max-h-60 overflow-y-auto"
+                                            onClick={(e) => e.stopPropagation()}
+                                        >
+                                            <div className="p-2">
+                                                <input
+                                                    type="text"
+                                                    placeholder="Tìm kiếm..."
+                                                    className="w-full px-2 py-1 text-xs border border-slate-200 rounded mb-2 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                                                />
+                                                <div className="space-y-1">
+                                                    <label className="flex items-center gap-2 cursor-pointer hover:bg-slate-50 p-1 rounded">
+                                                        <input 
+                                                            type="checkbox" 
+                                                            checked={selectedDuAnIds.length === projects.length && projects.length > 0}
+                                                            onChange={() => {
+                                                                if (selectedDuAnIds.length === projects.length) {
+                                                                    setSelectedDuAnIds([]);
+                                                                } else {
+                                                                    setSelectedDuAnIds(projects.map(p => p.id));
+                                                                }
+                                                            }}
+                                                            className="w-3 h-3 text-blue-600 border-slate-300 rounded" 
+                                                        />
+                                                        <span className="text-xs">Chọn tất cả</span>
+                                                    </label>
+                                                    <div className="border-t border-slate-200 my-1"></div>
+                                                    {projects.map(proj => (
+                                                        <label key={proj.id} className="flex items-center gap-2 cursor-pointer hover:bg-slate-50 p-1 rounded">
+                                                            <input
+                                                                type="checkbox"
+                                                                checked={selectedDuAnIds.includes(proj.id)}
+                                                                onChange={() => toggleDuAnFilter(proj.id)}
+                                                                className="w-3 h-3 text-blue-600 border-slate-300 rounded"
+                                                            />
+                                                            <span className="text-xs">{proj.ten_du_an}</span>
+                                                        </label>
+                                                    ))}
+                                                </div>
+                                            </div>
+                                        </div>
+                                    )}
+                                </div>
+                                <div className="relative">
+                                    <button 
+                                        onClick={(e) => {
+                                            e.stopPropagation();
+                                            setOpenColumnFilter(openColumnFilter === 'topEmployee' ? null : 'topEmployee');
+                                        }}
+                                        className={`flex items-center gap-2 px-3 py-1.5 text-sm rounded-md whitespace-nowrap ${
+                                            selectedNhanSuIds.length > 0
+                                                ? 'bg-blue-600 text-white border border-blue-600'
+                                                : 'text-slate-600 bg-white border border-slate-200 hover:bg-slate-50'
+                                        }`}
+                                    >
+                                        <Filter size={14} className={selectedNhanSuIds.length > 0 ? 'text-white' : 'text-slate-400'} />
+                                        Nhân sự
+                                        {selectedNhanSuIds.length > 0 && (
+                                            <span className="bg-white text-blue-600 rounded-full px-1.5 py-0.5 text-xs font-bold">
+                                                {selectedNhanSuIds.length}
+                                            </span>
+                                        )}
+                                        <ChevronDown size={14} className={selectedNhanSuIds.length > 0 ? 'text-white' : 'text-slate-400'} />
+                                    </button>
+                                    {openColumnFilter === 'topEmployee' && (
+                                        <div 
+                                            className="absolute top-full left-0 mt-1 bg-white border border-slate-200 rounded-lg shadow-lg z-20 min-w-[250px] max-h-60 overflow-y-auto"
+                                            onClick={(e) => e.stopPropagation()}
+                                        >
+                                            <div className="p-2">
+                                                <input
+                                                    type="text"
+                                                    placeholder="Tìm kiếm..."
+                                                    className="w-full px-2 py-1 text-xs border border-slate-200 rounded mb-2 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                                                />
+                                                <div className="space-y-1">
+                                                    <label className="flex items-center gap-2 cursor-pointer hover:bg-slate-50 p-1 rounded">
+                                                        <input 
+                                                            type="checkbox" 
+                                                            checked={selectedNhanSuIds.length === employees.length && employees.length > 0}
+                                                            onChange={() => {
+                                                                if (selectedNhanSuIds.length === employees.length) {
+                                                                    setSelectedNhanSuIds([]);
+                                                                } else {
+                                                                    setSelectedNhanSuIds(employees.map(e => e.id));
+                                                                }
+                                                            }}
+                                                            className="w-3 h-3 text-blue-600 border-slate-300 rounded" 
+                                                        />
+                                                        <span className="text-xs">Chọn tất cả</span>
+                                                    </label>
+                                                    <div className="border-t border-slate-200 my-1"></div>
+                                                    {employees.map(emp => (
+                                                        <label key={emp.id} className="flex items-center gap-2 cursor-pointer hover:bg-slate-50 p-1 rounded">
+                                                            <input
+                                                                type="checkbox"
+                                                                checked={selectedNhanSuIds.includes(emp.id)}
+                                                                onChange={() => toggleNhanSuFilter(emp.id)}
+                                                                className="w-3 h-3 text-blue-600 border-slate-300 rounded"
+                                                            />
+                                                            <span className="text-xs">{emp.code ? `[${emp.code}] ` : ''}{emp.full_name}</span>
+                                                        </label>
+                                                    ))}
+                                                </div>
+                                            </div>
+                                        </div>
+                                    )}
+                                </div>
+                            </div>
+
+                            <button
+                                onClick={handleAddClick}
+                                className="flex items-center gap-2 px-4 py-2 text-sm font-bold text-white bg-blue-600 hover:bg-blue-700 rounded-md transition-colors shadow-sm ripple"
+                            >
+                                <Plus size={18} />
+                                Thêm phiếu
+                            </button>
+                        </div>
+
+                        {/* Date Filter Row */}
+                        <div className="flex items-center gap-2 flex-wrap">
+                            <button
+                                onClick={() => handleQuickDateFilter('today')}
+                                className={`px-3 py-1.5 text-xs font-medium rounded-md transition-colors ${
+                                    quickDateFilter === 'today'
+                                        ? 'bg-blue-600 text-white'
+                                        : 'bg-white text-slate-700 border border-slate-200 hover:bg-slate-50'
+                                }`}
+                            >
+                                Hôm nay
+                            </button>
+                            <button
+                                onClick={() => handleQuickDateFilter('yesterday')}
+                                className={`px-3 py-1.5 text-xs font-medium rounded-md transition-colors ${
+                                    quickDateFilter === 'yesterday'
+                                        ? 'bg-blue-600 text-white'
+                                        : 'bg-white text-slate-700 border border-slate-200 hover:bg-slate-50'
+                                }`}
+                            >
+                                Hôm qua
+                            </button>
+                            <button
+                                onClick={() => handleQuickDateFilter('thisMonth')}
+                                className={`px-3 py-1.5 text-xs font-medium rounded-md transition-colors ${
+                                    quickDateFilter === 'thisMonth'
+                                        ? 'bg-blue-600 text-white'
+                                        : 'bg-white text-slate-700 border border-slate-200 hover:bg-slate-50'
+                                }`}
+                            >
+                                Tháng này
+                            </button>
+                            <select
+                                value={selectedMonth}
+                                onChange={(e) => handleMonthSelect(e.target.value)}
+                                className="px-3 py-1.5 text-xs border border-slate-200 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 bg-white"
+                            >
+                                <option value="">Tháng</option>
+                                {Array.from({ length: 12 }, (_, i) => i + 1).map(month => (
+                                    <option key={month} value={month.toString().padStart(2, '0')}>
+                                        Tháng {month}
+                                    </option>
+                                ))}
+                            </select>
+                            <div className="flex items-center gap-2 bg-white border border-slate-200 rounded-md px-3 py-1.5">
+                                <Calendar size={14} className="text-slate-400" />
+                                <input
+                                    type="date"
+                                    value={dateFrom}
+                                    onChange={(e) => {
+                                        setDateFrom(e.target.value);
+                                        setQuickDateFilter('');
+                                        setSelectedMonth('');
+                                    }}
+                                    className="text-xs border-none focus:outline-none bg-transparent [color-scheme:light]"
+                                    placeholder="Từ ngày"
+                                />
+                                <span className="text-slate-400">-</span>
+                                <input
+                                    type="date"
+                                    value={dateTo}
+                                    onChange={(e) => {
+                                        setDateTo(e.target.value);
+                                        setQuickDateFilter('');
+                                        setSelectedMonth('');
+                                    }}
+                                    className="text-xs border-none focus:outline-none bg-transparent [color-scheme:light]"
+                                    placeholder="Đến ngày"
+                                />
                             </div>
                         </div>
 
-                        <button
-                            onClick={handleAddClick}
-                            className="flex items-center gap-2 px-4 py-2 text-sm font-bold text-white bg-blue-600 hover:bg-blue-700 rounded-md transition-colors shadow-sm ripple"
-                        >
-                            <Plus size={18} />
-                            Thêm phiếu
-                        </button>
+                        {/* Tổng số tiền */}
+                        <div className="px-4 md:px-6 py-3">
+                            <div className="flex items-center justify-between bg-blue-50 border border-blue-200 rounded-lg px-4 py-3">
+                                <div className="flex items-center gap-2">
+                                    <span className="text-sm font-bold text-slate-700 uppercase">
+                                        Tổng số tiền ({activeTab === 'thu' ? 'Phiếu thu' : 'Phiếu chi'}):
+                                    </span>
+                                    <span className={`text-lg font-bold ${activeTab === 'thu' ? 'text-emerald-600' : 'text-red-600'}`}>
+                                        {formattedTotalAmount}
+                                    </span>
+                                </div>
+                                <div className="text-xs text-slate-500">
+                                    {filteredItems.length} phiếu
+                                </div>
+                            </div>
+                        </div>
                     </div>
 
                     {/* Loading State */}
@@ -336,7 +730,7 @@ export function ThuChi() {
 
                     {/* Table */}
                     {!loading && !error && (
-                        <div className="overflow-x-auto">
+                        <div className="overflow-x-auto" onClick={() => setOpenColumnFilter(null)}>
                             <table className="w-full text-sm text-left">
                                 <thead className="bg-slate-50 text-slate-700 font-semibold border-b border-slate-200">
                                     <tr>
@@ -349,14 +743,158 @@ export function ThuChi() {
                                                 )}
                                             </button>
                                         </th>
-                                        <th className="p-4 whitespace-nowrap">Mã chứng từ</th>
-                                        <th className="p-4 whitespace-nowrap">Dự án</th>
+                                        <th className="p-4 whitespace-nowrap relative">
+                                            <div className="flex items-center justify-between gap-2">
+                                                <span>Mã chứng từ</span>
+                                                <button
+                                                    onClick={(e) => {
+                                                        e.stopPropagation();
+                                                        setOpenColumnFilter(openColumnFilter === 'code' ? null : 'code');
+                                                    }}
+                                                    className="p-1 hover:bg-slate-200 rounded"
+                                                >
+                                                    <Filter size={14} className="text-slate-400" />
+                                                </button>
+                                            </div>
+                                            {openColumnFilter === 'code' && (
+                                                <div 
+                                                    className="absolute top-full left-0 mt-1 bg-white border border-slate-200 rounded-lg shadow-lg z-10 min-w-[200px]"
+                                                    onClick={(e) => e.stopPropagation()}
+                                                >
+                                                    <div className="p-2">
+                                                        <input
+                                                            type="text"
+                                                            placeholder="Tìm kiếm..."
+                                                            className="w-full px-2 py-1 text-xs border border-slate-200 rounded focus:outline-none focus:ring-1 focus:ring-blue-500"
+                                                        />
+                                                    </div>
+                                                </div>
+                                            )}
+                                        </th>
+                                        <th className="p-4 whitespace-nowrap relative">
+                                            <div className="flex items-center justify-between gap-2">
+                                                <span>Dự án</span>
+                                                <button
+                                                    onClick={(e) => {
+                                                        e.stopPropagation();
+                                                        setOpenColumnFilter(openColumnFilter === 'project' ? null : 'project');
+                                                    }}
+                                                    className="p-1 hover:bg-slate-200 rounded"
+                                                >
+                                                    <Filter size={14} className="text-slate-400" />
+                                                </button>
+                                            </div>
+                                            {openColumnFilter === 'project' && (
+                                                <div 
+                                                    className="absolute top-full left-0 mt-1 bg-white border border-slate-200 rounded-lg shadow-lg z-10 min-w-[250px] max-h-60 overflow-y-auto"
+                                                    onClick={(e) => e.stopPropagation()}
+                                                >
+                                                    <div className="p-2">
+                                                        <input
+                                                            type="text"
+                                                            placeholder="Tìm kiếm..."
+                                                            className="w-full px-2 py-1 text-xs border border-slate-200 rounded mb-2 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                                                        />
+                                                        <div className="space-y-1">
+                                                            <label className="flex items-center gap-2 cursor-pointer hover:bg-slate-50 p-1 rounded">
+                                                                <input type="checkbox" className="w-3 h-3 text-blue-600 border-slate-300 rounded" />
+                                                                <span className="text-xs">Chọn tất cả</span>
+                                                            </label>
+                                                            <div className="border-t border-slate-200 my-1"></div>
+                                                            {projects.map(proj => (
+                                                                <label key={proj.id} className="flex items-center gap-2 cursor-pointer hover:bg-slate-50 p-1 rounded">
+                                                                    <input
+                                                                        type="checkbox"
+                                                                        checked={selectedDuAnIds.includes(proj.id)}
+                                                                        onChange={() => toggleDuAnFilter(proj.id)}
+                                                                        className="w-3 h-3 text-blue-600 border-slate-300 rounded"
+                                                                    />
+                                                                    <span className="text-xs">{proj.ten_du_an}</span>
+                                                                </label>
+                                                            ))}
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                            )}
+                                        </th>
                                         <th className="p-4 whitespace-nowrap">Ngày chứng từ</th>
                                         <th className="p-4 whitespace-nowrap">Loại</th>
                                         <th className="p-4 whitespace-nowrap text-right pr-6">Số tiền</th>
-                                        <th className="p-4 whitespace-nowrap">Nội dung</th>
+                                        <th className="p-4 whitespace-nowrap relative">
+                                            <div className="flex items-center justify-between gap-2">
+                                                <span>Nội dung</span>
+                                                <button
+                                                    onClick={(e) => {
+                                                        e.stopPropagation();
+                                                        setOpenColumnFilter(openColumnFilter === 'content' ? null : 'content');
+                                                    }}
+                                                    className="p-1 hover:bg-slate-200 rounded"
+                                                >
+                                                    <Filter size={14} className="text-slate-400" />
+                                                </button>
+                                            </div>
+                                            {openColumnFilter === 'content' && (
+                                                <div 
+                                                    className="absolute top-full left-0 mt-1 bg-white border border-slate-200 rounded-lg shadow-lg z-10 min-w-[200px]"
+                                                    onClick={(e) => e.stopPropagation()}
+                                                >
+                                                    <div className="p-2">
+                                                        <input
+                                                            type="text"
+                                                            placeholder="Tìm kiếm..."
+                                                            className="w-full px-2 py-1 text-xs border border-slate-200 rounded focus:outline-none focus:ring-1 focus:ring-blue-500"
+                                                        />
+                                                    </div>
+                                                </div>
+                                            )}
+                                        </th>
                                         <th className="p-4 whitespace-nowrap">Người nộp/nhận</th>
-                                        <th className="p-4 whitespace-nowrap">Nhân sự</th>
+                                        <th className="p-4 whitespace-nowrap relative">
+                                            <div className="flex items-center justify-between gap-2">
+                                                <span>Nhân sự</span>
+                                                <button
+                                                    onClick={(e) => {
+                                                        e.stopPropagation();
+                                                        setOpenColumnFilter(openColumnFilter === 'employee' ? null : 'employee');
+                                                    }}
+                                                    className="p-1 hover:bg-slate-200 rounded"
+                                                >
+                                                    <Filter size={14} className="text-slate-400" />
+                                                </button>
+                                            </div>
+                                            {openColumnFilter === 'employee' && (
+                                                <div 
+                                                    className="absolute top-full left-0 mt-1 bg-white border border-slate-200 rounded-lg shadow-lg z-10 min-w-[250px] max-h-60 overflow-y-auto"
+                                                    onClick={(e) => e.stopPropagation()}
+                                                >
+                                                    <div className="p-2">
+                                                        <input
+                                                            type="text"
+                                                            placeholder="Tìm kiếm..."
+                                                            className="w-full px-2 py-1 text-xs border border-slate-200 rounded mb-2 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                                                        />
+                                                        <div className="space-y-1">
+                                                            <label className="flex items-center gap-2 cursor-pointer hover:bg-slate-50 p-1 rounded">
+                                                                <input type="checkbox" className="w-3 h-3 text-blue-600 border-slate-300 rounded" />
+                                                                <span className="text-xs">Chọn tất cả</span>
+                                                            </label>
+                                                            <div className="border-t border-slate-200 my-1"></div>
+                                                            {employees.map(emp => (
+                                                                <label key={emp.id} className="flex items-center gap-2 cursor-pointer hover:bg-slate-50 p-1 rounded">
+                                                                    <input
+                                                                        type="checkbox"
+                                                                        checked={selectedNhanSuIds.includes(emp.id)}
+                                                                        onChange={() => toggleNhanSuFilter(emp.id)}
+                                                                        className="w-3 h-3 text-blue-600 border-slate-300 rounded"
+                                                                    />
+                                                                    <span className="text-xs">{emp.code ? `[${emp.code}] ` : ''}{emp.full_name}</span>
+                                                                </label>
+                                                            ))}
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                            )}
+                                        </th>
                                         <th className="p-4 whitespace-nowrap">Ảnh</th>
                                         <th className="p-4 whitespace-nowrap text-center">Hành động</th>
                                     </tr>
@@ -618,60 +1156,90 @@ export function ThuChi() {
 
             {isViewModalOpen && selectedItem && (
                 <div className="fixed inset-0 z-[110] flex items-center justify-center bg-black/40 p-4 backdrop-blur-sm animate-in fade-in duration-200">
-                    <div className="bg-white rounded-2xl shadow-xl w-full max-w-md overflow-hidden animate-in zoom-in-95 duration-200">
-                        <div className="px-6 py-4 border-b border-slate-200 flex justify-between items-center bg-white">
+                    <div className="bg-white rounded-2xl shadow-xl w-full max-w-4xl overflow-hidden animate-in zoom-in-95 duration-200 max-h-[90vh] flex flex-col">
+                        <div className="px-6 py-4 border-b border-slate-200 flex justify-between items-center bg-white flex-shrink-0">
                             <h2 className="text-lg font-bold text-slate-800 uppercase">Chi tiết chứng từ</h2>
                             <button onClick={() => setIsViewModalOpen(false)} className="text-slate-400 hover:text-slate-600 transition-colors"><X size={20} /></button>
                         </div>
-                        <div className="p-6 space-y-4">
-                            <div className="grid grid-cols-2 gap-y-4 text-sm">
-                                <div className="text-slate-500">Mã chứng từ:</div>
-                                <div className="font-bold text-slate-800">{selectedItem.code}</div>
+                        <div className="p-6 overflow-y-auto flex-1">
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                                {/* Thông tin chứng từ */}
+                                <div className="space-y-4">
+                                    <h3 className="text-sm font-bold text-slate-700 uppercase border-b border-slate-200 pb-2">Thông tin chứng từ</h3>
+                                    <div className="grid grid-cols-2 gap-y-4 text-sm">
+                                        <div className="text-slate-500">Mã chứng từ:</div>
+                                        <div className="font-bold text-slate-800">{selectedItem.code}</div>
 
-                                <div className="text-slate-500">Ngày lập:</div>
-                                <div className="text-slate-800 font-medium">{selectedItem.date}</div>
+                                        <div className="text-slate-500">Ngày lập:</div>
+                                        <div className="text-slate-800 font-medium">{selectedItem.date}</div>
 
-                                <div className="text-slate-500">Ngày giờ ghi nhận:</div>
-                                <div className="text-slate-600 text-xs">{selectedItem.dateTime || selectedItem.created_at ? new Date(selectedItem.created_at || '').toLocaleString('vi-VN') : '(Trống)'}</div>
+                                        <div className="text-slate-500">Ngày giờ ghi nhận:</div>
+                                        <div className="text-slate-600 text-xs">{selectedItem.dateTime || selectedItem.created_at ? new Date(selectedItem.created_at || '').toLocaleString('vi-VN') : '(Trống)'}</div>
 
-                                <div className="text-slate-500">Loại phiếu:</div>
-                                <div>
-                                    <span className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase ${selectedItem.type === 'Phiếu thu' ? 'bg-emerald-100 text-emerald-700' : 'bg-red-100 text-red-700'}`}>
-                                        {selectedItem.type}
-                                    </span>
-                                </div>
+                                        <div className="text-slate-500">Loại phiếu:</div>
+                                        <div>
+                                            <span className={`px-2 py-0.5 rounded text-[10px] font-bold uppercase ${selectedItem.type === 'Phiếu thu' ? 'bg-emerald-100 text-emerald-700' : 'bg-red-100 text-red-700'}`}>
+                                                {selectedItem.type}
+                                            </span>
+                                        </div>
 
-                                <div className="text-slate-500">Số tiền:</div>
-                                <div className="text-emerald-600 font-bold text-lg">{selectedItem.amount}</div>
+                                        <div className="text-slate-500">Số tiền:</div>
+                                        <div className="text-emerald-600 font-bold text-lg">{selectedItem.amount}</div>
 
-                                <div className="text-slate-500">Nội dung:</div>
-                                <div className="text-slate-700 leading-relaxed italic border-l-2 border-slate-100 pl-3">{selectedItem.description || '(Không có nội dung)'}</div>
+                                        <div className="text-slate-500">Nội dung:</div>
+                                        <div className="text-slate-700 leading-relaxed italic border-l-2 border-slate-100 pl-3 col-span-2">{selectedItem.description || '(Không có nội dung)'}</div>
 
-                                <div className="text-slate-500">Người nộp/nhận:</div>
-                                <div className="text-slate-800 font-medium">{selectedItem.person}</div>
+                                        <div className="text-slate-500">Người nộp/nhận:</div>
+                                        <div className="text-slate-800 font-medium">{selectedItem.person}</div>
 
-                                <div className="text-slate-500">Nhân sự:</div>
-                                <div className="text-slate-800 font-medium">{selectedItem.nhan_su_display || '(Trống)'}</div>
-                            </div>
+                                        <div className="text-slate-500">Nhân sự:</div>
+                                        <div className="text-slate-800 font-medium">{selectedItem.nhan_su_display || '(Trống)'}</div>
 
-                            {/* Hiển thị ảnh chứng từ */}
-                            {selectedItem.anh_url && (
-                                <div className="mt-4 pt-4 border-t border-slate-200">
-                                    <div className="text-slate-500 text-sm mb-2">Ảnh chứng từ:</div>
-                                    <div className="flex justify-center">
-                                        <img 
-                                            src={selectedItem.anh_url} 
-                                            alt="Chứng từ" 
-                                            className="w-64 h-64 object-cover rounded-lg border border-slate-200 shadow-sm"
-                                            onError={(e) => {
-                                                (e.target as HTMLImageElement).style.display = 'none';
-                                            }}
-                                        />
+                                        <div className="text-slate-500">Dự án:</div>
+                                        <div className="text-slate-800 font-medium">{selectedItem.ten_du_an || '(Chưa có dự án)'}</div>
                                     </div>
                                 </div>
-                            )}
+
+                                {/* Ảnh chứng từ */}
+                                <div className="space-y-4">
+                                    <h3 className="text-sm font-bold text-slate-700 uppercase border-b border-slate-200 pb-2">Ảnh chứng từ</h3>
+                                    {selectedItem.anh_url ? (
+                                        <div className="flex flex-col items-center justify-center">
+                                            <div className="w-full max-w-md">
+                                                <img 
+                                                    src={selectedItem.anh_url} 
+                                                    alt="Chứng từ" 
+                                                    className="w-full h-auto max-h-[500px] object-contain rounded-lg border border-slate-200 shadow-lg cursor-pointer hover:opacity-90 transition-opacity"
+                                                    onClick={() => window.open(selectedItem.anh_url, '_blank')}
+                                                    onError={(e) => {
+                                                        const target = e.target as HTMLImageElement;
+                                                        target.style.display = 'none';
+                                                        const errorDiv = document.createElement('div');
+                                                        errorDiv.className = 'text-center text-slate-400 py-8';
+                                                        errorDiv.textContent = 'Không thể tải ảnh';
+                                                        target.parentElement?.appendChild(errorDiv);
+                                                    }}
+                                                />
+                                            </div>
+                                            <button
+                                                onClick={() => window.open(selectedItem.anh_url, '_blank')}
+                                                className="mt-4 px-4 py-2 text-sm font-medium text-blue-600 hover:text-blue-700 border border-blue-200 rounded-md hover:bg-blue-50 transition-colors"
+                                            >
+                                                Mở ảnh trong tab mới
+                                            </button>
+                                        </div>
+                                    ) : (
+                                        <div className="flex flex-col items-center justify-center py-12 border-2 border-dashed border-slate-200 rounded-lg bg-slate-50">
+                                            <div className="text-slate-400 mb-2">
+                                                <Eye size={48} className="mx-auto opacity-50" />
+                                            </div>
+                                            <p className="text-sm text-slate-500">Chưa có ảnh chứng từ</p>
+                                        </div>
+                                    )}
+                                </div>
+                            </div>
                         </div>
-                        <div className="px-6 py-4 bg-slate-50 border-t border-slate-200 flex justify-end">
+                        <div className="px-6 py-4 bg-slate-50 border-t border-slate-200 flex justify-end flex-shrink-0">
                             <button onClick={() => setIsViewModalOpen(false)} className="px-6 py-2 text-sm font-bold text-white bg-slate-800 hover:bg-slate-700 rounded-lg transition-colors shadow-sm uppercase">Đóng</button>
                         </div>
                     </div>

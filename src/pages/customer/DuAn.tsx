@@ -6,6 +6,7 @@ import { projectService } from '../../lib/services/projectService';
 import { contractService, ContractRow } from '../../lib/services/contractService';
 import { taskService } from '../../lib/services/taskService';
 import { employeeService } from '../../lib/services/employeeService';
+import { thuChiService, ThuChiRow } from '../../lib/services/thuChiService';
 
 // Toast component
 function Toast({ message, type, onClose }: { message: string; type: 'success' | 'info' | 'warning'; onClose: () => void }) {
@@ -138,6 +139,9 @@ export function DuAn() {
             // Load tất cả hợp đồng
             const contracts = await contractService.getAll();
             
+            // Load tất cả thu chi để tính chi phí
+            const allThuChi = await thuChiService.getAll();
+            
             // Nhóm hợp đồng theo project_name để hiển thị
             const contractsByProjectName = new Map<string, ContractRow[]>();
             contracts.forEach(contract => {
@@ -202,10 +206,64 @@ export function DuAn() {
             setProjectProgress(progressMap);
             setProjectContractInfo(contractInfoMap);
             
+            // Tính toán giá trị hợp đồng và quyết toán cho từng dự án
+            const projectFinancials = new Map<string, { 
+                giaTriHopDong: number; 
+                giaTriQuyetToan: number; 
+                daThu: number; 
+                conPhaiThu: number;
+            }>();
+            
+            // Tính tổng giá trị hợp đồng và giá trị quyết toán từ hợp đồng
+            contracts.forEach((contract: ContractRow) => {
+                if (contract.project_name) {
+                    const projectName = contract.project_name;
+                    if (!projectFinancials.has(projectName)) {
+                        projectFinancials.set(projectName, { 
+                            giaTriHopDong: 0, 
+                            giaTriQuyetToan: 0, 
+                            daThu: 0, 
+                            conPhaiThu: 0 
+                        });
+                    }
+                    const financials = projectFinancials.get(projectName)!;
+                    financials.giaTriHopDong += contract.gia_tri_hd || 0;
+                    financials.giaTriQuyetToan += contract.gia_tri_qt || 0;
+                }
+            });
+            
+            // Tính đã thu từ phiếu thu
+            allThuChi.forEach((tc: ThuChiRow) => {
+                if (tc.du_an_id && tc.ten_du_an && tc.loai_phieu === 'Phiếu thu') {
+                    const projectName = tc.ten_du_an;
+                    if (!projectFinancials.has(projectName)) {
+                        projectFinancials.set(projectName, { 
+                            giaTriHopDong: 0, 
+                            giaTriQuyetToan: 0, 
+                            daThu: 0, 
+                            conPhaiThu: 0 
+                        });
+                    }
+                    const financials = projectFinancials.get(projectName)!;
+                    financials.daThu += tc.so_tien || 0;
+                }
+            });
+            
+            // Tính còn phải thu = giá trị quyết toán - đã thu
+            projectFinancials.forEach((financials, projectName) => {
+                financials.conPhaiThu = financials.giaTriQuyetToan - financials.daThu;
+            });
+            
             // Map dự án với tiến độ từ hợp đồng
             const mapped = (data || []).map((p: any) => {
                 const projectName = p.ten_du_an;
                 const calculatedProgress = progressMap.get(projectName) ?? 0;
+                const financials = projectFinancials.get(projectName) || { 
+                    giaTriHopDong: 0, 
+                    giaTriQuyetToan: 0, 
+                    daThu: 0, 
+                    conPhaiThu: 0 
+                };
                 
                 // Ưu tiên lấy customerName từ customer_name (join) hoặc ten_khach_hang
                 // Nếu ten_khach_hang là ID, dùng customer_name từ join
@@ -253,6 +311,11 @@ export function DuAn() {
                     // Giữ lại manager và executor objects để có thể truy cập sau
                     manager: p.manager,
                     executor: p.executor,
+                    // Tài chính
+                    giaTriHopDong: financials.giaTriHopDong,
+                    giaTriQuyetToan: financials.giaTriQuyetToan,
+                    daThu: financials.daThu,
+                    conPhaiThu: financials.conPhaiThu
                 };
             });
             setItems(mapped);
@@ -690,13 +753,17 @@ export function DuAn() {
                                 <th className="py-4 px-4 font-semibold text-xs uppercase tracking-wider min-w-[150px]">Tên khách hàng</th>
                                 <th className="py-4 px-4 text-center font-semibold text-xs uppercase tracking-wider min-w-[140px]">Trạng thái</th>
                                 <th className="py-4 pr-4 md:pr-6 pl-4 text-center font-semibold text-xs uppercase tracking-wider min-w-[180px]">Tiến độ</th>
+                                <th className="py-4 px-4 text-right font-semibold text-xs uppercase tracking-wider min-w-[150px]">Giá trị hợp đồng</th>
+                                <th className="py-4 px-4 text-right font-semibold text-xs uppercase tracking-wider min-w-[150px]">Giá trị quyết toán</th>
+                                <th className="py-4 px-4 text-right font-semibold text-xs uppercase tracking-wider min-w-[120px]">Đã thu</th>
+                                <th className="py-4 px-4 text-right font-semibold text-xs uppercase tracking-wider min-w-[120px]">Còn phải thu</th>
                                 <th className="py-4 px-4 text-center font-semibold text-xs uppercase tracking-wider min-w-[100px] rounded-tr-lg">Hành động</th>
                             </tr>
                         </thead>
                         <tbody className="divide-y divide-slate-100">
                             {items.length === 0 && (
                                 <tr>
-                                    <td colSpan={5} className="py-6 text-center text-slate-500 text-sm italic">
+                                    <td colSpan={9} className="py-6 text-center text-slate-500 text-sm italic">
                                         Chưa có dự án nào. Nhấn "Thêm dự án" để tạo mới.
                                     </td>
                                 </tr>
@@ -753,6 +820,35 @@ export function DuAn() {
                                             })()}
                                         </div>
                                     </td>
+                                    
+                                    {/* Giá trị hợp đồng */}
+                                    <td className="py-4 px-4 align-middle text-right">
+                                        <span className="text-sm font-semibold text-slate-700">
+                                            {item.giaTriHopDong ? new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND' }).format(item.giaTriHopDong) : '0 đ'}
+                                        </span>
+                                    </td>
+                                    
+                                    {/* Giá trị quyết toán */}
+                                    <td className="py-4 px-4 align-middle text-right">
+                                        <span className="text-sm font-semibold text-blue-600">
+                                            {item.giaTriQuyetToan ? new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND' }).format(item.giaTriQuyetToan) : '0 đ'}
+                                        </span>
+                                    </td>
+                                    
+                                    {/* Đã thu */}
+                                    <td className="py-4 px-4 align-middle text-right">
+                                        <span className="text-sm font-semibold text-emerald-600">
+                                            {item.daThu ? new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND' }).format(item.daThu) : '0 đ'}
+                                        </span>
+                                    </td>
+                                    
+                                    {/* Còn phải thu */}
+                                    <td className="py-4 px-4 align-middle text-right">
+                                        <span className={`text-sm font-bold ${item.conPhaiThu >= 0 ? 'text-slate-700' : 'text-red-600'}`}>
+                                            {item.conPhaiThu ? new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND' }).format(item.conPhaiThu) : '0 đ'}
+                                        </span>
+                                    </td>
+                                    
                                     <td className="py-4 px-4 align-middle text-center">
                                         <div className="flex items-center justify-center gap-2 transition-opacity">
                                             <button

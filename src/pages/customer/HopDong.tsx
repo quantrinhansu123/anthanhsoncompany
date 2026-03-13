@@ -1,16 +1,18 @@
-import React, { useEffect, useState } from 'react';
-import { Search, Plus, Eye, Edit, Trash2, X, ChevronRight, ChevronDown, FileText, Upload, FolderOpen, ClipboardList, PlusCircle, Maximize2, ExternalLink, CheckCircle, FileCheck, Image as ImageIcon, Link as LinkIcon } from 'lucide-react';
+import React, { useEffect, useState, useMemo, useCallback } from 'react';
+import { Search, Plus, Eye, Edit, Trash2, X, ChevronRight, ChevronDown, FileText, FolderOpen, ClipboardList, PlusCircle, Maximize2, ExternalLink, CheckCircle, FileCheck, Image as ImageIcon, Link as LinkIcon } from 'lucide-react';
 import { useSearchParams } from 'react-router-dom';
-import { contractService, ContractRow } from '../../lib/services/contractService';
+import { contractService, ContractRow, ContractFile } from '../../lib/services/contractService';
 import { projectService } from '../../lib/services/projectService';
 import { taskService, TaskRow } from '../../lib/services/taskService';
 import { employeeService } from '../../lib/services/employeeService';
-import { supabase } from '../../lib/supabase';
+import { thuChiService } from '../../lib/services/thuChiService';
 
 interface Contract {
     id: number;
     uuid?: string; // UUID thực sự từ database
+    duAnId?: string | null; // UUID của dự án
     fileStatus: string;
+    files?: ContractFile[] | null;
     ngayKyHD: string;
     soHopDong: string;
     tenGoiThau: string;
@@ -24,6 +26,16 @@ interface Contract {
     nhanSuTen?: string | null;
     nhanSuCode?: string | null;
 }
+
+// Các loại file cần có
+const FILE_TYPES = [
+    'File_BBTT',
+    'File_HD',
+    'File_BBNT',
+    'File_PL3A',
+    'File_BBTL',
+    'File_PLHD'
+] as const;
 
 interface ProjectGroup {
     id: number;
@@ -61,6 +73,12 @@ export function HopDong() {
     const [employees, setEmployees] = useState<Array<{ id: string; full_name: string; code: string }>>([]);
     const [searchTerm, setSearchTerm] = useState('');
     const [expandedProjects, setExpandedProjects] = useState<number[]>([]);
+    
+    // Filter states
+    const [selectedDuAnIds, setSelectedDuAnIds] = useState<Set<string>>(new Set());
+    const [selectedHopDongIds, setSelectedHopDongIds] = useState<Set<string>>(new Set());
+    const [allContracts, setAllContracts] = useState<Array<{ id: string; so_hop_dong: string; du_an_id: string | null; project_name: string }>>([]);
+    const [openFilterDropdown, setOpenFilterDropdown] = useState<'duan' | 'hopdong' | null>(null);
     const [isViewModalOpen, setIsViewModalOpen] = useState(false);
     const [selectedContract, setSelectedContract] = useState<Contract | null>(null);
     const [selectedProjectName, setSelectedProjectName] = useState('');
@@ -72,6 +90,9 @@ export function HopDong() {
     const [editingContract, setEditingContract] = useState<Contract | null>(null);
     const [editingProjectId, setEditingProjectId] = useState<number | null>(null);
     const [toast, setToast] = useState<{ message: string; type: 'success' | 'info' | 'warning' } | null>(null);
+    const [isSaving, setIsSaving] = useState(false);
+    const [isDeletingFile, setIsDeletingFile] = useState(false);
+    const [isAddingLink, setIsAddingLink] = useState(false);
 
     // New states for tab modals
     const [isAddDocumentModalOpen, setIsAddDocumentModalOpen] = useState(false);
@@ -96,6 +117,11 @@ export function HopDong() {
     });
     const [uploadingImage, setUploadingImage] = useState(false);
 
+    // State for contract files
+    const [contractFiles, setContractFiles] = useState<ContractFile[]>([]);
+    const [selectedFileType, setSelectedFileType] = useState<string>('File_BBTT');
+    const [fileLink, setFileLink] = useState<string>('');
+
     // Form states for tab modals
     const [documentForm, setDocumentForm] = useState({ name: '', type: '' });
     const [financeForm, setFinanceForm] = useState({ type: 'Phiếu thu', amount: '', note: '' });
@@ -119,7 +145,6 @@ export function HopDong() {
         ngayKyHD: '',
         giaTriHD: '',
         giaTriQT: '',
-        daThu: '',
         projectId: '',
         nhanSuId: '',
     });
@@ -156,12 +181,28 @@ export function HopDong() {
         }
     };
 
-    const handleViewClick = (contract: Contract, projectName: string) => {
+    const handleViewClick = async (contract: Contract, projectName: string) => {
         console.log('handleViewClick - contract:', contract);
         setSelectedContract(contract);
         setSelectedProjectName(projectName);
         setActiveTab('info');
         setIsViewModalOpen(true);
+        
+        // Load files từ database nếu chưa có
+        if (contract.uuid && (!contract.files || contract.files.length === 0)) {
+            try {
+                const contractData = await contractService.getAll();
+                const currentContract = contractData.find(c => c.id === contract.uuid);
+                if (currentContract?.files) {
+                    setSelectedContract({
+                        ...contract,
+                        files: currentContract.files
+                    });
+                }
+            } catch (error) {
+                console.error('Error loading contract files:', error);
+            }
+        }
     };
     
     // Load tasks when selectedContract changes or when switching to tasks tab
@@ -193,33 +234,265 @@ export function HopDong() {
         setSelectedContract(null);
     };
 
-    const handleEditClick = (contract: Contract, projectId: number) => {
+    const handleEditClick = async (contract: Contract, projectId: number) => {
         setEditingContract(contract);
         setEditingProjectId(projectId);
+        
+        // Tìm UUID thực sự của dự án từ contract hoặc từ projectName
+        let actualProjectId = contract.duAnId || '';
+        
+        // Nếu không có duAnId, tìm từ contract data
+        if (!actualProjectId && contract.uuid) {
+            try {
+                const contractData = await contractService.getAll();
+                const currentContract = contractData.find(c => c.id === contract.uuid);
+                if (currentContract?.du_an_id) {
+                    actualProjectId = currentContract.du_an_id;
+                }
+            } catch (error) {
+                console.error('Error loading contract for projectId:', error);
+            }
+        }
+        
+        // Nếu vẫn không có, tìm từ projectName trong danh sách projects
+        if (!actualProjectId) {
+            // Tìm project group từ projectId để lấy projectName
+            const projectGroup = items.find(p => p.id === projectId);
+            if (projectGroup) {
+                const project = projects.find(p => p.ten_du_an === projectGroup.projectName);
+                if (project) {
+                    actualProjectId = project.id;
+                }
+            }
+        }
+        
         setFormData({
             soHopDong: contract.soHopDong,
             tenGoiThau: contract.tenGoiThau,
             loaiDichVu: contract.loaiDichVu,
             ngayKyHD: contract.ngayKyHD,
-            giaTriHD: contract.giaTriHD.toString(),
-            giaTriQT: contract.giaTriQT.toString(),
-            daThu: contract.daThu.toString(),
-            projectId: projectId,
+            giaTriHD: contract.giaTriHD ? contract.giaTriHD.toString() : '',
+            giaTriQT: contract.giaTriQT ? contract.giaTriQT.toString() : '',
+            projectId: actualProjectId || '',
             nhanSuId: contract.nhanSuId || '',
         });
+        
+        // Load files từ database
+        if (contract.uuid) {
+            try {
+                const contractData = await contractService.getAll();
+                const currentContract = contractData.find(c => c.id === contract.uuid);
+                setContractFiles(currentContract?.files || []);
+            } catch (error) {
+                console.error('Error loading contract files:', error);
+                setContractFiles([]);
+            }
+        } else {
+            setContractFiles([]);
+        }
+        
         setIsEditModalOpen(true);
     };
 
-    const handleSaveEdit = async () => {
-        if (!editingContract?.uuid || !editingProjectId) return;
-        const giaTriHD = Number(formData.giaTriHD) || 0;
-        const giaTriQT = Number(formData.giaTriQT) || 0;
-        const daThu = Number(formData.daThu) || 0;
+    // Tính toán fileStatus dựa trên các file còn thiếu
+    const calculateFileStatus = (files: ContractFile[]): string => {
+        // Chỉ tính các file có file_url hợp lệ (không rỗng và không null)
+        const uploadedTypes = new Set(
+            files
+                .filter(f => f.file_url && f.file_url.trim() !== '')
+                .map(f => f.file_type)
+        );
+        const missingFiles = FILE_TYPES.filter(type => !uploadedTypes.has(type));
+        
+        if (missingFiles.length === 0) {
+            return 'Đầy đủ file';
+        }
+        
+        return `Thiếu: ${missingFiles.join(', ')}`;
+    };
+
+    // Cache thu chi data để tránh load lại nhiều lần
+    const [thuChiCache, setThuChiCache] = useState<Map<string, number>>(new Map());
+    
+    // Tính "Đã thu" từ dữ liệu thu chi - với cache
+    const calculateDaThu = useCallback(async (hopDongId: string, useCache: boolean = true): Promise<number> => {
+        // Kiểm tra cache trước
+        if (useCache && thuChiCache.has(hopDongId)) {
+            return thuChiCache.get(hopDongId) || 0;
+        }
+        
+        try {
+            const allThuChi = await thuChiService.getAll();
+            const daThu = allThuChi
+                .filter(tc => tc.hop_dong_id === hopDongId && tc.loai_phieu === 'Phiếu thu')
+                .reduce((sum, tc) => sum + (tc.so_tien || 0), 0);
+            
+            // Lưu vào cache
+            setThuChiCache(prev => new Map(prev).set(hopDongId, daThu));
+            return daThu;
+        } catch (error) {
+            console.error('Error calculating daThu:', error);
+            return 0;
+        }
+    }, [thuChiCache]);
+
+    // Add link directly
+    const handleAddLink = useCallback(async () => {
+        if (!fileLink.trim() || !editingContract?.uuid || isAddingLink) {
+            if (!isAddingLink) {
+                setToast({ message: 'Vui lòng nhập link và hợp đồng', type: 'warning' });
+            }
+            return;
+        }
+
+        // Validate URL
+        try {
+            new URL(fileLink.trim());
+        } catch {
+            setToast({ message: 'Link không hợp lệ. Vui lòng nhập URL đầy đủ (ví dụ: https://...)', type: 'warning' });
+            return;
+        }
+
+        // Kiểm tra xem file type đã tồn tại chưa
+        const existingFile = contractFiles.find(f => f.file_type === selectedFileType);
+        if (existingFile) {
+            setToast({ message: `File ${selectedFileType} đã tồn tại. Vui lòng xóa file cũ trước khi thêm link mới.`, type: 'warning' });
+            return;
+        }
+
+        setIsAddingLink(true);
+        try {
+            const newFile: ContractFile = {
+                file_type: selectedFileType,
+                file_name: fileLink.trim(),
+                file_url: fileLink.trim(),
+                uploaded_at: new Date().toISOString()
+            };
+
+            const updatedFiles = [...contractFiles, newFile];
+            setContractFiles(updatedFiles);
+
+            // Cập nhật fileStatus
+            const newFileStatus = calculateFileStatus(updatedFiles);
+
+            // Lưu files vào database
+            const updateResult = await contractService.update(editingContract.uuid, {
+                files: updatedFiles,
+                file_status: newFileStatus
+            });
+
+            if (!updateResult) {
+                // Rollback nếu lỗi
+                setContractFiles(contractFiles);
+                console.error('[AddLink] Failed to update contract in database');
+                setToast({ message: 'Không thể cập nhật database. Vui lòng thử lại.', type: 'warning' });
+                return;
+            }
+
+            // Update local state cho selectedContract nếu đang xem
+            if (selectedContract && selectedContract.uuid === editingContract.uuid) {
+                setSelectedContract({
+                    ...selectedContract,
+                    files: updatedFiles,
+                    fileStatus: newFileStatus
+                });
+            }
+
+            setFileLink('');
+            setSelectedFileType('File_BBTT');
+            setToast({ message: 'Thêm link thành công!', type: 'success' });
+        } catch (error: any) {
+            console.error('[AddLink] Exception adding link:', error);
+            setToast({ message: `Lỗi: ${error.message || 'Không thể thêm link'}`, type: 'warning' });
+        } finally {
+            setIsAddingLink(false);
+        }
+    }, [fileLink, editingContract?.uuid, contractFiles, selectedFileType, isAddingLink]);
+
+
+    // Xóa file
+    const handleDeleteFile = useCallback(async (fileType: string) => {
+        if (!editingContract?.uuid || isDeletingFile) return;
+        
+        setIsDeletingFile(true);
+        const originalFiles = [...contractFiles];
+        
+        try {
+            const updatedFiles = contractFiles.filter(f => f.file_type !== fileType);
+            // Optimistic update
+            setContractFiles(updatedFiles);
+            
+            // Cập nhật fileStatus
+            const newFileStatus = calculateFileStatus(updatedFiles);
+            
+            // Cập nhật database
+            const updateResult = await contractService.update(editingContract.uuid, {
+                files: updatedFiles,
+                file_status: newFileStatus
+            });
+            
+            if (!updateResult) {
+                // Rollback nếu lỗi
+                setContractFiles(originalFiles);
+                setToast({ message: 'Không thể cập nhật database. Vui lòng thử lại.', type: 'warning' });
+                return;
+            }
+
+            // Update local state cho selectedContract nếu đang xem
+            if (selectedContract && selectedContract.uuid === editingContract.uuid) {
+                setSelectedContract({
+                    ...selectedContract,
+                    files: updatedFiles,
+                    fileStatus: newFileStatus
+                });
+            }
+            
+            setToast({ message: 'Đã xóa file!', type: 'success' });
+        } catch (error: any) {
+            // Rollback nếu lỗi
+            setContractFiles(originalFiles);
+            console.error('[DeleteFile] Error:', error);
+            setToast({ message: `Lỗi: ${error.message || 'Không thể xóa file'}`, type: 'warning' });
+        } finally {
+            setIsDeletingFile(false);
+        }
+    }, [editingContract?.uuid, contractFiles, isDeletingFile, selectedContract]);
+
+    const handleSaveEdit = useCallback(async () => {
+        if (!editingContract?.uuid || !editingProjectId || isSaving) return;
+        
+        setIsSaving(true);
+        const giaTriHD = Number((formData.giaTriHD || '').replace(/\./g, '')) || 0;
+        const giaTriQT = Number((formData.giaTriQT || '').replace(/\./g, '')) || 0;
+        
+        // Tính "Đã thu" từ dữ liệu thu chi
+        const daThu = await calculateDaThu(editingContract.uuid);
 
         try {
-            const selectedProject = projects.find(p => p.id === formData.projectId);
-            await contractService.update(editingContract.uuid, {
-                du_an_id: formData.projectId || null,
+            // Kiểm tra xem formData.projectId có phải UUID hợp lệ không
+            let validProjectId: string | null = null;
+            const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+            
+            if (formData.projectId && uuidRegex.test(formData.projectId)) {
+                validProjectId = formData.projectId;
+            } else if (formData.projectId) {
+                // Nếu không phải UUID, tìm từ projects
+                const project = projects.find(p => p.id === formData.projectId || p.ten_du_an === formData.projectId);
+                if (project) {
+                    validProjectId = project.id;
+                }
+            }
+            
+            // Nếu vẫn không tìm thấy, thử lấy từ contract
+            if (!validProjectId && editingContract.duAnId) {
+                validProjectId = editingContract.duAnId;
+            }
+            
+            const selectedProject = validProjectId ? projects.find(p => p.id === validProjectId) : null;
+            const fileStatus = calculateFileStatus(contractFiles);
+            
+            const updateResult = await contractService.update(editingContract.uuid, {
+                du_an_id: validProjectId || null,
                 project_name: selectedProject?.ten_du_an || null,
                 nhan_su_id: formData.nhanSuId || null,
                 so_hop_dong: formData.soHopDong || null,
@@ -230,50 +503,120 @@ export function HopDong() {
                 gia_tri_qt: giaTriQT,
                 da_thu: daThu,
                 con_phai_thu: giaTriQT - daThu,
+                files: contractFiles,
+                file_status: fileStatus,
                 ngay_update: new Date().toISOString().slice(0, 10),
             });
 
-            // Reload data
-            const rows = await contractService.getAll();
-            const groups = new Map<string, ContractRow[]>();
-            rows.forEach(row => {
-                const key = row.project_name || '(Chưa có tên dự án)';
-                if (!groups.has(key)) groups.set(key, []);
-                groups.get(key)!.push(row);
+            if (!updateResult) {
+                throw new Error('Không thể cập nhật hợp đồng');
+            }
+
+            // Optimistic update - chỉ update contract đã sửa thay vì reload toàn bộ
+            const newProjectName = selectedProject?.ten_du_an || editingContract.duAnId ? 
+                projects.find(p => p.id === validProjectId)?.ten_du_an : 
+                null;
+            
+            setItems(prev => {
+                // Tìm project group cũ và mới
+                const oldProjectGroup = prev.find(p => 
+                    p.contracts.some(c => c.uuid === editingContract.uuid)
+                );
+                const targetProjectName = newProjectName || oldProjectGroup?.projectName || '(Chưa có tên dự án)';
+                
+                // Nếu project không đổi, chỉ update contract
+                if (oldProjectGroup?.projectName === targetProjectName) {
+                    return prev.map(project => ({
+                        ...project,
+                        contracts: project.contracts.map(c => {
+                            if (c.uuid === editingContract.uuid) {
+                                return {
+                                    ...c,
+                                    soHopDong: formData.soHopDong,
+                                    tenGoiThau: formData.tenGoiThau,
+                                    loaiDichVu: formData.loaiDichVu,
+                                    ngayKyHD: formData.ngayKyHD ? new Date(formData.ngayKyHD).toLocaleDateString('vi-VN') : '',
+                                    giaTriHD: giaTriHD,
+                                    giaTriQT: giaTriQT,
+                                    daThu: daThu,
+                                    conPhaiThu: giaTriQT - daThu,
+                                    fileStatus: fileStatus,
+                                    files: contractFiles,
+                                    ngayUpdate: new Date().toLocaleDateString('vi-VN'),
+                                    nhanSuId: formData.nhanSuId || null,
+                                    duAnId: validProjectId || null,
+                                };
+                            }
+                            return c;
+                        })
+                    }));
+                }
+                
+                // Nếu project đổi, di chuyển contract sang project mới
+                const updatedContract: Contract = {
+                    ...(oldProjectGroup?.contracts.find(c => c.uuid === editingContract.uuid) || {} as Contract),
+                    soHopDong: formData.soHopDong,
+                    tenGoiThau: formData.tenGoiThau,
+                    loaiDichVu: formData.loaiDichVu,
+                    ngayKyHD: formData.ngayKyHD ? new Date(formData.ngayKyHD).toLocaleDateString('vi-VN') : '',
+                    giaTriHD: giaTriHD,
+                    giaTriQT: giaTriQT,
+                    daThu: daThu,
+                    conPhaiThu: giaTriQT - daThu,
+                    fileStatus: fileStatus,
+                    files: contractFiles,
+                    ngayUpdate: new Date().toLocaleDateString('vi-VN'),
+                    nhanSuId: formData.nhanSuId || null,
+                    duAnId: validProjectId || null,
+                };
+                
+                // Xóa contract khỏi project cũ và thêm vào project mới
+                let newItems = prev.map(project => ({
+                    ...project,
+                    contracts: project.contracts.filter(c => c.uuid !== editingContract.uuid)
+                })).filter(project => project.contracts.length > 0 || project.projectName === targetProjectName);
+                
+                // Tìm hoặc tạo project group mới
+                const targetProject = newItems.find(p => p.projectName === targetProjectName);
+                if (targetProject) {
+                    newItems = newItems.map(p => 
+                        p.projectName === targetProjectName
+                            ? { ...p, contracts: [...p.contracts, updatedContract] }
+                            : p
+                    );
+                } else {
+                    // Tạo project group mới
+                    const maxId = Math.max(...newItems.map(p => p.id), 0);
+                    newItems.push({
+                        id: maxId + 1,
+                        projectName: targetProjectName,
+                        contracts: [updatedContract]
+                    });
+                }
+                
+                return newItems;
             });
 
-            let idCounter = 1;
-            const projectGroups: ProjectGroup[] = Array.from(groups.entries()).map(([projectName, contracts]) => ({
-                id: idCounter++,
-                projectName,
-                contracts: contracts.map((c, idx) => ({
-                    id: idx + 1,
-                    uuid: c.id,
-                    fileStatus: c.file_status || 'Chưa có file',
-                    ngayKyHD: c.ngay_ky_hd ? new Date(c.ngay_ky_hd).toLocaleDateString('vi-VN') : '',
-                    soHopDong: c.so_hop_dong || '',
-                    tenGoiThau: c.ten_goi_thau || '',
-                    loaiDichVu: c.loai_dich_vu || '',
-                    giaTriHD: Number(c.gia_tri_hd || 0),
-                    giaTriQT: Number(c.gia_tri_qt || 0),
-                    daThu: Number(c.da_thu || 0),
-                    conPhaiThu: Number(c.con_phai_thu || 0),
-                    ngayUpdate: c.ngay_update ? new Date(c.ngay_update).toLocaleDateString('vi-VN') : '',
-                    nhanSuId: c.nhan_su_id || null,
-                    nhanSuTen: c.nhan_su_ten || null,
-                    nhanSuCode: c.nhan_su_code || null,
-                })),
-            }));
-            setItems(projectGroups);
+            // Invalidate cache cho contract này
+            setThuChiCache(prev => {
+                const newCache = new Map(prev);
+                newCache.delete(editingContract.uuid);
+                return newCache;
+            });
 
             setIsEditModalOpen(false);
             setEditingContract(null);
+            setContractFiles([]);
+            setSelectedFileType('File_BBTT');
+            setFileLink('');
             setToast({ message: 'Đã cập nhật hợp đồng thành công!', type: 'success' });
         } catch (error: any) {
             console.error('[HopDong] Error updating contract:', error);
             setToast({ message: error.message || 'Cập nhật hợp đồng thất bại!', type: 'warning' });
+        } finally {
+            setIsSaving(false);
         }
-    };
+    }, [editingContract?.uuid, editingProjectId, formData, contractFiles, projects, isSaving]);
 
     const handleAddClick = () => {
         setFormData({
@@ -283,7 +626,6 @@ export function HopDong() {
             ngayKyHD: '',
             giaTriHD: '',
             giaTriQT: '',
-            daThu: '',
             projectId: projects[0]?.id || '',
             nhanSuId: '',
         });
@@ -296,9 +638,8 @@ export function HopDong() {
             return;
         }
 
-        const giaTriHD = Number(formData.giaTriHD) || 0;
-        const giaTriQT = Number(formData.giaTriQT) || 0;
-        const daThu = Number(formData.daThu) || 0;
+        const giaTriHD = Number((formData.giaTriHD || '').replace(/\./g, '')) || 0;
+        const giaTriQT = Number((formData.giaTriQT || '').replace(/\./g, '')) || 0;
 
         const selectedProject = projects.find(p => p.id === formData.projectId);
 
@@ -314,8 +655,8 @@ export function HopDong() {
                 ngay_ky_hd: formData.ngayKyHD || null,
                 gia_tri_hd: giaTriHD,
                 gia_tri_qt: giaTriQT,
-                da_thu: daThu,
-                con_phai_thu: giaTriQT - daThu,
+                da_thu: 0, // Sẽ được tính tự động từ thu chi
+                con_phai_thu: giaTriQT, // Ban đầu = giá trị quyết toán
                 file_status: 'Chưa có file',
                 ngay_update: new Date().toISOString().slice(0, 10),
             });
@@ -334,14 +675,15 @@ export function HopDong() {
                 id: Date.now(),
                 uuid: created.id, // Lưu UUID thực sự từ database
                 fileStatus: created.file_status || 'Chưa có file',
+                files: created.files || [],
                 ngayKyHD: created.ngay_ky_hd ? new Date(created.ngay_ky_hd).toLocaleDateString('vi-VN') : '',
                 soHopDong: created.so_hop_dong || '',
                 tenGoiThau: created.ten_goi_thau || '',
                 loaiDichVu: created.loai_dich_vu || '',
                 giaTriHD: Number(created.gia_tri_hd || 0),
                 giaTriQT: Number(created.gia_tri_qt || 0),
-                daThu: Number(created.da_thu || 0),
-                conPhaiThu: Number(created.con_phai_thu || 0),
+                daThu: 0, // Sẽ được tính từ thu chi
+                conPhaiThu: Number(created.gia_tri_qt || 0),
                 ngayUpdate: created.ngay_update ? new Date(created.ngay_update).toLocaleDateString('vi-VN') : '',
             };
 
@@ -430,8 +772,37 @@ export function HopDong() {
 
     // Load data from hop_dong table
     useEffect(() => {
+        let isMounted = true;
+        
         (async () => {
+            try {
             const rows = await contractService.getAll();
+                
+                if (!isMounted) return;
+                
+                // Lưu danh sách contracts để filter
+                setAllContracts(rows.map(r => ({
+                    id: r.id,
+                    so_hop_dong: r.so_hop_dong || '',
+                    du_an_id: r.du_an_id || null,
+                    project_name: r.project_name || ''
+                })));
+                
+                // Load tất cả thu chi để tính "Đã thu" và cache
+                const allThuChi = await thuChiService.getAll();
+                
+                if (!isMounted) return;
+                
+                // Cache thu chi data để tránh load lại
+                const thuChiMap = new Map<string, number>();
+                allThuChi.forEach(tc => {
+                    if (tc.hop_dong_id && tc.loai_phieu === 'Phiếu thu') {
+                        const current = thuChiMap.get(tc.hop_dong_id) || 0;
+                        thuChiMap.set(tc.hop_dong_id, current + (tc.so_tien || 0));
+                    }
+                });
+                setThuChiCache(thuChiMap);
+                
             // Group by project_name
             const groups = new Map<string, ContractRow[]>();
             rows.forEach(row => {
@@ -444,23 +815,31 @@ export function HopDong() {
             const projectGroups: ProjectGroup[] = Array.from(groups.entries()).map(([projectName, contracts]) => ({
                 id: idCounter++,
                 projectName,
-                contracts: contracts.map((c, idx) => ({
+                    contracts: contracts.map((c, idx) => {
+                        // Tính "Đã thu" từ cache (đã tính ở trên)
+                        const daThu = thuChiMap.get(c.id) || 0;
+                        const giaTriQT = Number(c.gia_tri_qt || 0);
+                    
+                    return {
                     id: idx + 1,
                     uuid: c.id, // Lưu UUID thực sự từ database
+                        duAnId: c.du_an_id || null,
                     fileStatus: c.file_status || 'Chưa có file',
+                        files: c.files || [],
                     ngayKyHD: c.ngay_ky_hd ? new Date(c.ngay_ky_hd).toLocaleDateString('vi-VN') : '',
                     soHopDong: c.so_hop_dong || '',
                     tenGoiThau: c.ten_goi_thau || '',
                     loaiDichVu: c.loai_dich_vu || '',
                     giaTriHD: Number(c.gia_tri_hd || 0),
-                    giaTriQT: Number(c.gia_tri_qt || 0),
-                    daThu: Number(c.da_thu || 0),
-                    conPhaiThu: Number(c.con_phai_thu || 0),
+                        giaTriQT: giaTriQT,
+                        daThu: daThu,
+                        conPhaiThu: giaTriQT - daThu,
                     ngayUpdate: c.ngay_update ? new Date(c.ngay_update).toLocaleDateString('vi-VN') : '',
                     nhanSuId: c.nhan_su_id || null,
                     nhanSuTen: c.nhan_su_ten || null,
                     nhanSuCode: c.nhan_su_code || null,
-                })),
+                    };
+                }),
             }));
 
             setItems(projectGroups);
@@ -480,7 +859,14 @@ export function HopDong() {
                 })
             );
             setTasksByContract(tasksMap);
+            } catch (error) {
+                console.error('[HopDong] Error loading data:', error);
+            }
         })();
+        
+        return () => {
+            isMounted = false;
+        };
     }, []);
     
     // Calculate progress for a contract
@@ -492,26 +878,87 @@ export function HopDong() {
         return Math.round((completedTasks / contractTasks.length) * 100);
     };
 
-    // Filter by search term and project filter from URL
-    const filteredItems = items
+    // Toggle filter functions
+    const toggleDuAnFilter = (projectId: string) => {
+        setSelectedDuAnIds(prev => {
+            const newSet = new Set(prev);
+            if (newSet.has(projectId)) {
+                newSet.delete(projectId);
+                // Xóa các hợp đồng của dự án này khỏi selectedHopDongIds
+                const contractsToRemove = allContracts
+                    .filter(c => c.du_an_id === projectId)
+                    .map(c => c.id);
+                setSelectedHopDongIds(prevHd => {
+                    const newHdSet = new Set(prevHd);
+                    contractsToRemove.forEach(id => newHdSet.delete(id));
+                    return newHdSet;
+                });
+            } else {
+                newSet.add(projectId);
+            }
+            return newSet;
+        });
+    };
+
+    const toggleHopDongFilter = (contractId: string) => {
+        setSelectedHopDongIds(prev => {
+            const newSet = new Set(prev);
+            if (newSet.has(contractId)) {
+                newSet.delete(contractId);
+            } else {
+                newSet.add(contractId);
+            }
+            return newSet;
+        });
+    };
+
+    // Lấy danh sách hợp đồng có thể filter (chỉ từ các dự án đã chọn)
+    const getFilteredContracts = () => {
+        if (selectedDuAnIds.size === 0) {
+            return allContracts;
+        }
+        return allContracts.filter(c => c.du_an_id && selectedDuAnIds.has(c.du_an_id));
+    };
+
+    // Filter by search term and project filter from URL - Memoized for performance
+    const filteredItems = useMemo(() => {
+        const searchLower = searchTerm.toLowerCase();
+        return items
         .filter(project => {
             // Filter theo project từ URL nếu có
             if (filterProject) {
                 return project.projectName === filterProject;
             }
+                
+                // Filter theo selectedDuAnIds nếu có
+                if (selectedDuAnIds.size > 0) {
+                    const projectId = projects.find(p => p.ten_du_an === project.projectName)?.id;
+                    if (!projectId || !selectedDuAnIds.has(projectId)) {
+                        return false;
+                    }
+                }
+                
             return true;
         })
         .map(project => ({
             ...project,
-            contracts: project.contracts.filter(c =>
-                !searchTerm ||
-                c.soHopDong.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                c.tenGoiThau.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                c.loaiDichVu.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                project.projectName.toLowerCase().includes(searchTerm.toLowerCase())
-            )
-        }))
-        .filter(project => project.contracts.length > 0 || project.projectName.toLowerCase().includes(searchTerm.toLowerCase()));
+                contracts: project.contracts.filter(c => {
+                    // Filter theo search term
+                    const matchesSearch = !searchTerm ||
+                        c.soHopDong.toLowerCase().includes(searchLower) ||
+                        c.tenGoiThau.toLowerCase().includes(searchLower) ||
+                        c.loaiDichVu.toLowerCase().includes(searchLower) ||
+                        project.projectName.toLowerCase().includes(searchLower);
+                    
+                    // Filter theo selectedHopDongIds nếu có
+                    const matchesContractFilter = selectedHopDongIds.size === 0 || 
+                        (c.uuid && selectedHopDongIds.has(c.uuid));
+                    
+                    return matchesSearch && matchesContractFilter;
+                })
+            }))
+            .filter(project => project.contracts.length > 0 || project.projectName.toLowerCase().includes(searchLower));
+    }, [items, filterProject, selectedDuAnIds, selectedHopDongIds, searchTerm, projects]);
 
     return (
         <div className="animate-in fade-in slide-in-from-bottom-4 duration-500 pb-10">
@@ -534,8 +981,10 @@ export function HopDong() {
                     </button>
                 </div>
 
-                {/* Search */}
+                {/* Search and Filters */}
                 <div className="px-6 py-4 border-b border-slate-200 bg-white">
+                    <div className="flex flex-wrap items-center gap-4">
+                        {/* Search */}
                     <div className="relative w-full max-w-[400px]">
                         <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
                             <Search className="h-4 w-4 text-slate-400" />
@@ -547,6 +996,109 @@ export function HopDong() {
                             className="block w-full pl-10 pr-3 py-2 border border-slate-200 rounded-md text-sm bg-white placeholder-slate-400 focus:outline-none focus:ring-1 focus:ring-purple-500 focus:border-purple-500 transition-colors"
                             placeholder="Tìm theo số HĐ, tên gói thầu..."
                         />
+                        </div>
+                        
+                        {/* Filter Panel */}
+                        <div className="flex items-center gap-4 flex-wrap">
+                            {/* Dự án Filter */}
+                            <div className="relative">
+                                <button
+                                    type="button"
+                                    onClick={(e) => {
+                                        e.stopPropagation();
+                                        setOpenFilterDropdown(openFilterDropdown === 'duan' ? null : 'duan');
+                                    }}
+                                    className="flex items-center gap-2 px-3 py-2 border border-slate-200 rounded-md bg-white hover:bg-slate-50 cursor-pointer"
+                                >
+                                    <span className="text-sm text-slate-700 font-medium">Dự án</span>
+                                    {selectedDuAnIds.size > 0 && (
+                                        <span className="px-1.5 py-0.5 bg-purple-100 text-purple-700 rounded text-[10px] font-bold">
+                                            {selectedDuAnIds.size}
+                                        </span>
+                                    )}
+                                    <ChevronDown size={14} className={`text-slate-400 transition-transform ${openFilterDropdown === 'duan' ? 'rotate-180' : ''}`} />
+                                </button>
+                                
+                                {/* Dropdown */}
+                                {openFilterDropdown === 'duan' && (
+                                    <div className="absolute top-full left-0 mt-1 w-64 bg-white border border-slate-200 rounded-lg shadow-lg z-50 max-h-64 overflow-y-auto">
+                                        <div className="p-2">
+                                            {projects.map(project => (
+                                                <label key={project.id} className="flex items-center gap-2 px-3 py-2 hover:bg-slate-50 cursor-pointer rounded">
+                                                    <input
+                                                        type="checkbox"
+                                                        checked={selectedDuAnIds.has(project.id)}
+                                                        onChange={() => toggleDuAnFilter(project.id)}
+                                                        className="w-4 h-4 text-purple-600 border-slate-300 rounded focus:ring-purple-500"
+                                                    />
+                                                    <span className="text-sm text-slate-700 flex-1">{project.ten_du_an}</span>
+                                                </label>
+                                            ))}
+                                            {projects.length === 0 && (
+                                                <div className="px-3 py-2 text-sm text-slate-400 italic">Chưa có dự án</div>
+                                            )}
+                                        </div>
+                                    </div>
+                                )}
+                            </div>
+                            
+                            {/* Hợp đồng Filter */}
+                            <div className="relative">
+                                <button
+                                    type="button"
+                                    onClick={(e) => {
+                                        e.stopPropagation();
+                                        setOpenFilterDropdown(openFilterDropdown === 'hopdong' ? null : 'hopdong');
+                                    }}
+                                    className="flex items-center gap-2 px-3 py-2 border border-slate-200 rounded-md bg-white hover:bg-slate-50 cursor-pointer"
+                                >
+                                    <span className="text-sm text-slate-700 font-medium">Hợp đồng</span>
+                                    {selectedHopDongIds.size > 0 && (
+                                        <span className="px-1.5 py-0.5 bg-purple-100 text-purple-700 rounded text-[10px] font-bold">
+                                            {selectedHopDongIds.size}
+                                        </span>
+                                    )}
+                                    <ChevronDown size={14} className={`text-slate-400 transition-transform ${openFilterDropdown === 'hopdong' ? 'rotate-180' : ''}`} />
+                                </button>
+                                
+                                {/* Dropdown */}
+                                {openFilterDropdown === 'hopdong' && (
+                                    <div className="absolute top-full left-0 mt-1 w-72 bg-white border border-slate-200 rounded-lg shadow-lg z-50 max-h-64 overflow-y-auto">
+                                        <div className="p-2">
+                                            {getFilteredContracts().map(contract => (
+                                                <label key={contract.id} className="flex items-center gap-2 px-3 py-2 hover:bg-slate-50 cursor-pointer rounded">
+                                                    <input
+                                                        type="checkbox"
+                                                        checked={selectedHopDongIds.has(contract.id)}
+                                                        onChange={() => toggleHopDongFilter(contract.id)}
+                                                        className="w-4 h-4 text-purple-600 border-slate-300 rounded focus:ring-purple-500"
+                                                    />
+                                                    <span className="text-sm text-slate-700 flex-1 truncate">{contract.so_hop_dong || contract.id.substring(0, 8)}</span>
+                                                </label>
+                                            ))}
+                                            {getFilteredContracts().length === 0 && (
+                                                <div className="px-3 py-2 text-sm text-slate-400 italic">
+                                                    {selectedDuAnIds.size === 0 ? 'Chọn dự án trước' : 'Không có hợp đồng'}
+                                                </div>
+                                            )}
+                                        </div>
+                                    </div>
+                                )}
+                            </div>
+                            
+                            {/* Clear Filters */}
+                            {(selectedDuAnIds.size > 0 || selectedHopDongIds.size > 0) && (
+                                <button
+                                    onClick={() => {
+                                        setSelectedDuAnIds(new Set());
+                                        setSelectedHopDongIds(new Set());
+                                    }}
+                                    className="px-3 py-2 text-sm text-slate-600 hover:text-slate-800 hover:bg-slate-100 rounded-md transition-colors"
+                                >
+                                    Xóa bộ lọc
+                                </button>
+                            )}
+                        </div>
                     </div>
                 </div>
 
@@ -834,34 +1386,124 @@ export function HopDong() {
 
                             {activeTab === 'documents' && (
                                 <div className="space-y-4 fade-in-up">
+                                    {/* Upload Section */}
+                                    {editingContract && (
+                                        <div className="bg-white border border-slate-200 shadow-sm rounded-xl overflow-hidden">
+                                            <div className="px-4 py-3 border-b border-slate-200 bg-white">
+                                                <h3 className="text-sm font-semibold text-slate-800">Quản lý file</h3>
+                                            </div>
+                                            <div className="px-4 py-4 space-y-3">
+                                                <div className="flex gap-3">
+                                                    <select
+                                                        value={selectedFileType}
+                                                        onChange={(e) => setSelectedFileType(e.target.value)}
+                                                        className="flex-1 px-3 py-2 border border-slate-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent"
+                                                    >
+                                                        {FILE_TYPES.map(type => (
+                                                            <option key={type} value={type}>{type}</option>
+                                                        ))}
+                                                    </select>
+                                                    <input
+                                                        type="url"
+                                                        value={fileLink}
+                                                        onChange={(e) => setFileLink(e.target.value)}
+                                                        placeholder="Nhập link (ví dụ: https://...)"
+                                                        className="flex-1 px-4 py-2 border border-slate-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-transparent"
+                                                    />
+                                                    <button
+                                                        onClick={handleAddLink}
+                                                        disabled={!fileLink.trim()}
+                                                        className="px-4 py-2 bg-purple-600 text-white rounded-lg text-sm font-medium hover:bg-purple-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+                                                    >
+                                                        <LinkIcon size={16} />
+                                                        Thêm link
+                                                    </button>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    )}
+                                    
+                                    {/* Files List */}
                                     <div className="bg-white border border-slate-200 shadow-sm rounded-xl overflow-hidden">
                                         <div className="px-4 py-3 border-b border-slate-200 bg-white flex items-center justify-between">
                                             <div className="flex items-center gap-2">
-                                                <h3 className="text-sm font-semibold text-slate-800">Tài liệu HĐ</h3>
-                                                <span className="px-1.5 py-0.5 bg-slate-100 text-slate-500 rounded text-[10px] font-bold">0</span>
+                                                <h3 className="text-sm font-semibold text-slate-800">Danh sách file</h3>
+                                                <span className="px-1.5 py-0.5 bg-slate-100 text-slate-500 rounded text-[10px] font-bold">
+                                                    {selectedContract?.files?.length || 0}
+                                                </span>
                                             </div>
                                         </div>
-                                        <div className="px-4 py-10 text-center">
-                                            <FolderOpen size={40} className="mx-auto text-slate-300 mb-3" />
-                                            <p className="text-sm text-slate-400 italic">Chưa có tài liệu</p>
-                                            <p className="text-xs text-slate-400 mt-1">Chưa có tài liệu nào được tải lên</p>
+                                        {selectedContract?.files && selectedContract.files.length > 0 ? (
+                                            <div className="divide-y divide-slate-100">
+                                                {selectedContract.files.map((file, index) => (
+                                                    <div key={index} className="px-4 py-3 hover:bg-slate-50 flex items-center justify-between gap-3">
+                                                        <div className="flex items-center gap-3 flex-1 min-w-0">
+                                                            <FileText size={18} className="text-slate-400 flex-shrink-0" />
+                                                            <div className="flex-1 min-w-0">
+                                                                <div className="text-sm font-medium text-slate-800">{file.file_type}</div>
+                                                                <div className="text-xs text-slate-500 truncate">{file.file_name}</div>
+                                                                <a
+                                                                    href={file.file_url}
+                                                                    target="_blank"
+                                                                    rel="noopener noreferrer"
+                                                                    className="text-xs text-blue-600 hover:text-blue-800 hover:underline truncate block mt-1"
+                                                                    onClick={(e) => e.stopPropagation()}
+                                                                >
+                                                                    {file.file_url}
+                                                                </a>
                                         </div>
-                                        <div className="bg-white border-t border-slate-100 px-4 py-3 flex justify-end gap-3">
+                                                        </div>
+                                                        <div className="flex items-center gap-2 flex-shrink-0">
+                                                            <a
+                                                                href={file.file_url}
+                                                                target="_blank"
+                                                                rel="noopener noreferrer"
+                                                                className="px-3 py-1.5 text-sm text-white bg-blue-600 hover:bg-blue-700 rounded-md flex items-center gap-2 transition-colors"
+                                                                title="Mở file"
+                                                            >
+                                                                <ExternalLink size={14} />
+                                                                Mở link
+                                                            </a>
+                                                            {editingContract && (
                                             <button
-                                                onClick={() => setIsAddDocumentModalOpen(true)}
-                                                className="action-btn p-1.5 text-blue-500 hover:text-blue-700 hover:bg-blue-50 rounded-md border border-blue-100"
-                                                title="Thêm tài liệu"
-                                            >
-                                                <Plus size={16} />
+                                                                    onClick={() => handleDeleteFile(file.file_type)}
+                                                                    className="p-1.5 text-red-500 hover:text-red-700 hover:bg-red-50 rounded-md"
+                                                                    title="Xóa file"
+                                                                >
+                                                                    <Trash2 size={16} />
                                             </button>
-                                            <button
-                                                onClick={() => setToast({ message: 'Tính năng mở rộng đang phát triển', type: 'info' })}
-                                                className="action-btn p-1.5 text-blue-500 hover:text-blue-700 hover:bg-blue-50 rounded-md border border-blue-100"
-                                                title="Mở rộng"
-                                            >
-                                                <Maximize2 size={16} />
-                                            </button>
+                                                            )}
                                         </div>
+                                                    </div>
+                                                ))}
+                                            </div>
+                                        ) : (
+                                            <div className="px-4 py-10 text-center">
+                                                <FolderOpen size={40} className="mx-auto text-slate-300 mb-3" />
+                                                <p className="text-sm text-slate-400 italic">Chưa có tài liệu</p>
+                                                <p className="text-xs text-slate-400 mt-1">Chưa có tài liệu nào được tải lên</p>
+                                            </div>
+                                        )}
+                                        
+                                        {/* Missing Files Warning */}
+                                        {selectedContract && (() => {
+                                            // Chỉ tính các file có file_url hợp lệ (không rỗng và không null)
+                                            const uploadedTypes = new Set(
+                                                (selectedContract.files || [])
+                                                    .filter(f => f.file_url && f.file_url.trim() !== '')
+                                                    .map(f => f.file_type)
+                                            );
+                                            const missingFiles = FILE_TYPES.filter(type => !uploadedTypes.has(type));
+                                            if (missingFiles.length > 0) {
+                                                return (
+                                                    <div className="px-4 py-3 bg-amber-50 border-t border-amber-200">
+                                                        <div className="text-xs font-semibold text-amber-800 mb-1">Các file còn thiếu:</div>
+                                                        <div className="text-xs text-amber-700">{missingFiles.join(', ')}</div>
+                                                    </div>
+                                                );
+                                            }
+                                            return null;
+                                        })()}
                                     </div>
                                 </div>
                             )}
@@ -1108,7 +1750,13 @@ export function HopDong() {
                                 {isEditModalOpen ? 'Chỉnh sửa hợp đồng' : 'Thêm hợp đồng mới'}
                             </h2>
                             <button
-                                onClick={() => { setIsAddModalOpen(false); setIsEditModalOpen(false); }}
+                                onClick={() => { 
+                                    setIsAddModalOpen(false); 
+                                    setIsEditModalOpen(false);
+                                    setContractFiles([]);
+                                    setSelectedFileType('File_BBTT');
+                                    setFileLink('');
+                                }}
                                 className="icon-btn p-1.5 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-lg"
                             >
                                 <X size={20} />
@@ -1169,26 +1817,160 @@ export function HopDong() {
                                     />
                                 </div>
                             </div>
-                            <div className="grid grid-cols-3 gap-4">
+                            <div className="grid grid-cols-2 gap-4">
                                 <div>
                                     <label className="block text-sm font-medium text-slate-700 mb-1">Giá trị HĐ</label>
-                                    <input type="number" value={formData.giaTriHD} onChange={(e) => setFormData({ ...formData, giaTriHD: e.target.value })} className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-purple-500" placeholder="0" />
+                                    <input 
+                                        type="text" 
+                                        value={formData.giaTriHD ? (Number(formData.giaTriHD) || 0).toLocaleString('vi-VN') : ''} 
+                                        onChange={(e) => {
+                                            const value = e.target.value.replace(/\./g, '').replace(/[^\d]/g, '');
+                                            setFormData({ ...formData, giaTriHD: value });
+                                        }}
+                                        onBlur={(e) => {
+                                            const value = e.target.value.replace(/\./g, '').replace(/[^\d]/g, '');
+                                            setFormData({ ...formData, giaTriHD: value });
+                                        }}
+                                        className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-purple-500" 
+                                        placeholder="0" 
+                                    />
                                 </div>
                                 <div>
                                     <label className="block text-sm font-medium text-slate-700 mb-1">Giá trị QT</label>
-                                    <input type="number" value={formData.giaTriQT} onChange={(e) => setFormData({ ...formData, giaTriQT: e.target.value })} className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-purple-500" placeholder="0" />
+                                    <input 
+                                        type="text" 
+                                        value={formData.giaTriQT ? (Number(formData.giaTriQT) || 0).toLocaleString('vi-VN') : ''} 
+                                        onChange={(e) => {
+                                            const value = e.target.value.replace(/\./g, '').replace(/[^\d]/g, '');
+                                            setFormData({ ...formData, giaTriQT: value });
+                                        }}
+                                        onBlur={(e) => {
+                                            const value = e.target.value.replace(/\./g, '').replace(/[^\d]/g, '');
+                                            setFormData({ ...formData, giaTriQT: value });
+                                        }}
+                                        className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-purple-500" 
+                                        placeholder="0" 
+                                    />
                                 </div>
-                                <div>
-                                    <label className="block text-sm font-medium text-slate-700 mb-1">Đã thu</label>
-                                    <input type="number" value={formData.daThu} onChange={(e) => setFormData({ ...formData, daThu: e.target.value })} className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-purple-500" placeholder="0" />
                                 </div>
+                            {isEditModalOpen && (
+                                <div className="bg-blue-50 border border-blue-200 rounded-lg px-4 py-3">
+                                    <p className="text-xs text-blue-800">
+                                        <strong>Lưu ý:</strong> Giá trị "Đã thu" sẽ được tự động tính từ các phiếu thu trong phần Thu chi.
+                                    </p>
                             </div>
+                            )}
+                            
+                            {/* File Upload Section - Only show in edit mode */}
+                            {isEditModalOpen && (
+                                <div className="border-t border-slate-200 pt-4 mt-4">
+                                    <label className="block text-sm font-medium text-slate-700 mb-2">Quản lý file</label>
+                                    <div className="space-y-3">
+                                        <div className="flex gap-2">
+                                            <select
+                                                value={selectedFileType}
+                                                onChange={(e) => setSelectedFileType(e.target.value)}
+                                                className="flex-1 px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-1 focus:ring-purple-500"
+                                            >
+                                                {FILE_TYPES.map(type => (
+                                                    <option key={type} value={type}>{type}</option>
+                                                ))}
+                                            </select>
+                                            <input
+                                                type="url"
+                                                value={fileLink}
+                                                onChange={(e) => setFileLink(e.target.value)}
+                                                placeholder="Nhập link (ví dụ: https://...)"
+                                                className="flex-1 px-4 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-1 focus:ring-purple-500"
+                                            />
+                                            <button
+                                                onClick={handleAddLink}
+                                                disabled={!fileLink.trim() || isAddingLink}
+                                                className="px-4 py-2 bg-purple-600 text-white rounded-lg text-sm font-medium hover:bg-purple-700 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+                                            >
+                                                <LinkIcon size={16} />
+                                                {isAddingLink ? 'Đang thêm...' : 'Thêm link'}
+                                            </button>
+                                        </div>
+                                        
+                                        {/* Files List */}
+                                        {contractFiles.length > 0 && (
+                                            <div className="border border-slate-200 rounded-lg divide-y divide-slate-100">
+                                                {contractFiles.map((file, index) => (
+                                                    <div key={index} className="px-3 py-2 flex items-center justify-between hover:bg-slate-50 gap-3">
+                                                        <div className="flex items-center gap-2 flex-1 min-w-0">
+                                                            <FileText size={16} className="text-slate-400 flex-shrink-0" />
+                                                            <div className="flex-1 min-w-0">
+                                                                <div className="text-xs font-medium text-slate-800 truncate">{file.file_type}</div>
+                                                                <div className="text-xs text-slate-500 truncate">{file.file_name}</div>
+                                                                <a
+                                                                    href={file.file_url}
+                                                                    target="_blank"
+                                                                    rel="noopener noreferrer"
+                                                                    className="text-xs text-blue-600 hover:text-blue-800 hover:underline truncate block mt-1"
+                                                                    onClick={(e) => e.stopPropagation()}
+                                                                >
+                                                                    {file.file_url}
+                                                                </a>
+                                                            </div>
+                                                        </div>
+                                                        <div className="flex items-center gap-2 flex-shrink-0">
+                                                            <a
+                                                                href={file.file_url}
+                                                                target="_blank"
+                                                                rel="noopener noreferrer"
+                                                                className="px-2.5 py-1 text-xs text-white bg-blue-600 hover:bg-blue-700 rounded flex items-center gap-1.5 transition-colors"
+                                                                title="Mở file"
+                                                            >
+                                                                <ExternalLink size={12} />
+                                                                Mở link
+                                                            </a>
+                                                            <button
+                                                                onClick={() => handleDeleteFile(file.file_type)}
+                                                                className="p-1 text-red-500 hover:text-red-700 hover:bg-red-50 rounded"
+                                                                title="Xóa file"
+                                                            >
+                                                                <Trash2 size={14} />
+                                                            </button>
+                                                        </div>
+                                                    </div>
+                                                ))}
+                                            </div>
+                                        )}
+                                        
+                                        {/* Missing Files Warning */}
+                                        {(() => {
+                                            const uploadedTypes = new Set(contractFiles.map(f => f.file_type));
+                                            const missingFiles = FILE_TYPES.filter(type => !uploadedTypes.has(type));
+                                            if (missingFiles.length > 0) {
+                                                return (
+                                                    <div className="px-3 py-2 bg-amber-50 border border-amber-200 rounded-lg">
+                                                        <div className="text-xs font-semibold text-amber-800 mb-1">Các file còn thiếu:</div>
+                                                        <div className="text-xs text-amber-700">{missingFiles.join(', ')}</div>
+                                                    </div>
+                                                );
+                                            }
+                                            return null;
+                                        })()}
+                                    </div>
+                                </div>
+                            )}
                         </div>
 
                         <div className="px-6 py-4 border-t border-slate-200 flex justify-end gap-2">
-                            <button onClick={() => { setIsAddModalOpen(false); setIsEditModalOpen(false); }} className="btn-secondary px-4 py-2 bg-white border border-slate-300 rounded-lg text-sm font-medium text-slate-700 hover:bg-slate-50">Hủy</button>
-                            <button onClick={isEditModalOpen ? handleSaveEdit : handleSaveAdd} className="btn-primary ripple px-4 py-2 bg-[#9333EA] border border-[#9333EA] rounded-lg text-sm font-medium text-white hover:bg-purple-700">
-                                {isEditModalOpen ? 'Cập nhật' : 'Thêm'}
+                            <button onClick={() => { 
+                                setIsAddModalOpen(false); 
+                                setIsEditModalOpen(false);
+                                setContractFiles([]);
+                                setSelectedFile(null);
+                                setSelectedFileType('File_BBTT');
+                            }} className="btn-secondary px-4 py-2 bg-white border border-slate-300 rounded-lg text-sm font-medium text-slate-700 hover:bg-slate-50">Hủy</button>
+                            <button 
+                                onClick={isEditModalOpen ? handleSaveEdit : handleSaveAdd} 
+                                disabled={isSaving}
+                                className="btn-primary ripple px-4 py-2 bg-[#9333EA] border border-[#9333EA] rounded-lg text-sm font-medium text-white hover:bg-purple-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                            >
+                                {isSaving ? 'Đang xử lý...' : (isEditModalOpen ? 'Cập nhật' : 'Thêm')}
                             </button>
                         </div>
                     </div>

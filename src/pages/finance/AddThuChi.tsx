@@ -148,7 +148,8 @@ export function AddThuChi() {
             const payload: Partial<ThuChiRow> = {
                 du_an_id: formData.duAnId || null,
                 hop_dong_id: formData.hopDongId || null,
-                nhan_su_id: formData.nhanSuId || null,
+                // Với phiếu thu, nhan_su_id luôn là null
+                nhan_su_id: formData.loaiPhieu === 'Phiếu thu' ? null : (formData.nhanSuId || null),
                 loai_phieu: formData.loaiPhieu,
                 so_tien: formData.soTien,
                 ngay: formData.ngayTienVe,
@@ -223,7 +224,15 @@ export function AddThuChi() {
                         <div className="md:w-2/3 relative flex-1">
                             <select
                                 value={formData.loaiPhieu}
-                                onChange={(e) => setFormData({ ...formData, loaiPhieu: e.target.value })}
+                                onChange={(e) => {
+                                    const newLoaiPhieu = e.target.value;
+                                    // Khi chuyển sang phiếu thu, reset nhanSuId về rỗng
+                                    setFormData({ 
+                                        ...formData, 
+                                        loaiPhieu: newLoaiPhieu,
+                                        nhanSuId: newLoaiPhieu === 'Phiếu thu' ? '' : formData.nhanSuId
+                                    });
+                                }}
                                 className={`w-full px-4 py-2.5 bg-white border border-slate-300 rounded-md appearance-none focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 font-medium ${formData.loaiPhieu === 'Phiếu thu' ? 'text-emerald-500 italic' : 'text-slate-700'}`}
                             >
                                 <option value="Phiếu thu">Phiếu thu</option>
@@ -334,10 +343,12 @@ export function AddThuChi() {
                         </div>
                     </div>
 
-                    {/* Ngày tiền về */}
+                    {/* Ngày thu / Ngày chi */}
                     <div className="flex flex-col md:flex-row md:items-center gap-4 md:gap-8">
                         <div className="md:w-1/3 md:text-right">
-                            <label className="text-sm font-medium text-slate-500">Ngày tiền về</label>
+                            <label className="text-sm font-medium text-slate-500">
+                                {formData.loaiPhieu === 'Phiếu thu' ? 'Ngày thu' : 'Ngày chi'}
+                            </label>
                         </div>
                         <div className="md:w-2/3 relative flex-1">
                             <input
