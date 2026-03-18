@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { addMonths, isBefore, parse, parseISO, startOfDay } from 'date-fns';
 import {
   Search,
   Plus,
@@ -128,6 +129,37 @@ export function HumanResources() {
       default:
         return null;
     }
+  };
+
+  const parseExpiryDate = (value: string): Date | null => {
+    if (!value) return null;
+    try {
+      if (value.includes('/')) {
+        const d = parse(value, 'dd/MM/yyyy', new Date());
+        return Number.isNaN(d.getTime()) ? null : d;
+      }
+      if (value.includes('-')) {
+        const d = parseISO(value);
+        return Number.isNaN(d.getTime()) ? null : d;
+      }
+      return null;
+    } catch {
+      return null;
+    }
+  };
+
+  const isExpiryWithinTwoMonths = (expiryValue: string): boolean => {
+    const expiry = parseExpiryDate(expiryValue);
+    if (!expiry) return false;
+    const today = startOfDay(new Date());
+    const threshold = addMonths(today, 2);
+    return isBefore(startOfDay(expiry), threshold) || startOfDay(expiry).getTime() === threshold.getTime();
+  };
+
+  const formatExpiryDate = (value: string): string => {
+    const d = parseExpiryDate(value);
+    if (!d) return '(Trống)';
+    return d.toLocaleDateString('vi-VN');
   };
 
   // Filter employees locally or use search API
@@ -585,6 +617,69 @@ export function HumanResources() {
               {/* Tab Content: Thông tin nhân viên */}
               {activeTab === 'employee' && (
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                  {/* Ảnh nhân viên */}
+                  <div className="md:col-span-2">
+                    <div className="rounded-xl border border-slate-200 bg-gradient-to-r from-slate-50 to-white p-4 flex flex-col sm:flex-row sm:items-center gap-4">
+                      {(() => {
+                        const fullName =
+                          (viewingEmployee as any).full_name ||
+                          viewingEmployee.full_name ||
+                          viewingEmployee.name ||
+                          viewingEmployee.hoTen ||
+                          'NV';
+                        const avatarUrl =
+                          (viewingEmployee as any).anh_nhan_su ||
+                          (viewingEmployee as any).avatar_url ||
+                          (viewingEmployee as any).photo_url ||
+                          (viewingEmployee as any).image_url ||
+                          (viewingEmployee as any).anh_url ||
+                          (viewingEmployee as any).anh ||
+                          null;
+                        const fallbackUrl =
+                          'https://ui-avatars.com/api/?background=0f172a&color=ffffff&size=256&name=' +
+                          encodeURIComponent(fullName);
+
+                        return (
+                          <>
+                            <div className="flex items-center gap-4">
+                              <div className="relative w-24 h-24 sm:w-28 sm:h-28 rounded-full overflow-hidden border-4 border-white shadow-md bg-slate-100">
+                                <img
+                                  src={(avatarUrl && String(avatarUrl).trim() !== '') ? String(avatarUrl) : fallbackUrl}
+                                  alt={`Ảnh nhân viên ${fullName}`}
+                                  className="w-full h-full object-cover"
+                                  onError={(e) => {
+                                    (e.target as HTMLImageElement).src = fallbackUrl;
+                                  }}
+                                />
+                              </div>
+                              <div className="min-w-0">
+                                <div className="text-xs font-medium text-slate-500 uppercase tracking-wide">
+                                  Ảnh chuyên nghiệp
+                                </div>
+                                <div className="text-base sm:text-lg font-bold text-slate-900 truncate">
+                                  {fullName}
+                                </div>
+                                <div className="text-sm text-slate-600 truncate">
+                                  {(viewingEmployee as any).chuc_vu || viewingEmployee.chucVu || viewingEmployee.position || '(Chưa có chức vụ)'}
+                                  {' · '}
+                                  {(viewingEmployee as any).phong_ban || viewingEmployee.phongBan || viewingEmployee.department || '(Chưa có phòng ban)'}
+                                </div>
+                              </div>
+                            </div>
+
+                            <div className="sm:ml-auto flex items-center gap-2">
+                              <span className="text-xs text-slate-500">
+                                {(viewingEmployee as any).code || viewingEmployee.code || '(Chưa có mã)'}
+                              </span>
+                              <span className="h-4 w-px bg-slate-200" />
+                              <div className="text-xs">{getStatusBadge(viewingEmployee.status || 'active')}</div>
+                            </div>
+                          </>
+                        );
+                      })()}
+                    </div>
+                  </div>
+
                   {/* Thông tin cơ bản */}
                   <div className="space-y-4">
                     <h4 className="text-sm font-semibold text-slate-700 uppercase tracking-wide border-b border-slate-200 pb-2">
@@ -787,8 +882,8 @@ export function HumanResources() {
                               <td className="p-3 text-slate-700">{cert.tenFileLuu || '(Trống)'}</td>
                               <td className="p-3 text-slate-700">{cert.cchn || '(Trống)'}</td>
                               <td className="p-3 text-slate-700">{cert.hangCCHN || '(Trống)'}</td>
-                              <td className="p-3 text-slate-700">
-                                {cert.ngayHetHanCC ? new Date(cert.ngayHetHanCC).toLocaleDateString('vi-VN') : '(Trống)'}
+                              <td className={`p-3 ${isExpiryWithinTwoMonths(cert.ngayHetHanCC) ? 'text-red-600 font-semibold' : 'text-slate-700'}`}>
+                                {formatExpiryDate(cert.ngayHetHanCC)}
                               </td>
                               <td className="p-3 text-slate-700">{cert.ghiChu || '(Trống)'}</td>
                               <td className="p-3 text-slate-700">
@@ -984,14 +1079,29 @@ export function HumanResources() {
                                 <FileText size={16} />
                                 {project.ten_du_an || '(Chưa có tên dự án)'}
                               </h5>
-                              <span className={`px-2 py-1 rounded text-xs font-medium ${
-                                isManager && isExecutor ? 'bg-purple-100 text-purple-700' :
-                                isManager ? 'bg-blue-100 text-blue-700' :
-                                isExecutor ? 'bg-emerald-100 text-emerald-700' :
-                                'bg-slate-100 text-slate-700'
-                              }`}>
-                                {role}
-                              </span>
+                              <div className="flex items-center gap-2">
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setShowViewModal(false);
+                                    navigate('/khach-hang/du-an', {
+                                      state: { projectId: project?.id ?? projectId }
+                                    });
+                                  }}
+                                  className="action-btn p-1.5 rounded-md border border-slate-200 bg-white text-slate-700 hover:bg-slate-100"
+                                  title="Xem dự án"
+                                >
+                                  <Eye size={16} />
+                                </button>
+                                <span className={`px-2 py-1 rounded text-xs font-medium ${
+                                  isManager && isExecutor ? 'bg-purple-100 text-purple-700' :
+                                  isManager ? 'bg-blue-100 text-blue-700' :
+                                  isExecutor ? 'bg-emerald-100 text-emerald-700' :
+                                  'bg-slate-100 text-slate-700'
+                                }`}>
+                                  {role}
+                                </span>
+                              </div>
                             </div>
                           </div>
                           <div className="overflow-x-auto">

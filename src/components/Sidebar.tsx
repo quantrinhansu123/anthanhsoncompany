@@ -7,7 +7,8 @@ import {
   UserCircle,
   GitBranch,
   PanelLeftClose,
-  PanelLeftOpen
+  PanelLeftOpen,
+  LogOut
 } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { useSettings } from '../contexts/SettingsContext';
@@ -22,11 +23,11 @@ export function Sidebar({ isOpen, toggleSidebar, isMobile = false }: SidebarProp
   const { t, logoUrl } = useSettings();
 
   const navItems = [
-    { icon: LayoutDashboard, label: t('nav.home'), path: '/' },
-    { icon: Users, label: t('nav.adminHr'), path: '/hanh-chinh' },
-    { icon: Calculator, label: t('nav.accounting'), path: '/tai-chinh' },
-    { icon: UserCircle, label: t('nav.customer'), path: '/khach-hang' },
-    { icon: GitBranch, label: t('nav.process'), path: '/quy-trinh' },
+    { icon: LayoutDashboard, label: t('nav.home'), path: '/', colorClass: 'text-blue-700' },
+    { icon: Users, label: t('nav.adminHr'), path: '/hanh-chinh', colorClass: 'text-purple-500' },
+    { icon: Calculator, label: t('nav.accounting'), path: '/tai-chinh', colorClass: 'text-green-500' },
+    { icon: UserCircle, label: t('nav.customer'), path: '/khach-hang', colorClass: 'text-amber-500' },
+    { icon: GitBranch, label: t('nav.process'), path: '/quy-trinh', colorClass: 'text-slate-600' },
   ];
 
   return (
@@ -73,18 +74,22 @@ export function Sidebar({ isOpen, toggleSidebar, isMobile = false }: SidebarProp
                 toggleSidebar();
               }
             }}
-            className={({ isActive }) => cn(
-              "flex items-center gap-3 px-3 py-2.5 rounded-lg transition-colors group relative",
-              isActive
-                ? "bg-red-50 text-red-600 font-medium"
-                : "text-slate-600 hover:bg-slate-50 hover:text-slate-900"
-            )}
+            className={({ isActive }) =>
+              cn(
+                "flex items-center gap-3 px-3 py-2.5 rounded-lg transition-colors group relative",
+                isActive
+                  ? "bg-blue-50 text-blue-700 font-medium"
+                  : "text-slate-600 hover:bg-slate-50 hover:text-slate-900"
+              )
+            }
           >
             {({ isActive }) => (
               <>
                 <div className={cn(
                   "w-8 h-8 flex items-center justify-center rounded-md shrink-0 transition-colors",
-                  isActive ? "bg-red-600 text-white" : "text-slate-500 group-hover:text-slate-700"
+                  isActive
+                    ? "bg-blue-600 text-white"
+                    : cn(item.colorClass, "group-hover:text-slate-900")
                 )}>
                   <item.icon size={18} />
                 </div>
@@ -100,6 +105,35 @@ export function Sidebar({ isOpen, toggleSidebar, isMobile = false }: SidebarProp
             )}
           </NavLink>
         ))}
+      </div>
+
+      {/* User info + logout, luôn ở cuối sidebar */}
+      <div className="border-t border-slate-100 px-3 py-3">
+        <div className="flex items-center gap-3 rounded-lg px-2 py-2">
+          <div className="flex h-9 w-9 items-center justify-center rounded-full bg-blue-800 text-xs font-semibold text-white shrink-0">
+            AD
+          </div>
+          {(isOpen || isMobile) && (
+            <div className="flex min-w-0 flex-col">
+              <span className="truncate text-xs font-semibold text-slate-900">
+                Admin
+              </span>
+              <span className="truncate text-[11px] text-slate-500">
+                admin@company.com
+              </span>
+            </div>
+          )}
+        </div>
+
+        {(isOpen || isMobile) && (
+          <button
+            type="button"
+            className="mt-2 flex w-full items-center justify-center gap-2 rounded-md bg-red-100 py-2 text-xs font-semibold text-red-600"
+          >
+            <LogOut className="h-4 w-4" />
+            <span>Thoát</span>
+          </button>
+        )}
       </div>
 
       {!isOpen && !isMobile && (

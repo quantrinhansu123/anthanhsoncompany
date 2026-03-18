@@ -20,6 +20,7 @@ import {
     Filter,
     Bookmark,
     Briefcase,
+    FileText,
     ChevronDown,
     Calendar
 } from 'lucide-react';
@@ -28,6 +29,7 @@ import { thuChiService, ThuChiRow } from '../../lib/services/thuChiService';
 import { projectService } from '../../lib/services/projectService';
 import { contractService } from '../../lib/services/contractService';
 import { employeeService } from '../../lib/services/employeeService';
+import { customerService, type Customer } from '../../lib/services/customerService';
 
 interface ToastProps {
     message: string;
@@ -68,11 +70,13 @@ export function ThuChi() {
     const [searchTerm, setSearchTerm] = useState('');
     const [currentPage, setCurrentPage] = useState(1);
     const [activeTab, setActiveTab] = useState<'thu' | 'chi'>('thu'); // Tab mặc định: Phiếu thu
-    const [projects, setProjects] = useState<Array<{ id: string; ten_du_an: string }>>([]);
-    const [contracts, setContracts] = useState<Array<{ id: string; so_hop_dong: string | null; du_an_id: string | null }>>([]);
+    const [customers, setCustomers] = useState<Array<Pick<Customer, 'id' | 'ten_don_vi'>>>([]);
+    const [projects, setProjects] = useState<Array<{ id: string; ten_du_an: string; customer_id: string | null; customer_name: string | null }>>([]);
+    const [contracts, setContracts] = useState<Array<{ id: string; so_hop_dong: string | null; du_an_id: string | null; customer_id: string | null; customer_name: string | null }>>([]);
     const [employees, setEmployees] = useState<Array<{ id: string; full_name: string; code: string }>>([]);
     
     // Filter states - sử dụng mảng để có thể chọn nhiều
+    const [selectedCustomerIds, setSelectedCustomerIds] = useState<string[]>([]);
     const [selectedDuAnIds, setSelectedDuAnIds] = useState<string[]>([]);
     const [selectedHopDongIds, setSelectedHopDongIds] = useState<string[]>([]);
     const [selectedNhanSuIds, setSelectedNhanSuIds] = useState<string[]>([]);
@@ -112,14 +116,24 @@ export function ThuChi() {
     useEffect(() => {
         (async () => {
             try {
+                const customerList = await customerService.getAll();
+                setCustomers((customerList || []).map((c: any) => ({ id: c.id, ten_don_vi: c.ten_don_vi })));
+
                 const projectList = await projectService.getAll();
-                setProjects(projectList.map(p => ({ id: p.id, ten_du_an: p.ten_du_an })));
+                setProjects(projectList.map((p: any) => ({
+                    id: p.id,
+                    ten_du_an: p.ten_du_an,
+                    customer_id: p.customer_id || null,
+                    customer_name: p.customer_name || p.ten_khach_hang || null
+                })));
                 
                 const contractList = await contractService.getAll();
-                setContracts(contractList.map(c => ({ 
+                setContracts(contractList.map((c: any) => ({ 
                     id: c.id, 
                     so_hop_dong: c.so_hop_dong, 
-                    du_an_id: c.du_an_id || null 
+                    du_an_id: c.du_an_id || null,
+                    customer_id: c.customer_id || null,
+                    customer_name: c.customer_name || null
                 })));
                 
                 const employeeList = await employeeService.getAll();
@@ -137,7 +151,7 @@ export function ThuChi() {
     // Load data from database
     useEffect(() => {
         loadRecords();
-    }, [selectedDuAnIds, selectedHopDongIds, selectedNhanSuIds, dateFrom, dateTo, quickDateFilter, selectedMonth]);
+    }, [selectedCustomerIds, selectedDuAnIds, selectedHopDongIds, selectedNhanSuIds, dateFrom, dateTo, quickDateFilter, selectedMonth]);
 
     const loadRecords = async () => {
         try {
@@ -146,6 +160,11 @@ export function ThuChi() {
             const data = await thuChiService.getAll();
             
             // Map data để hiển thị
+            const projectInfoMap = new Map<string, { ten_du_an: string | null; customer_id: string | null; customer_name: string | null }>();
+            projects.forEach(p => {
+                projectInfoMap.set(p.id, { ten_du_an: p.ten_du_an || null, customer_id: p.customer_id || null, customer_name: p.customer_name || null });
+            });
+
             const mappedData = data.map(item => ({
                 ...item,
                 code: item.id.substring(0, 8).toUpperCase(), // Mã chứng từ từ ID
@@ -155,7 +174,9 @@ export function ThuChi() {
                 amount: new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND' }).format(item.so_tien),
                 description: item.noi_dung || '',
                 person: item.nguoi_nhan || 'Ngân hàng / Đối tác',
-                ten_du_an: item.ten_du_an || '(Chưa có dự án)',
+                ten_du_an: item.ten_du_an || projectInfoMap.get(item.du_an_id || '')?.ten_du_an || '(Chưa có dự án)',
+                customer_id: projectInfoMap.get(item.du_an_id || '')?.customer_id || null,
+                customer_name: projectInfoMap.get(item.du_an_id || '')?.customer_name || null,
                 nhan_su_display: item.nhan_su_ten ? (item.nhan_su_code ? `[${item.nhan_su_code}] ${item.nhan_su_ten}` : item.nhan_su_ten) : null
             }));
             setItems(mappedData);
@@ -191,7 +212,9 @@ export function ThuChi() {
     };
 
     const handleAddClick = () => {
-        navigate('/tai-chinh/thu-chi/them');
+        // Mặc định theo tab đang chọn: tab Phiếu thu tạo phiếu thu, tab Phiếu chi tạo phiếu chi
+        const typeParam = activeTab === 'thu' ? 'thu' : 'chi';
+        navigate(`/tai-chinh/thu-chi/them?type=${typeParam}`);
     };
 
     const handleEditClick = (item: ThuChiRow) => {
@@ -237,6 +260,14 @@ export function ThuChi() {
 
     const isSelected = (id: string | number) => selectedIds.includes(id);
 
+    const toggleCustomerFilter = (id: string) => {
+        setSelectedCustomerIds(prev => {
+            const newIds = prev.includes(id) ? prev.filter(i => i !== id) : [...prev, id];
+            // Khi bỏ chọn khách hàng, không cần ép các filter khác; UX ưu tiên giữ lựa chọn hiện tại
+            return newIds;
+        });
+    };
+
     // Filter handlers
     const toggleDuAnFilter = (id: string) => {
         setSelectedDuAnIds(prev => {
@@ -266,14 +297,24 @@ export function ThuChi() {
         );
     };
 
+    // Lấy danh sách dự án theo khách hàng đã chọn
+    const getFilteredProjects = () => {
+        if (selectedCustomerIds.length === 0) return projects;
+        return projects.filter(p => p.customer_id && selectedCustomerIds.includes(p.customer_id));
+    };
+
     // Lấy danh sách hợp đồng theo dự án đã chọn
     const getFilteredContracts = () => {
-        if (selectedDuAnIds.length === 0) {
-            return [];
+        // Ưu tiên lọc theo dự án nếu có
+        if (selectedDuAnIds.length > 0) {
+            return contracts.filter(c => c.du_an_id && selectedDuAnIds.includes(c.du_an_id));
         }
-        return contracts.filter(c => 
-            c.du_an_id && selectedDuAnIds.includes(c.du_an_id)
-        );
+        // Nếu chưa chọn dự án nhưng có chọn khách hàng, lọc theo khách hàng
+        if (selectedCustomerIds.length > 0) {
+            return contracts.filter(c => c.customer_id && selectedCustomerIds.includes(c.customer_id));
+        }
+        // Không chọn gì: trả về toàn bộ hợp đồng (có thể dài, nhưng vẫn hữu ích)
+        return contracts;
     };
 
     // Xử lý quick date filter
@@ -335,6 +376,10 @@ export function ThuChi() {
         const matchesSearch = !searchTerm || 
             item.code?.toLowerCase().includes(searchTerm.toLowerCase()) ||
             item.description?.toLowerCase().includes(searchTerm.toLowerCase());
+
+        // Filter theo khách hàng
+        const matchesCustomer = selectedCustomerIds.length === 0 ||
+            ((item as any).customer_id && selectedCustomerIds.includes((item as any).customer_id));
         
         // Filter theo dự án
         const matchesDuAn = selectedDuAnIds.length === 0 || 
@@ -360,7 +405,7 @@ export function ThuChi() {
             }
         }
         
-        return matchesTab && matchesSearch && matchesDuAn && matchesHopDong && matchesNhanSu && matchesDate;
+        return matchesTab && matchesSearch && matchesCustomer && matchesDuAn && matchesHopDong && matchesNhanSu && matchesDate;
     });
 
     // Tính tổng số tiền theo các bộ lọc
@@ -480,6 +525,66 @@ export function ThuChi() {
                                     <button 
                                         onClick={(e) => {
                                             e.stopPropagation();
+                                            setOpenColumnFilter(openColumnFilter === 'topCustomer' ? null : 'topCustomer');
+                                        }}
+                                        className={`flex items-center gap-2 px-3 py-1.5 text-sm rounded-md whitespace-nowrap ${
+                                            selectedCustomerIds.length > 0
+                                                ? 'bg-blue-600 text-white border border-blue-600'
+                                                : 'text-slate-600 bg-white border border-slate-200 hover:bg-slate-50'
+                                        }`}
+                                    >
+                                        <Filter size={14} className={selectedCustomerIds.length > 0 ? 'text-white' : 'text-slate-400'} />
+                                        Khách hàng
+                                        {selectedCustomerIds.length > 0 && (
+                                            <span className="bg-white text-blue-600 rounded-full px-1.5 py-0.5 text-xs font-bold">
+                                                {selectedCustomerIds.length}
+                                            </span>
+                                        )}
+                                        <ChevronDown size={14} className={selectedCustomerIds.length > 0 ? 'text-white' : 'text-slate-400'} />
+                                    </button>
+                                    {openColumnFilter === 'topCustomer' && (
+                                        <div 
+                                            className="absolute top-full left-0 mt-1 bg-white border border-slate-200 rounded-lg shadow-lg z-20 min-w-[260px] max-h-60 overflow-y-auto"
+                                            onClick={(e) => e.stopPropagation()}
+                                        >
+                                            <div className="p-2">
+                                                <div className="space-y-1">
+                                                    <label className="flex items-center gap-2 cursor-pointer hover:bg-slate-50 p-1 rounded">
+                                                        <input 
+                                                            type="checkbox" 
+                                                            checked={selectedCustomerIds.length === customers.length && customers.length > 0}
+                                                            onChange={() => {
+                                                                if (selectedCustomerIds.length === customers.length) {
+                                                                    setSelectedCustomerIds([]);
+                                                                } else {
+                                                                    setSelectedCustomerIds(customers.map(c => c.id));
+                                                                }
+                                                            }}
+                                                            className="w-3 h-3 text-blue-600 border-slate-300 rounded" 
+                                                        />
+                                                        <span className="text-xs">Chọn tất cả</span>
+                                                    </label>
+                                                    <div className="border-t border-slate-200 my-1"></div>
+                                                    {customers.map(cus => (
+                                                        <label key={cus.id} className="flex items-center gap-2 cursor-pointer hover:bg-slate-50 p-1 rounded">
+                                                            <input
+                                                                type="checkbox"
+                                                                checked={selectedCustomerIds.includes(cus.id)}
+                                                                onChange={() => toggleCustomerFilter(cus.id)}
+                                                                className="w-3 h-3 text-blue-600 border-slate-300 rounded"
+                                                            />
+                                                            <span className="text-xs">{cus.ten_don_vi}</span>
+                                                        </label>
+                                                    ))}
+                                                </div>
+                                            </div>
+                                        </div>
+                                    )}
+                                </div>
+                                <div className="relative">
+                                    <button 
+                                        onClick={(e) => {
+                                            e.stopPropagation();
                                             setOpenColumnFilter(openColumnFilter === 'topProject' ? null : 'topProject');
                                         }}
                                         className={`flex items-center gap-2 px-3 py-1.5 text-sm rounded-md whitespace-nowrap ${
@@ -512,12 +617,12 @@ export function ThuChi() {
                                                     <label className="flex items-center gap-2 cursor-pointer hover:bg-slate-50 p-1 rounded">
                                                         <input 
                                                             type="checkbox" 
-                                                            checked={selectedDuAnIds.length === projects.length && projects.length > 0}
+                                                            checked={selectedDuAnIds.length === getFilteredProjects().length && getFilteredProjects().length > 0}
                                                             onChange={() => {
-                                                                if (selectedDuAnIds.length === projects.length) {
+                                                                if (selectedDuAnIds.length === getFilteredProjects().length) {
                                                                     setSelectedDuAnIds([]);
                                                                 } else {
-                                                                    setSelectedDuAnIds(projects.map(p => p.id));
+                                                                    setSelectedDuAnIds(getFilteredProjects().map(p => p.id));
                                                                 }
                                                             }}
                                                             className="w-3 h-3 text-blue-600 border-slate-300 rounded" 
@@ -525,7 +630,7 @@ export function ThuChi() {
                                                         <span className="text-xs">Chọn tất cả</span>
                                                     </label>
                                                     <div className="border-t border-slate-200 my-1"></div>
-                                                    {projects.map(proj => (
+                                                    {getFilteredProjects().map(proj => (
                                                         <label key={proj.id} className="flex items-center gap-2 cursor-pointer hover:bg-slate-50 p-1 rounded">
                                                             <input
                                                                 type="checkbox"
@@ -534,6 +639,66 @@ export function ThuChi() {
                                                                 className="w-3 h-3 text-blue-600 border-slate-300 rounded"
                                                             />
                                                             <span className="text-xs">{proj.ten_du_an}</span>
+                                                        </label>
+                                                    ))}
+                                                </div>
+                                            </div>
+                                        </div>
+                                    )}
+                                </div>
+                                <div className="relative">
+                                    <button 
+                                        onClick={(e) => {
+                                            e.stopPropagation();
+                                            setOpenColumnFilter(openColumnFilter === 'topContract' ? null : 'topContract');
+                                        }}
+                                        className={`flex items-center gap-2 px-3 py-1.5 text-sm rounded-md whitespace-nowrap ${
+                                            selectedHopDongIds.length > 0
+                                                ? 'bg-blue-600 text-white border border-blue-600'
+                                                : 'text-slate-600 bg-white border border-slate-200 hover:bg-slate-50'
+                                        }`}
+                                    >
+                                        <FileText size={14} className={selectedHopDongIds.length > 0 ? 'text-white' : 'text-slate-400'} />
+                                        Hợp đồng
+                                        {selectedHopDongIds.length > 0 && (
+                                            <span className="bg-white text-blue-600 rounded-full px-1.5 py-0.5 text-xs font-bold">
+                                                {selectedHopDongIds.length}
+                                            </span>
+                                        )}
+                                        <ChevronDown size={14} className={selectedHopDongIds.length > 0 ? 'text-white' : 'text-slate-400'} />
+                                    </button>
+                                    {openColumnFilter === 'topContract' && (
+                                        <div 
+                                            className="absolute top-full left-0 mt-1 bg-white border border-slate-200 rounded-lg shadow-lg z-20 min-w-[260px] max-h-60 overflow-y-auto"
+                                            onClick={(e) => e.stopPropagation()}
+                                        >
+                                            <div className="p-2">
+                                                <div className="space-y-1">
+                                                    <label className="flex items-center gap-2 cursor-pointer hover:bg-slate-50 p-1 rounded">
+                                                        <input 
+                                                            type="checkbox" 
+                                                            checked={selectedHopDongIds.length === getFilteredContracts().length && getFilteredContracts().length > 0}
+                                                            onChange={() => {
+                                                                if (selectedHopDongIds.length === getFilteredContracts().length) {
+                                                                    setSelectedHopDongIds([]);
+                                                                } else {
+                                                                    setSelectedHopDongIds(getFilteredContracts().map(c => c.id));
+                                                                }
+                                                            }}
+                                                            className="w-3 h-3 text-blue-600 border-slate-300 rounded" 
+                                                        />
+                                                        <span className="text-xs">Chọn tất cả</span>
+                                                    </label>
+                                                    <div className="border-t border-slate-200 my-1"></div>
+                                                    {getFilteredContracts().map(ct => (
+                                                        <label key={ct.id} className="flex items-center gap-2 cursor-pointer hover:bg-slate-50 p-1 rounded">
+                                                            <input
+                                                                type="checkbox"
+                                                                checked={selectedHopDongIds.includes(ct.id)}
+                                                                onChange={() => toggleHopDongFilter(ct.id)}
+                                                                className="w-3 h-3 text-blue-600 border-slate-300 rounded"
+                                                            />
+                                                            <span className="text-xs">{ct.so_hop_dong || '(Trống)'}</span>
                                                         </label>
                                                     ))}
                                                 </div>
@@ -613,7 +778,7 @@ export function ThuChi() {
                                 className="flex items-center gap-2 px-4 py-2 text-sm font-bold text-white bg-blue-600 hover:bg-blue-700 rounded-md transition-colors shadow-sm ripple"
                             >
                                 <Plus size={18} />
-                                Thêm phiếu
+                                {activeTab === 'thu' ? 'Thêm phiếu thu mới' : 'Thêm phiếu chi mới'}
                             </button>
                         </div>
 
@@ -691,17 +856,31 @@ export function ThuChi() {
 
                         {/* Tổng số tiền */}
                         <div className="px-4 md:px-6 py-3">
-                            <div className="flex items-center justify-between bg-blue-50 border border-blue-200 rounded-lg px-4 py-3">
-                                <div className="flex items-center gap-2">
-                                    <span className="text-sm font-bold text-slate-700 uppercase">
-                                        Tổng số tiền ({activeTab === 'thu' ? 'Phiếu thu' : 'Phiếu chi'}):
-                                    </span>
-                                    <span className={`text-lg font-bold ${activeTab === 'thu' ? 'text-emerald-600' : 'text-red-600'}`}>
-                                        {formattedTotalAmount}
-                                    </span>
-                                </div>
-                                <div className="text-xs text-slate-500">
-                                    {filteredItems.length} phiếu
+                            <div className="bg-gradient-to-r from-slate-900 to-slate-800 rounded-2xl px-5 py-5 shadow-lg border border-slate-700/40">
+                                <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
+                                    <div>
+                                        <div className="text-xs font-bold text-slate-300 uppercase tracking-wide">
+                                            Tổng số tiền ({activeTab === 'thu' ? 'Phiếu thu' : 'Phiếu chi'})
+                                        </div>
+                                        <div className={`mt-1 text-2xl md:text-3xl font-extrabold ${activeTab === 'thu' ? 'text-emerald-300' : 'text-rose-300'}`}>
+                                            {formattedTotalAmount}
+                                        </div>
+                                    </div>
+                                    <div className="flex items-center gap-2 text-sm text-slate-300">
+                                        <span className="px-3 py-1 rounded-full bg-white/10 border border-white/10 font-semibold">
+                                            {filteredItems.length} phiếu
+                                        </span>
+                                        {selectedCustomerIds.length > 0 && (
+                                            <span className="px-3 py-1 rounded-full bg-white/10 border border-white/10">
+                                                {selectedCustomerIds.length} khách hàng
+                                            </span>
+                                        )}
+                                        {selectedHopDongIds.length > 0 && (
+                                            <span className="px-3 py-1 rounded-full bg-white/10 border border-white/10">
+                                                {selectedHopDongIds.length} hợp đồng
+                                            </span>
+                                        )}
+                                    </div>
                                 </div>
                             </div>
                         </div>
@@ -849,52 +1028,6 @@ export function ThuChi() {
                                             )}
                                         </th>
                                         <th className="p-4 whitespace-nowrap">Người nộp/nhận</th>
-                                        <th className="p-4 whitespace-nowrap relative">
-                                            <div className="flex items-center justify-between gap-2">
-                                                <span>Nhân sự</span>
-                                                <button
-                                                    onClick={(e) => {
-                                                        e.stopPropagation();
-                                                        setOpenColumnFilter(openColumnFilter === 'employee' ? null : 'employee');
-                                                    }}
-                                                    className="p-1 hover:bg-slate-200 rounded"
-                                                >
-                                                    <Filter size={14} className="text-slate-400" />
-                                                </button>
-                                            </div>
-                                            {openColumnFilter === 'employee' && (
-                                                <div 
-                                                    className="absolute top-full left-0 mt-1 bg-white border border-slate-200 rounded-lg shadow-lg z-10 min-w-[250px] max-h-60 overflow-y-auto"
-                                                    onClick={(e) => e.stopPropagation()}
-                                                >
-                                                    <div className="p-2">
-                                                        <input
-                                                            type="text"
-                                                            placeholder="Tìm kiếm..."
-                                                            className="w-full px-2 py-1 text-xs border border-slate-200 rounded mb-2 focus:outline-none focus:ring-1 focus:ring-blue-500"
-                                                        />
-                                                        <div className="space-y-1">
-                                                            <label className="flex items-center gap-2 cursor-pointer hover:bg-slate-50 p-1 rounded">
-                                                                <input type="checkbox" className="w-3 h-3 text-blue-600 border-slate-300 rounded" />
-                                                                <span className="text-xs">Chọn tất cả</span>
-                                                            </label>
-                                                            <div className="border-t border-slate-200 my-1"></div>
-                                                            {employees.map(emp => (
-                                                                <label key={emp.id} className="flex items-center gap-2 cursor-pointer hover:bg-slate-50 p-1 rounded">
-                                                                    <input
-                                                                        type="checkbox"
-                                                                        checked={selectedNhanSuIds.includes(emp.id)}
-                                                                        onChange={() => toggleNhanSuFilter(emp.id)}
-                                                                        className="w-3 h-3 text-blue-600 border-slate-300 rounded"
-                                                                    />
-                                                                    <span className="text-xs">{emp.code ? `[${emp.code}] ` : ''}{emp.full_name}</span>
-                                                                </label>
-                                                            ))}
-                                                        </div>
-                                                    </div>
-                                                </div>
-                                            )}
-                                        </th>
                                         <th className="p-4 whitespace-nowrap">Ảnh</th>
                                         <th className="p-4 whitespace-nowrap text-center">Hành động</th>
                                     </tr>
@@ -938,9 +1071,6 @@ export function ThuChi() {
                                                 </td>
                                                 <td className="p-4 text-slate-600">
                                                     {item.person || '(Trống)'}
-                                                </td>
-                                                <td className="p-4 text-slate-600 text-sm">
-                                                    {item.nhan_su_display || '(Trống)'}
                                                 </td>
                                                 <td className="p-4">
                                                     {item.anh_url ? (
@@ -986,7 +1116,7 @@ export function ThuChi() {
                                         ))
                                     ) : (
                                         <tr>
-                                            <td colSpan={11} className="p-8 text-center text-slate-500">
+                                            <td colSpan={10} className="p-8 text-center text-slate-500">
                                                 <div className="flex flex-col items-center gap-2">
                                                     <p className="text-sm font-medium">
                                                         {activeTab === 'thu' ? 'Không có phiếu thu' : 'Không có phiếu chi'}

@@ -1,10 +1,9 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Search, Plus, Eye, Edit, Trash2, X, Maximize2, CheckCircle, PlusCircle, User } from 'lucide-react';
 import { ThemDuAnModal } from './ThemDuAnModal';
-import { useNavigate } from 'react-router-dom';
+import { useLocation, useNavigate } from 'react-router-dom';
 import { projectService } from '../../lib/services/projectService';
 import { contractService, ContractRow } from '../../lib/services/contractService';
-import { taskService } from '../../lib/services/taskService';
 import { employeeService } from '../../lib/services/employeeService';
 import { thuChiService, ThuChiRow } from '../../lib/services/thuChiService';
 
@@ -35,7 +34,26 @@ export function DuAn() {
     const [projectToDelete, setProjectToDelete] = useState<number | null>(null);
     const [activeTab, setActiveTab] = useState('info');
     const [toast, setToast] = useState<{ message: string; type: 'success' | 'info' | 'warning' } | null>(null);
+    const [searchTerm, setSearchTerm] = useState('');
     const navigate = useNavigate();
+    const location = useLocation();
+    const openedFromStateRef = useRef(false);
+
+    // Allow other pages to navigate here and open a project directly
+    useEffect(() => {
+        if (openedFromStateRef.current) return;
+        const stateProjectId = (location.state as any)?.projectId;
+        if (!stateProjectId) return;
+        if (!items || items.length === 0) return;
+
+        const target = items.find((p: any) => String(p?.id) === String(stateProjectId));
+        if (!target) return;
+
+        openedFromStateRef.current = true;
+        handleViewClick(target);
+        // Clear state to avoid re-opening when navigating back/forward
+        navigate(location.pathname, { replace: true });
+    }, [items, location.pathname, location.state, navigate]);
 
     const handleViewClick = (project: any) => {
         setSelectedProject(project);
@@ -113,6 +131,17 @@ export function DuAn() {
     // State để lưu danh sách nhân sự (để hiển thị tên trong modal chi tiết)
     const [employees, setEmployees] = useState<Array<{ id: string; full_name: string; code: string; anh_nhan_su?: string | null }>>([]);
 
+    // Lọc theo tên khách hàng / tên dự án
+    const filteredItems = useMemo(() => {
+        if (!searchTerm) return items;
+        const term = searchTerm.toLowerCase();
+        return items.filter((item) => {
+            const customer = (item.customer_name || item.customerName || '').toString().toLowerCase();
+            const project = (item.projectName || '').toString().toLowerCase();
+            return customer.includes(term) || project.includes(term);
+        });
+    }, [items, searchTerm]);
+
     // Load danh sách nhân sự
     useEffect(() => {
         (async () => {
@@ -153,56 +182,31 @@ export function DuAn() {
             });
             setRealContracts(contractsByProjectName);
             
-            // Load tasks cho tất cả hợp đồng để tính tiến độ
+            // Tính tiến độ cho từng dự án dựa trên số lượng hợp đồng (tạm thời không dùng bảng task)
             const progressMap = new Map<string, number>();
-            
-            // Nhóm hợp đồng theo project_name để tính tiến độ
+            const contractInfoMap = new Map<string, { total: number; completed: number }>();
+
             const contractsByProject = new Map<string, string[]>();
-            contracts.forEach(contract => {
+            contracts.forEach((contract) => {
                 const projectName = contract.project_name || '(Chưa có tên dự án)';
                 if (!contractsByProject.has(projectName)) {
                     contractsByProject.set(projectName, []);
                 }
                 contractsByProject.get(projectName)!.push(contract.id);
             });
-            
-            // Tính tiến độ cho từng dự án
-            const contractInfoMap = new Map<string, { total: number; completed: number }>();
-            
-            await Promise.all(
-                Array.from(contractsByProject.entries()).map(async ([projectName, contractIds]) => {
-                    let completedContracts = 0;
-                    
-                    // Kiểm tra từng hợp đồng xem có 100% không
-                    await Promise.all(
-                        contractIds.map(async (contractId) => {
-                            try {
-                                const tasks = await taskService.getByHopDongId(contractId);
-                                if (tasks.length === 0) {
-                                    // Nếu không có task, không tính vào hoàn thành
-                                    return;
-                                }
-                                // Nếu tất cả tasks đều 100%, hợp đồng này hoàn thành
-                                const allCompleted = tasks.every(task => task.tien_do === 100);
-                                if (allCompleted) {
-                                    completedContracts++;
-                                }
-                            } catch (error) {
-                                console.error(`Error loading tasks for contract ${contractId}:`, error);
-                            }
-                        })
-                    );
-                    
-                    const totalContracts = contractIds.length;
-                    const progress = totalContracts > 0 
-                        ? Math.round((completedContracts / totalContracts) * 100)
-                        : 0;
-                    
-                    progressMap.set(projectName, progress);
-                    contractInfoMap.set(projectName, { total: totalContracts, completed: completedContracts });
-                })
-            );
-            
+
+            contractsByProject.forEach((contractIds, projectName) => {
+                const totalContracts = contractIds.length;
+                // Tạm thời chưa có logic xác định hợp đồng hoàn thành, đặt completed = 0 và progress = 0
+                const completedContracts = 0;
+                const progress = 0;
+                progressMap.set(projectName, progress);
+                contractInfoMap.set(projectName, {
+                    total: totalContracts,
+                    completed: completedContracts,
+                });
+            });
+
             setProjectProgress(progressMap);
             setProjectContractInfo(contractInfoMap);
             
@@ -212,7 +216,9 @@ export function DuAn() {
                 giaTriQuyetToan: number; 
                 daThu: number; 
                 conPhaiThu: number;
+                tongChi: number;
             }>();
+            const thuChiByProject = new Map<string, ThuChiRow[]>();
             
             // Tính tổng giá trị hợp đồng và giá trị quyết toán từ hợp đồng
             contracts.forEach((contract: ContractRow) => {
@@ -223,7 +229,8 @@ export function DuAn() {
                             giaTriHopDong: 0, 
                             giaTriQuyetToan: 0, 
                             daThu: 0, 
-                            conPhaiThu: 0 
+                            conPhaiThu: 0,
+                            tongChi: 0,
                         });
                     }
                     const financials = projectFinancials.get(projectName)!;
@@ -241,16 +248,42 @@ export function DuAn() {
                             giaTriHopDong: 0, 
                             giaTriQuyetToan: 0, 
                             daThu: 0, 
-                            conPhaiThu: 0 
+                            conPhaiThu: 0,
+                            tongChi: 0,
                         });
                     }
                     const financials = projectFinancials.get(projectName)!;
                     financials.daThu += tc.so_tien || 0;
                 }
             });
+
+            // Tính tổng chi & lưu list thu chi cho từng dự án
+            allThuChi.forEach((tc: ThuChiRow) => {
+                if (tc.du_an_id && tc.ten_du_an) {
+                    const projectName = tc.ten_du_an;
+                    if (!thuChiByProject.has(projectName)) {
+                        thuChiByProject.set(projectName, []);
+                    }
+                    thuChiByProject.get(projectName)!.push(tc);
+
+                    if (!projectFinancials.has(projectName)) {
+                        projectFinancials.set(projectName, {
+                            giaTriHopDong: 0,
+                            giaTriQuyetToan: 0,
+                            daThu: 0,
+                            conPhaiThu: 0,
+                            tongChi: 0,
+                        });
+                    }
+                    const financials = projectFinancials.get(projectName)!;
+                    if (tc.loai_phieu === 'Phiếu chi') {
+                        financials.tongChi += tc.so_tien || 0;
+                    }
+                }
+            });
             
             // Tính còn phải thu = giá trị quyết toán - đã thu
-            projectFinancials.forEach((financials, projectName) => {
+            projectFinancials.forEach((financials) => {
                 financials.conPhaiThu = financials.giaTriQuyetToan - financials.daThu;
             });
             
@@ -262,7 +295,8 @@ export function DuAn() {
                     giaTriHopDong: 0, 
                     giaTriQuyetToan: 0, 
                     daThu: 0, 
-                    conPhaiThu: 0 
+                    conPhaiThu: 0,
+                    tongChi: 0,
                 };
                 
                 // Ưu tiên lấy customerName từ customer_name (join) hoặc ten_khach_hang
@@ -315,7 +349,10 @@ export function DuAn() {
                     giaTriHopDong: financials.giaTriHopDong,
                     giaTriQuyetToan: financials.giaTriQuyetToan,
                     daThu: financials.daThu,
-                    conPhaiThu: financials.conPhaiThu
+                    conPhaiThu: financials.conPhaiThu,
+                    tongChi: financials.tongChi,
+                    thuChiList: thuChiByProject.get(projectName) || [],
+                    nguongChi: (p as any).nguong_chi ?? null,
                 };
             });
             setItems(mapped);
@@ -332,22 +369,23 @@ export function DuAn() {
                 const finalCustomerId = customerIdValue && customerIdValue.toString().trim() !== '' ? customerIdValue.toString() : null;
                 const finalTenKhachHang = data.tenKhachHang || data.customerName || null;
                 console.log('[DuAn] Updating with customerId:', finalCustomerId, 'tenKhachHang:', finalTenKhachHang);
-                // Xử lý managerId và executorId - đảm bảo không phải string rỗng
-                const managerIdValue = data.manager_id || data.managerId;
-                const executorIdValue = data.executor_id || data.executorId;
-                const finalManagerId = managerIdValue && managerIdValue.toString().trim() !== '' ? managerIdValue.toString().trim() : null;
-                const finalExecutorId = executorIdValue && executorIdValue.toString().trim() !== '' ? executorIdValue.toString().trim() : null;
-                
-                console.log('[DuAn] Updating with managerId:', finalManagerId, 'executorId:', finalExecutorId);
-                
+                const managerIds = data.managerIds && Array.isArray(data.managerIds) && data.managerIds.length > 0
+                    ? data.managerIds.map((id: any) => String(id).trim()).filter(Boolean)
+                    : undefined;
+                const executorIds = data.executorIds && Array.isArray(data.executorIds) && data.executorIds.length > 0
+                    ? data.executorIds.map((id: any) => String(id).trim()).filter(Boolean)
+                    : undefined;
+
                 const updated = await projectService.update(String(data.id), {
                     projectName: data.projectName,
                     status: data.status,
                     progress: Number(data.progress) || 0,
                     customerId: finalCustomerId,
                     tenKhachHang: finalTenKhachHang,
-                    managerId: finalManagerId,
-                    executorId: finalExecutorId,
+                    managerIds,
+                    executorIds,
+                    managerId: data.manager_id || data.managerId || undefined,
+                    executorId: data.executor_id || data.executorId || undefined,
                     managerImg: data.managerImg || null,
                     executorImg: data.executorImg || null,
                 });
@@ -502,22 +540,23 @@ export function DuAn() {
                 const finalCustomerId = customerIdValue && customerIdValue.toString().trim() !== '' ? customerIdValue.toString() : null;
                 const finalTenKhachHang = data.tenKhachHang || data.customerName || null;
                 console.log('[DuAn] Creating with customerId:', finalCustomerId, 'tenKhachHang:', finalTenKhachHang);
-                // Xử lý managerId và executorId - đảm bảo không phải string rỗng
-                const managerIdValue = data.manager_id || data.managerId;
-                const executorIdValue = data.executor_id || data.executorId;
-                const finalManagerId = managerIdValue && managerIdValue.toString().trim() !== '' ? managerIdValue.toString().trim() : null;
-                const finalExecutorId = executorIdValue && executorIdValue.toString().trim() !== '' ? executorIdValue.toString().trim() : null;
-                
-                console.log('[DuAn] Creating with managerId:', finalManagerId, 'executorId:', finalExecutorId);
-                
+                const managerIds = data.managerIds && Array.isArray(data.managerIds) && data.managerIds.length > 0
+                    ? data.managerIds.map((id: any) => String(id).trim()).filter(Boolean)
+                    : undefined;
+                const executorIds = data.executorIds && Array.isArray(data.executorIds) && data.executorIds.length > 0
+                    ? data.executorIds.map((id: any) => String(id).trim()).filter(Boolean)
+                    : undefined;
+
                 const created = await projectService.create({
                     projectName: data.projectName,
                     status: data.status,
                     progress: Number(data.progress) || 0,
                     customerId: finalCustomerId,
                     tenKhachHang: finalTenKhachHang,
-                    managerId: finalManagerId,
-                    executorId: finalExecutorId,
+                    managerIds,
+                    executorIds,
+                    managerId: data.manager_id || data.managerId || undefined,
+                    executorId: data.executor_id || data.executorId || undefined,
                     managerImg: data.managerImg || null,
                     executorImg: data.executorImg || null,
                 });
@@ -731,24 +770,42 @@ export function DuAn() {
             <div className="bg-white rounded-md border border-slate-200 overflow-hidden shadow-sm">
 
                 {/* Header */}
-                <div className="px-6 py-4 border-b border-slate-200 flex justify-between items-center bg-white">
-                    <h1 className="text-[16px] font-bold text-slate-700 uppercase">
-                        Dự án
-                    </h1>
-                    <button
-                        onClick={handleAddClick}
-                        className="flex items-center gap-2 px-4 py-2 bg-[#9333EA] hover:bg-purple-700 text-white text-sm font-medium rounded-md transition-colors shadow-sm"
-                    >
-                        <Plus size={16} />
-                        Thêm dự án
-                    </button>
+                <div className="px-6 py-4 border-b border-slate-200 bg-white space-y-3">
+                    <div className="flex justify-between items-center">
+                        <h1 className="text-[16px] font-bold text-slate-700 uppercase">
+                            Dự án
+                        </h1>
+                        <button
+                            onClick={handleAddClick}
+                            className="flex items-center gap-2 px-4 py-2 bg-[#9333EA] hover:bg-purple-700 text-white text-sm font-medium rounded-md transition-colors shadow-sm"
+                        >
+                            <Plus size={16} />
+                            Thêm dự án
+                        </button>
+                    </div>
+
+                    {/* Lọc theo tên Khách hàng / Dự án */}
+                    <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+                        <div className="relative w-full max-w-md">
+                            <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                                <Search className="h-4 w-4 text-slate-400" />
+                            </div>
+                            <input
+                                type="text"
+                                value={searchTerm}
+                                onChange={(e) => setSearchTerm(e.target.value)}
+                                className="block w-full pl-10 pr-3 py-2 border border-slate-200 rounded-md text-sm bg-white placeholder-slate-400 focus:outline-none focus:ring-1 focus:ring-purple-500 focus:border-purple-500 transition-colors"
+                                placeholder="Lọc theo tên Khách hàng hoặc tên dự án..."
+                            />
+                        </div>
+                    </div>
                 </div>
 
                 {/* Table Content */}
                 <div className="w-full overflow-x-auto bg-white p-4 md:p-6">
-                    <table className="w-full text-sm text-left">
+                    <table className="w-full text-sm text-left duan-table">
                         <thead>
-                            <tr className="border-b border-slate-200 text-slate-500 bg-slate-50/50">
+                            <tr className="border-b border-slate-200 text-slate-50">
                                 <th className="py-4 pl-4 md:pl-6 pr-4 font-semibold text-xs uppercase tracking-wider rounded-tl-lg">Tên dự án</th>
                                 <th className="py-4 px-4 font-semibold text-xs uppercase tracking-wider min-w-[150px]">Tên khách hàng</th>
                                 <th className="py-4 px-4 text-center font-semibold text-xs uppercase tracking-wider min-w-[140px]">Trạng thái</th>
@@ -761,14 +818,14 @@ export function DuAn() {
                             </tr>
                         </thead>
                         <tbody className="divide-y divide-slate-100">
-                            {items.length === 0 && (
+                            {filteredItems.length === 0 && (
                                 <tr>
                                     <td colSpan={9} className="py-6 text-center text-slate-500 text-sm italic">
                                         Chưa có dự án nào. Nhấn "Thêm dự án" để tạo mới.
                                     </td>
                                 </tr>
                             )}
-                            {items.map((item, index) => (
+                            {filteredItems.map((item, index) => (
                                 <tr key={item.id} className="hover:bg-blue-50/30 transition-all group duration-200 ease-in-out">
                                     <td className="py-4 pl-4 md:pl-6 pr-4 align-middle">
                                         <div className="flex items-center gap-4">
@@ -823,28 +880,28 @@ export function DuAn() {
                                     
                                     {/* Giá trị hợp đồng */}
                                     <td className="py-4 px-4 align-middle text-right">
-                                        <span className="text-sm font-semibold text-slate-700">
+                                        <span className="text-[13px] font-extrabold text-slate-800 tracking-tight">
                                             {item.giaTriHopDong ? new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND' }).format(item.giaTriHopDong) : '0 đ'}
                                         </span>
                                     </td>
                                     
                                     {/* Giá trị quyết toán */}
                                     <td className="py-4 px-4 align-middle text-right">
-                                        <span className="text-sm font-semibold text-blue-600">
+                                        <span className="text-[13px] font-extrabold text-blue-700 tracking-tight">
                                             {item.giaTriQuyetToan ? new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND' }).format(item.giaTriQuyetToan) : '0 đ'}
                                         </span>
                                     </td>
                                     
                                     {/* Đã thu */}
                                     <td className="py-4 px-4 align-middle text-right">
-                                        <span className="text-sm font-semibold text-emerald-600">
+                                        <span className="text-[13px] font-extrabold text-emerald-700 tracking-tight">
                                             {item.daThu ? new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND' }).format(item.daThu) : '0 đ'}
                                         </span>
                                     </td>
                                     
                                     {/* Còn phải thu */}
                                     <td className="py-4 px-4 align-middle text-right">
-                                        <span className={`text-sm font-bold ${item.conPhaiThu >= 0 ? 'text-slate-700' : 'text-red-600'}`}>
+                                        <span className={`text-[13px] font-extrabold tracking-tight ${item.conPhaiThu >= 0 ? 'text-slate-900' : 'text-red-600'}`}>
                                             {item.conPhaiThu ? new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND' }).format(item.conPhaiThu) : '0 đ'}
                                         </span>
                                     </td>

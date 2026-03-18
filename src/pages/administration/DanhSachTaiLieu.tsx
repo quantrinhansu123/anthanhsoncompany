@@ -86,6 +86,7 @@ export function DanhSachTaiLieu() {
     const [viewingLink, setViewingLink] = useState('');
     const [selectedItems, setSelectedItems] = useState<string[]>([]);
     const [editingId, setEditingId] = useState<string | null>(null);
+    const [viewMode, setViewMode] = useState<'table' | 'folder'>('table');
 
     // Load data from database
     useEffect(() => {
@@ -291,8 +292,16 @@ export function DanhSachTaiLieu() {
                     <p className="text-sm text-slate-500">Quản lý tài liệu, công văn, quyết định</p>
                 </div>
                 <div className="flex items-center gap-2">
-                    <button className="p-2 bg-white border border-slate-200 rounded-lg hover:bg-slate-50 transition-colors">
-                        <Grid3x3 size={18} className="text-slate-600" />
+                    <button
+                        className={`p-2 border rounded-lg transition-colors ${
+                            viewMode === 'folder'
+                                ? 'bg-blue-600 border-blue-600 text-white shadow-sm'
+                                : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50'
+                        }`}
+                        title="Xem dạng thư mục"
+                        onClick={() => setViewMode(viewMode === 'table' ? 'folder' : 'table')}
+                    >
+                        <Grid3x3 size={18} />
                     </button>
                     <button
                         onClick={handleAdd}
@@ -368,8 +377,9 @@ export function DanhSachTaiLieu() {
                 </div>
             </div>
 
-            {/* Table */}
+            {/* Table / Folder view */}
             <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+                {viewMode === 'table' ? (
                 <div className="overflow-x-auto">
                     <table className="w-full text-left border-collapse min-w-[1400px]">
                         <thead className="bg-slate-50/80 text-slate-600 font-bold text-[11px] uppercase tracking-wider border-b border-slate-200">
@@ -411,8 +421,12 @@ export function DanhSachTaiLieu() {
                                             />
                                         </td>
                                         <td className="p-3">
-                                            <div className="text-sm font-medium text-slate-800">{item.maTaiLieu}</div>
-                                            <div className="text-xs text-slate-600">{item.tenTaiLieu}</div>
+                                            <div className="flex flex-col">
+                                                <span className="text-xs font-semibold text-slate-500">{item.maTaiLieu || '—'}</span>
+                                                <span className="text-sm font-bold text-slate-800 group-hover:text-blue-600 line-clamp-2">
+                                                    {item.tenTaiLieu || 'Chưa có tên'}
+                                                </span>
+                                            </div>
                                         </td>
                                         <td className="p-3">{getHuongBadge(item.huong)}</td>
                                         <td className="p-3 text-xs text-slate-600">{item.loai}</td>
@@ -477,6 +491,104 @@ export function DanhSachTaiLieu() {
                         </tbody>
                     </table>
                 </div>
+                ) : (
+                <div className="p-4">
+                    {currentItems.length > 0 ? (
+                        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+                            {currentItems.map((item) => (
+                                <div
+                                    key={item.id}
+                                    className="group relative rounded-xl border border-slate-200 bg-slate-50/60 hover:bg-slate-50 hover:border-blue-300 transition-all shadow-sm hover:shadow-md overflow-hidden"
+                                >
+                                    <div className="absolute inset-x-0 top-0 h-1 bg-gradient-to-r from-blue-500 via-sky-400 to-cyan-400" />
+                                    <div className="p-4 pt-3 flex flex-col gap-3">
+                                        <div className="flex items-start justify-between gap-2">
+                                            <div className="flex-1 min-w-0">
+                                                <p className="text-[11px] font-semibold text-slate-500 truncate">
+                                                    {item.maTaiLieu || '—'}
+                                                </p>
+                                                <p className="mt-1 text-sm font-bold text-slate-800 line-clamp-2 group-hover:text-blue-600">
+                                                    {item.tenTaiLieu || 'Chưa có tên tài liệu'}
+                                                </p>
+                                            </div>
+                                            {getHuongBadge(item.huong)}
+                                        </div>
+                                        <div className="flex flex-wrap gap-1.5 text-[11px] text-slate-600">
+                                            {item.loai && (
+                                                <span className="px-2 py-0.5 rounded-full bg-slate-100 border border-slate-200 font-medium">
+                                                    {item.loai}
+                                                </span>
+                                            )}
+                                            {item.nhomTaiLieu && (
+                                                <span className="px-2 py-0.5 rounded-full bg-slate-100 border border-slate-200">
+                                                    {item.nhomTaiLieu}
+                                                </span>
+                                            )}
+                                            {item.phongQuanLy && (
+                                                <span className="px-2 py-0.5 rounded-full bg-slate-100 border border-slate-200">
+                                                    {item.phongQuanLy}
+                                                </span>
+                                            )}
+                                        </div>
+                                        <div className="flex items-center justify-between text-[11px] text-slate-500">
+                                            <div className="space-y-0.5">
+                                                <p>
+                                                    <span className="font-medium">Số đến:</span> {item.soDen || '—'}
+                                                </p>
+                                                <p>
+                                                    <span className="font-medium">Số đi:</span> {item.soDi || '—'}
+                                                </p>
+                                            </div>
+                                            <div className="space-y-0.5 text-right">
+                                                <p>
+                                                    <span className="font-medium">Ngày đến:</span> {item.ngayDen || '—'}
+                                                </p>
+                                                <p>
+                                                    <span className="font-medium">Ngày ký:</span> {item.ngayKy || '—'}
+                                                </p>
+                                            </div>
+                                        </div>
+                                        <div className="flex items-center justify-between pt-2 border-t border-slate-200">
+                                            <div className="flex items-center gap-1.5">
+                                                {getTrangThaiBadge(item.trangThai)}
+                                            </div>
+                                            <div className="flex items-center gap-1.5">
+                                                {item.link && (
+                                                    <button
+                                                        onClick={() => handleOpenLink(item.link)}
+                                                        className="p-1.5 rounded-md border border-slate-200 text-blue-600 hover:bg-blue-50 hover:border-blue-300 transition-colors"
+                                                        title="Mở link"
+                                                    >
+                                                        <ExternalLink size={14} />
+                                                    </button>
+                                                )}
+                                                <button
+                                                    onClick={() => handleEdit(item)}
+                                                    className="p-1.5 rounded-md border border-amber-200 text-amber-600 hover:bg-amber-50 hover:border-amber-300 transition-colors"
+                                                    title="Sửa"
+                                                >
+                                                    <Edit size={14} />
+                                                </button>
+                                                <button
+                                                    onClick={() => handleDelete(item.id)}
+                                                    className="p-1.5 rounded-md border border-red-200 text-red-600 hover:bg-red-50 hover:border-red-300 transition-colors"
+                                                    title="Xóa"
+                                                >
+                                                    <Trash2 size={14} />
+                                                </button>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            ))}
+                        </div>
+                    ) : (
+                        <p className="p-6 text-center text-slate-500 text-sm">
+                            Không có dữ liệu
+                        </p>
+                    )}
+                </div>
+                )}
 
                 {/* Pagination */}
                 <div className="px-6 py-4 border-t border-slate-200 bg-slate-50/50 flex items-center justify-between">

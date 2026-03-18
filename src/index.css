@@ -1,4 +1,189 @@
+@import url("https://fonts.googleapis.com/css2?family=Roboto:wght@400;500;600;700;800&display=swap");
 @import "tailwindcss";
+
+@layer base {
+    :root {
+        --app-bg: #fef5ec;
+        --app-bg-2: #f8fafc;
+        --surface: #ffffff;
+        --surface-2: #f8fafc;
+        --border: rgba(15, 23, 42, 0.12);
+        --border-strong: rgba(15, 23, 42, 0.18);
+        --text: #0f172a;
+        --muted: #475569;
+        --muted-2: #64748b;
+        --shadow-sm: 0 1px 2px rgba(2, 6, 23, 0.08);
+        --shadow: 0 10px 30px rgba(2, 6, 23, 0.10);
+        --shadow-lg: 0 18px 50px rgba(2, 6, 23, 0.14);
+
+        /* Primary: richer orange like reference */
+        --primary: #f97316;
+        --primary-2: #ea580c;
+        --ring: rgba(249, 115, 22, 0.30);
+
+        /* Global radius: subtle, professional rounding */
+        --radius-sm: 10px;
+        --radius-md: 12px;
+        --radius-lg: 16px;
+
+        /* Table header: extra dark cobalt blue */
+        --cobalt: #002b6f;
+        --cobalt-dark: #001a4d;
+    }
+
+    html, body {
+        height: 100%;
+    }
+
+    body {
+        color: var(--text);
+        background:
+            radial-gradient(1200px 600px at 10% -10%, rgba(249, 115, 22, 0.22), rgba(249, 115, 22, 0) 55%),
+            radial-gradient(900px 600px at 95% 0%, rgba(59, 130, 246, 0.14), rgba(59, 130, 246, 0) 52%),
+            linear-gradient(180deg, var(--app-bg), var(--app-bg-2));
+        text-rendering: optimizeLegibility;
+        -webkit-font-smoothing: antialiased;
+        -moz-osx-font-smoothing: grayscale;
+        font-family: "Roboto", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
+
+    ::selection {
+        background: rgba(37, 99, 235, 0.22);
+    }
+
+    :focus-visible {
+        outline: 3px solid var(--ring);
+        outline-offset: 2px;
+        border-radius: var(--radius-sm);
+    }
+
+    /* Make borders a touch stronger app-wide */
+    *, ::before, ::after {
+        border-color: var(--border);
+    }
+
+    /* Form controls: richer, more professional by default */
+    input[type="text"],
+    input[type="email"],
+    input[type="password"],
+    input[type="url"],
+    input[type="number"],
+    input[type="tel"],
+    input[type="date"],
+    input[type="time"],
+    input[type="search"],
+    textarea,
+    select {
+        background-color: var(--surface);
+        box-shadow: var(--shadow-sm);
+        border-color: var(--border-strong);
+        border-radius: var(--radius-sm);
+    }
+
+    button,
+    [role="button"] {
+        border-radius: var(--radius-sm);
+    }
+
+    /* Common app surfaces (cards/containers/modals) */
+    .rounded-xl,
+    .rounded-lg,
+    .rounded-md {
+        border-radius: var(--radius-md);
+    }
+
+    .rounded-2xl {
+        border-radius: var(--radius-lg);
+    }
+
+    /* Table wrappers feel softer */
+    .overflow-x-auto {
+        border-radius: var(--radius-md);
+    }
+
+    input::placeholder,
+    textarea::placeholder {
+        color: rgba(100, 116, 139, 0.92);
+    }
+
+    input:focus,
+    textarea:focus,
+    select:focus {
+        outline: none;
+        box-shadow: 0 0 0 4px var(--ring), var(--shadow-sm);
+        border-color: var(--primary-2);
+    }
+
+    /* Tables: cleaner + higher contrast */
+    table {
+        border-collapse: separate;
+        border-spacing: 0;
+    }
+}
+
+@layer components {
+    /* Slightly richer card elevation without changing per-component classes */
+    .card-hover:hover {
+        box-shadow: var(--shadow);
+    }
+
+    /* Make primary buttons feel punchier when people use .btn-primary */
+    .btn-primary:hover {
+        box-shadow: 0 10px 24px rgba(234, 88, 12, 0.22), 0 4px 12px rgba(2, 6, 23, 0.10);
+    }
+
+    /* Table header style closer to reference */
+    thead {
+        background-color: var(--cobalt-dark) !important;
+        background-image: linear-gradient(90deg, var(--cobalt-dark), var(--cobalt)) !important;
+        color: #ffffff !important;
+        font-weight: 800 !important;
+    }
+
+    thead th {
+        border-bottom-width: 0;
+        color: #ffffff !important;
+        font-weight: 800 !important;
+    }
+
+    tbody tr:nth-child(even) {
+        background-color: #f8fafc;
+    }
+
+    /* Status pill look */
+    .status-pill {
+        border-radius: 999px;
+        font-weight: 600;
+        padding: 4px 12px;
+        font-size: 11px;
+    }
+}
+
+/* Override some Tailwind default blues to use orange tone globally */
+.bg-blue-600 {
+    background-color: var(--primary) !important;
+}
+
+.hover\:bg-blue-600:hover {
+    background-color: var(--primary) !important;
+}
+
+.hover\:bg-blue-700:hover {
+    background-color: var(--primary-2) !important;
+}
+
+.border-blue-600 {
+    border-color: var(--primary) !important;
+}
+
+.text-blue-600 {
+    color: var(--primary) !important;
+}
+
+.focus\:ring-blue-500:focus,
+.focus\:ring-blue-500\/20:focus {
+    box-shadow: 0 0 0 3px var(--ring) !important;
+}
 
 html.dark {
     filter: invert(0.93) hue-rotate(180deg) brightness(1.1);
@@ -144,6 +329,29 @@ html {
 
 .icon-btn:active {
     transform: scale(0.92);
+}
+
+/* Project select options: keep dropdown within form width, wrap long text */
+.project-select {
+    max-width: 100%;
+}
+
+.project-select option {
+    white-space: normal;
+    word-wrap: break-word;
+}
+
+/* Customer projects table header (Dự án) - enforce dark cobalt header */
+.duan-table thead,
+.duan-table thead tr {
+    background-color: var(--cobalt-dark) !important;
+    background-image: linear-gradient(90deg, var(--cobalt-dark), var(--cobalt)) !important;
+    color: #ffffff !important;
+}
+
+.duan-table thead th {
+    color: #ffffff !important;
+    font-weight: 800 !important;
 }
 
 /* Card hover animation */

@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { addMonths, isBefore, parse, parseISO, startOfDay } from 'date-fns';
 import {
   ArrowLeft,
   Search,
@@ -99,7 +100,7 @@ export function ChungChiHanhNghe() {
       setEditingCertificate(certificate);
       setCertificateFormData({
         ...certificate,
-        employee_id: certificate.employee_id || certificate.employeeId || ''
+        employee_id: certificate.employee_id || ''
       });
     } else {
       setEditingCertificate(null);
@@ -141,18 +142,7 @@ export function ChungChiHanhNghe() {
   };
 
   const handleCertificateInputChange = (field: keyof ProfessionalCertificate, value: string | File | null) => {
-    setCertificateFormData(prev => {
-      const updated = { ...prev, [field]: value };
-      // Update employee info when employeeId changes
-      if (field === 'employeeId' && typeof value === 'string') {
-        const employee = mockEmployees.find(emp => emp.id === value);
-        if (employee) {
-          updated.employeeName = employee.name;
-          updated.employeeCode = employee.code;
-        }
-      }
-      return updated;
-    });
+    setCertificateFormData(prev => ({ ...prev, [field]: value }));
   };
 
   const handleCertificateFileInputChange = async (field: 'file' | 'anh' | 'anh2', e: React.ChangeEvent<HTMLInputElement>) => {
@@ -179,11 +169,32 @@ export function ChungChiHanhNghe() {
     if (input) input.value = '';
   };
 
-  const validateCertificateForm = (): boolean => {
-    if (!certificateFormData.ngayHetHanCC) {
-      alert('Vui lòng chọn ngày hết hạn chứng chỉ');
-      return false;
+  const parseExpiryDate = (value: string): Date | null => {
+    if (!value) return null;
+    try {
+      if (value.includes('/')) {
+        const d = parse(value, 'dd/MM/yyyy', new Date());
+        return Number.isNaN(d.getTime()) ? null : d;
+      }
+      if (value.includes('-')) {
+        const d = parseISO(value);
+        return Number.isNaN(d.getTime()) ? null : d;
+      }
+      return null;
+    } catch {
+      return null;
     }
+  };
+
+  const isExpiryWithinTwoMonths = (expiryValue: string): boolean => {
+    const expiry = parseExpiryDate(expiryValue);
+    if (!expiry) return false;
+    const today = startOfDay(new Date());
+    const threshold = addMonths(today, 2);
+    return isBefore(startOfDay(expiry), threshold) || startOfDay(expiry).getTime() === threshold.getTime();
+  };
+
+  const validateCertificateForm = (): boolean => {
     if (!certificateFormData.employee_id) {
       alert('Vui lòng chọn nhân sự');
       return false;
@@ -392,6 +403,9 @@ export function ChungChiHanhNghe() {
                 </thead>
                 <tbody className="divide-y divide-slate-100">
                   {currentCertificates.map((certificate, index) => (
+                    (() => {
+                      const expiringSoon = isExpiryWithinTwoMonths(certificate.ngayHetHanCC);
+                      return (
                     <tr key={certificate.id} className="hover:bg-slate-50 transition-colors group">
                       <td className="p-4">
                         <button onClick={() => toggleSelect(certificate.id)} className="flex items-center">
@@ -445,8 +459,12 @@ export function ChungChiHanhNghe() {
                       </td>
                       <td className="p-4 text-slate-600">{certificate.cchn || '(Trống)'}</td>
                       <td className="p-4 text-slate-600">{certificate.hangCCHN || '(Trống)'}</td>
-                      <td className="p-4 text-slate-600">{formatDate(certificate.ngayHetHanCC)}</td>
-                      <td className="p-4 text-slate-600 font-medium">{calculateRemainingMonths(certificate.ngayHetHanCC)}</td>
+                      <td className={`p-4 ${expiringSoon ? 'text-red-600 font-semibold' : 'text-slate-600'}`}>
+                        {formatDate(certificate.ngayHetHanCC)}
+                      </td>
+                      <td className={`p-4 font-medium ${expiringSoon ? 'text-red-600' : 'text-slate-600'}`}>
+                        {calculateRemainingMonths(certificate.ngayHetHanCC)}
+                      </td>
                       <td className="p-4">
                         <div className="flex items-center gap-2">
                           <User size={16} className="text-slate-400" />
@@ -475,6 +493,8 @@ export function ChungChiHanhNghe() {
                         </div>
                       </td>
                     </tr>
+                      );
+                    })()
                   ))}
                 </tbody>
               </table>
@@ -582,8 +602,8 @@ export function ChungChiHanhNghe() {
                   Nhân sự <span className="text-red-500">*</span>
                 </label>
                 <select
-                  value={certificateFormData.employeeId}
-                  onChange={(e) => handleCertificateInputChange('employeeId', e.target.value)}
+                  value={certificateFormData.employee_id}
+                  onChange={(e) => handleCertificateInputChange('employee_id', e.target.value)}
                   className="w-full px-3 py-2 border border-slate-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all"
                 >
                   <option value="">Chọn nhân sự</option>
@@ -835,7 +855,7 @@ export function ChungChiHanhNghe() {
               {/* Ngày hết hạn CC */}
               <div>
                 <label className="block text-sm font-medium text-slate-700 mb-1.5 flex items-center gap-1">
-                  Ngày hết hạn CC <span className="text-red-500">*</span>
+                  Ngày hết hạn CC
                 </label>
                 <div className="relative">
                   <input

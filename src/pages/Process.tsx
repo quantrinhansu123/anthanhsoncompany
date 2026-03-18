@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import {
   BookOpen,
   Star,
@@ -8,6 +8,7 @@ import {
   ClipboardList
 } from 'lucide-react';
 import { Link } from 'react-router-dom';
+// import { taskService, type TaskRow } from '../lib/services/taskService';
 
 // Toast component
 function Toast({ message, type, onClose }: { message: string; type: 'success' | 'info' | 'warning'; onClose: () => void }) {
@@ -81,7 +82,9 @@ const sections = [
     title: '',
     items: [
       { id: 'thu-vien-loi', title: 'Thư viện lỗi', description: 'Quản lý thư viện lỗi, phân loại, xử lý và giải pháp.', icon: BookOpen, color: 'text-blue-600', bgColor: 'bg-blue-50', path: '/quy-trinh/thu-vien-loi' },
-      { id: 'task', title: 'Task', description: 'Quản lý task theo hợp đồng, theo dõi tiến độ công việc với Kanban board.', icon: ClipboardList, color: 'text-orange-600', bgColor: 'bg-orange-50', path: '/quy-trinh/task' },
+      { id: 'task', title: 'Quản lý Task', description: 'Thêm mới và lưu trữ các Task theo hợp đồng, theo dõi tiến độ bằng Kanban board.', icon: ClipboardList, color: 'text-orange-600', bgColor: 'bg-orange-50', path: '/quy-trinh/task' },
+      { id: 'task-list', title: 'Danh sách Task', description: 'Xem toàn bộ Task theo bảng, lọc theo hợp đồng.', icon: ClipboardList, color: 'text-sky-600', bgColor: 'bg-sky-50', path: '/quy-trinh/task-list' },
+      { id: 'quan-ly-cong-viec', title: 'Quản lý công việc', description: 'Giao diện danh sách công việc + chi tiết + quy trình duyệt giống hình mẫu.', icon: ClipboardList, color: 'text-emerald-600', bgColor: 'bg-emerald-50', path: '/quy-trinh/quan-ly-cong-viec' },
     ]
   }
 ];
@@ -106,6 +109,8 @@ export function Process() {
   const showHelp = (itemTitle: string) => {
     setToast({ message: `Hướng dẫn sử dụng "${itemTitle}" đang phát triển`, type: 'info' });
   };
+
+  // Bỏ phần Task gần đây trên trang Quy trình nên không cần load tasks
 
   return (
     <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
@@ -137,6 +142,8 @@ export function Process() {
               />
             ))}
           </div>
+
+          {/* Đã bỏ block “Task gần đây” theo yêu cầu */}
         </div>
       ))}
     </div>

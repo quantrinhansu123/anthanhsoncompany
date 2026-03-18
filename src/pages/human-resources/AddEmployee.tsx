@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { addMonths, isBefore, parse, parseISO, startOfDay } from 'date-fns';
 import {
   ArrowLeft,
   Save,
@@ -201,6 +202,31 @@ export function AddEmployee() {
       return `${parts[2]}-${parts[1]}-${parts[0]}`;
     }
     return '';
+  };
+
+  const parseExpiryDate = (value: string): Date | null => {
+    if (!value) return null;
+    try {
+      if (value.includes('/')) {
+        const d = parse(value, 'dd/MM/yyyy', new Date());
+        return Number.isNaN(d.getTime()) ? null : d;
+      }
+      if (value.includes('-')) {
+        const d = parseISO(value);
+        return Number.isNaN(d.getTime()) ? null : d;
+      }
+      return null;
+    } catch {
+      return null;
+    }
+  };
+
+  const isExpiryWithinTwoMonths = (expiryValue: string): boolean => {
+    const expiry = parseExpiryDate(expiryValue);
+    if (!expiry) return false;
+    const today = startOfDay(new Date());
+    const threshold = addMonths(today, 2);
+    return isBefore(startOfDay(expiry), threshold) || startOfDay(expiry).getTime() === threshold.getTime();
   };
 
 
@@ -564,10 +590,6 @@ export function AddEmployee() {
   };
 
   const validateCertificateForm = (): boolean => {
-    if (!certificateFormData.ngayHetHanCC) {
-      alert('Vui lòng chọn ngày hết hạn chứng chỉ');
-      return false;
-    }
     return true;
   };
 
@@ -985,6 +1007,7 @@ export function AddEmployee() {
                     </thead>
                     <tbody className="divide-y divide-slate-100">
                       {certificates.map((certificate, index) => {
+                        const expiringSoon = isExpiryWithinTwoMonths(certificate.ngayHetHanCC);
                         const formatDate = (dateStr: string): string => {
                           if (!dateStr) return '(Trống)';
                           if (dateStr.includes('/')) return dateStr;
@@ -1064,8 +1087,12 @@ export function AddEmployee() {
                             </td>
                             <td className="px-4 py-3 text-slate-600">{certificate.cchn || '(Trống)'}</td>
                             <td className="px-4 py-3 text-slate-600">{certificate.hangCCHN || '(Trống)'}</td>
-                            <td className="px-4 py-3 text-slate-600">{formatDate(certificate.ngayHetHanCC)}</td>
-                            <td className="px-4 py-3 text-slate-600 font-medium">{calculateRemainingMonths(certificate.ngayHetHanCC)}</td>
+                            <td className={`px-4 py-3 ${expiringSoon ? 'text-red-600 font-semibold' : 'text-slate-600'}`}>
+                              {formatDate(certificate.ngayHetHanCC)}
+                            </td>
+                            <td className={`px-4 py-3 font-medium ${expiringSoon ? 'text-red-600' : 'text-slate-600'}`}>
+                              {calculateRemainingMonths(certificate.ngayHetHanCC)}
+                            </td>
                             <td className="px-4 py-3">
                               <div className="flex items-center justify-center gap-2">
                                 <button
@@ -1577,7 +1604,7 @@ export function AddEmployee() {
               {/* Ngày hết hạn CC */}
               <div>
                 <label className="block text-sm font-medium text-slate-700 mb-1.5 flex items-center gap-1">
-                  Ngày hết hạn CC <span className="text-red-500">*</span>
+                  Ngày hết hạn CC
                 </label>
                 <div className="relative">
                   <input

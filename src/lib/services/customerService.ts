@@ -82,12 +82,20 @@ export const customerService = {
     }
   },
 
+  // Loại bỏ key có giá trị undefined để tránh lỗi khi insert/update
+  _cleanPayload(obj: Record<string, unknown>): Record<string, unknown> {
+    return Object.fromEntries(
+      Object.entries(obj).filter(([, v]) => v !== undefined)
+    ) as Record<string, unknown>;
+  },
+
   // Tạo khách hàng mới
   async create(customer: Partial<Customer>) {
     try {
+      const payload = this._cleanPayload(customer as Record<string, unknown>);
       const { data, error } = await supabase
         .from('khach_hang')
-        .insert([customer])
+        .insert([payload])
         .select()
         .single();
       
@@ -106,9 +114,10 @@ export const customerService = {
   // Cập nhật khách hàng
   async update(id: string, customer: Partial<Customer>) {
     try {
+      const payload = this._cleanPayload(customer as Record<string, unknown>);
       const { data, error } = await supabase
         .from('khach_hang')
-        .update(customer)
+        .update(payload)
         .eq('id', id)
         .select()
         .single();

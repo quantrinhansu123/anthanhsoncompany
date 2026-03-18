@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { useNavigate, useParams } from 'react-router-dom';
+import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import {
     X,
     Minus,
@@ -49,14 +49,15 @@ export function AddThuChi() {
     const navigate = useNavigate();
     const { id } = useParams<{ id: string }>();
     const isEditMode = !!id;
+    const [searchParams] = useSearchParams();
     const [toast, setToast] = useState<{ message: string, type: 'success' | 'error' | 'info' } | null>(null);
 
     const [formData, setFormData] = useState({
         duAnId: '',
         hopDongId: '',
         nhanSuId: '',
-        // Mặc định khi mở màn hình thêm mới sẽ là Phiếu chi
-        loaiPhieu: 'Phiếu chi',
+        // Mặc định: nếu có query ?type=thu thì là Phiếu thu, ngược lại là Phiếu chi
+        loaiPhieu: searchParams.get('type') === 'thu' ? 'Phiếu thu' : 'Phiếu chi',
         tinhTrangPhieu: 'Tạm ứng',
         ngayTienVe: new Date().toISOString().split('T')[0],
         soTien: 0,
@@ -192,7 +193,11 @@ export function AddThuChi() {
                         <X size={20} className="text-slate-500" />
                     </button>
                     <h2 className="text-lg font-bold text-slate-700 uppercase">
-                        {isEditMode ? `Chỉnh sửa phiếu: ${id}` : 'Thêm phiếu thu chi mới'}
+                        {isEditMode
+                            ? `Chỉnh sửa phiếu: ${id}`
+                            : formData.loaiPhieu === 'Phiếu thu'
+                                ? 'Thêm phiếu thu mới'
+                                : 'Thêm phiếu chi mới'}
                     </h2>
                 </div>
                 <div className="flex items-center gap-3">
@@ -251,11 +256,17 @@ export function AddThuChi() {
                             <select
                                 value={formData.duAnId}
                                 onChange={(e) => setFormData({ ...formData, duAnId: e.target.value, hopDongId: '' })}
-                                className="w-full px-4 py-2.5 bg-white border border-slate-300 rounded-md appearance-none focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 text-slate-700"
+                                className="w-full max-w-full px-4 py-2.5 bg-white border border-slate-300 rounded-md appearance-none focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 text-slate-700 project-select"
                             >
                                 <option value="">-- Chọn dự án --</option>
                                 {projects.map(p => (
-                                    <option key={p.id} value={p.id}>{p.ten_du_an}</option>
+                                    <option
+                                        key={p.id}
+                                        value={p.id}
+                                        className="whitespace-normal break-words"
+                                    >
+                                        {p.ten_du_an}
+                                    </option>
                                 ))}
                             </select>
                             <ChevronDown size={16} className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />

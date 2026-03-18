@@ -66,9 +66,11 @@ export function ThuChiNhanSu() {
     const [error, setError] = useState<string | null>(null);
     const [selectedIds, setSelectedIds] = useState<(string | number)[]>([]);
     const [searchTerm, setSearchTerm] = useState('');
+    const [searchCustomerTerm, setSearchCustomerTerm] = useState('');
+    const [searchContractTerm, setSearchContractTerm] = useState('');
     const [currentPage, setCurrentPage] = useState(1);
     const [employees, setEmployees] = useState<Array<{ id: string; full_name: string; code: string }>>([]);
-    const [projects, setProjects] = useState<Array<{ id: string; ten_du_an: string }>>([]);
+    const [projects, setProjects] = useState<Array<{ id: string; ten_du_an: string; customer_name?: string | null; ten_khach_hang?: string | null }>>([]);
     const [contracts, setContracts] = useState<Array<{ id: string; so_hop_dong: string | null; du_an_id: string | null }>>([]);
     
     // Filter states - sử dụng mảng để có thể chọn nhiều
@@ -106,7 +108,7 @@ export function ThuChiNhanSu() {
                 })));
                 
                 const projectList = await projectService.getAll();
-                setProjects(projectList.map(p => ({ id: p.id, ten_du_an: p.ten_du_an })));
+                setProjects(projectList.map(p => ({ id: p.id, ten_du_an: p.ten_du_an, customer_name: p.customer_name ?? null, ten_khach_hang: (p as any).ten_khach_hang ?? null })));
                 
                 const contractList = await contractService.getAll();
                 setContracts(contractList.map(c => ({ 
@@ -123,7 +125,7 @@ export function ThuChiNhanSu() {
     // Load data from database
     useEffect(() => {
         loadRecords();
-    }, [selectedNhanSuIds, selectedDuAnIds, selectedHopDongIds, dateFrom, dateTo, quickDateFilter, selectedMonth]);
+    }, [selectedNhanSuIds, selectedDuAnIds, selectedHopDongIds, dateFrom, dateTo, quickDateFilter, selectedMonth, projects]);
 
     const loadRecords = async () => {
         try {
@@ -166,6 +168,12 @@ export function ThuChiNhanSu() {
                 });
             }
             
+            const projectCustomerMap = new Map<string, string>();
+            projects.forEach(p => {
+                const name = p.customer_name || p.ten_khach_hang || '';
+                if (name) projectCustomerMap.set(p.id, name);
+            });
+
             // Map data để hiển thị
             const mappedData = filteredData.map(item => ({
                 ...item,
@@ -177,7 +185,8 @@ export function ThuChiNhanSu() {
                 description: item.noi_dung || '',
                 person: item.nguoi_nhan || 'Ngân hàng / Đối tác',
                 ten_du_an: item.ten_du_an || '(Chưa có dự án)',
-                nhan_su_display: item.nhan_su_ten ? (item.nhan_su_code ? `[${item.nhan_su_code}] ${item.nhan_su_ten}` : item.nhan_su_ten) : null
+                nhan_su_display: item.nhan_su_ten ? (item.nhan_su_code ? `[${item.nhan_su_code}] ${item.nhan_su_ten}` : item.nhan_su_ten) : null,
+                customer_name: item.du_an_id ? (projectCustomerMap.get(item.du_an_id) || null) : null
             }));
             setItems(mappedData);
         } catch (err: any) {
@@ -329,6 +338,14 @@ export function ThuChiNhanSu() {
             item.code?.toLowerCase().includes(searchTerm.toLowerCase()) ||
             item.description?.toLowerCase().includes(searchTerm.toLowerCase()) ||
             item.nhan_su_display?.toLowerCase().includes(searchTerm.toLowerCase());
+
+        // Filter theo khách hàng
+        const matchesCustomer = !searchCustomerTerm ||
+            ((item as any).customer_name || '').toLowerCase().includes(searchCustomerTerm.toLowerCase());
+
+        // Filter theo số hợp đồng
+        const matchesContract = !searchContractTerm ||
+            (item.so_hop_dong || '').toLowerCase().includes(searchContractTerm.toLowerCase());
         
         // Filter theo dự án
         const matchesDuAn = selectedDuAnIds.length === 0 || 
@@ -354,7 +371,7 @@ export function ThuChiNhanSu() {
             }
         }
         
-        return matchesSearch && matchesDuAn && matchesHopDong && matchesNhanSu && matchesDate;
+        return matchesSearch && matchesCustomer && matchesContract && matchesDuAn && matchesHopDong && matchesNhanSu && matchesDate;
     });
 
     // Tính tổng số tiền theo các bộ lọc
@@ -388,15 +405,35 @@ export function ThuChiNhanSu() {
                     {/* Toolbar */}
                     <div className="px-4 md:px-6 py-4 border-b border-slate-200">
                         <div className="flex flex-col md:flex-row gap-4 justify-between items-start md:items-center mb-4">
-                            <div className="relative w-full md:w-80">
-                                <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
-                                <input
-                                    type="text"
-                                    placeholder="Tìm kiếm..."
-                                    value={searchTerm}
-                                    onChange={(e) => setSearchTerm(e.target.value)}
-                                    className="w-full pl-9 pr-4 py-2 text-sm border border-slate-200 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all"
-                                />
+                            <div className="w-full flex flex-col md:flex-row gap-3">
+                                <div className="relative w-full md:w-80">
+                                    <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+                                    <input
+                                        type="text"
+                                        placeholder="Tìm theo mã chứng từ, nội dung, nhân sự..."
+                                        value={searchTerm}
+                                        onChange={(e) => setSearchTerm(e.target.value)}
+                                        className="w-full pl-9 pr-4 py-2 text-sm border border-slate-200 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all"
+                                    />
+                                </div>
+                                <div className="relative w-full md:w-80">
+                                    <input
+                                        type="text"
+                                        placeholder="Tìm theo khách hàng..."
+                                        value={searchCustomerTerm}
+                                        onChange={(e) => setSearchCustomerTerm(e.target.value)}
+                                        className="w-full px-4 py-2 text-sm border border-slate-200 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all"
+                                    />
+                                </div>
+                                <div className="relative w-full md:w-72">
+                                    <input
+                                        type="text"
+                                        placeholder="Tìm theo số hợp đồng..."
+                                        value={searchContractTerm}
+                                        onChange={(e) => setSearchContractTerm(e.target.value)}
+                                        className="w-full px-4 py-2 text-sm border border-slate-200 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all"
+                                    />
+                                </div>
                             </div>
 
                             <div className="flex items-center gap-2 relative">

@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useMemo, useCallback } from 'react';
-import { Search, Plus, Eye, Edit, Trash2, X, ChevronRight, ChevronDown, FileText, FolderOpen, ClipboardList, PlusCircle, Maximize2, ExternalLink, CheckCircle, FileCheck, Image as ImageIcon, Link as LinkIcon } from 'lucide-react';
+import { Search, Plus, Eye, Edit, Trash2, X, ChevronRight, ChevronDown, FileText, FolderOpen, ClipboardList, PlusCircle, Maximize2, ExternalLink, CheckCircle, FileCheck, Image as ImageIcon, Link as LinkIcon, User } from 'lucide-react';
 import { useSearchParams } from 'react-router-dom';
 import { contractService, ContractRow, ContractFile } from '../../lib/services/contractService';
 import { projectService } from '../../lib/services/projectService';
@@ -23,6 +23,7 @@ interface Contract {
     conPhaiThu: number;
     ngayUpdate: string;
     nhanSuId?: string | null;
+    nhanSuIds?: string[];
     nhanSuTen?: string | null;
     nhanSuCode?: string | null;
 }
@@ -70,7 +71,7 @@ export function HopDong() {
     
     const [items, setItems] = useState<ProjectGroup[]>([]);
     const [projects, setProjects] = useState<Array<{ id: string; ten_du_an: string }>>([]);
-    const [employees, setEmployees] = useState<Array<{ id: string; full_name: string; code: string }>>([]);
+    const [employees, setEmployees] = useState<Array<{ id: string; full_name: string; code: string; anh_nhan_su?: string | null }>>([]);
     const [searchTerm, setSearchTerm] = useState('');
     const [expandedProjects, setExpandedProjects] = useState<number[]>([]);
     
@@ -147,6 +148,7 @@ export function HopDong() {
         giaTriQT: '',
         projectId: '',
         nhanSuId: '',
+        nhanSuIds: [] as string[],
     });
 
     const formatCurrency = (amount: number) => {
@@ -160,6 +162,15 @@ export function HopDong() {
                 ? prev.filter(id => id !== projectId)
                 : [...prev, projectId]
         );
+    };
+
+    const toggleNhanSu = (id: string) => {
+        const sid = String(id);
+        setFormData(prev => {
+            const arr = prev.nhanSuIds || [];
+            const next = arr.includes(sid) ? arr.filter((x) => x !== sid) : [...arr, sid];
+            return { ...prev, nhanSuIds: next, nhanSuId: next[0] || '' };
+        });
     };
 
     const loadTasks = async () => {
@@ -275,6 +286,7 @@ export function HopDong() {
             giaTriQT: contract.giaTriQT ? contract.giaTriQT.toString() : '',
             projectId: actualProjectId || '',
             nhanSuId: contract.nhanSuId || '',
+            nhanSuIds: contract.nhanSuIds && contract.nhanSuIds.length > 0 ? contract.nhanSuIds : (contract.nhanSuId ? [contract.nhanSuId] : []),
         });
         
         // Load files từ database
@@ -494,7 +506,8 @@ export function HopDong() {
             const updateResult = await contractService.update(editingContract.uuid, {
                 du_an_id: validProjectId || null,
                 project_name: selectedProject?.ten_du_an || null,
-                nhan_su_id: formData.nhanSuId || null,
+                nhan_su_ids: formData.nhanSuIds && formData.nhanSuIds.length > 0 ? formData.nhanSuIds : [],
+                nhan_su_id: formData.nhanSuIds?.[0] || formData.nhanSuId || null,
                 so_hop_dong: formData.soHopDong || null,
                 ten_goi_thau: formData.tenGoiThau || null,
                 loai_dich_vu: formData.loaiDichVu || null,
@@ -543,7 +556,8 @@ export function HopDong() {
                                     fileStatus: fileStatus,
                                     files: contractFiles,
                                     ngayUpdate: new Date().toLocaleDateString('vi-VN'),
-                                    nhanSuId: formData.nhanSuId || null,
+                                    nhanSuId: formData.nhanSuIds?.[0] || formData.nhanSuId || null,
+                                    nhanSuIds: formData.nhanSuIds || [],
                                     duAnId: validProjectId || null,
                                 };
                             }
@@ -552,7 +566,6 @@ export function HopDong() {
                     }));
                 }
                 
-                // Nếu project đổi, di chuyển contract sang project mới
                 const updatedContract: Contract = {
                     ...(oldProjectGroup?.contracts.find(c => c.uuid === editingContract.uuid) || {} as Contract),
                     soHopDong: formData.soHopDong,
@@ -566,7 +579,8 @@ export function HopDong() {
                     fileStatus: fileStatus,
                     files: contractFiles,
                     ngayUpdate: new Date().toLocaleDateString('vi-VN'),
-                    nhanSuId: formData.nhanSuId || null,
+                    nhanSuId: formData.nhanSuIds?.[0] || formData.nhanSuId || null,
+                    nhanSuIds: formData.nhanSuIds || [],
                     duAnId: validProjectId || null,
                 };
                 
@@ -628,6 +642,7 @@ export function HopDong() {
             giaTriQT: '',
             projectId: projects[0]?.id || '',
             nhanSuId: '',
+            nhanSuIds: [],
         });
         setIsAddModalOpen(true);
     };
@@ -646,9 +661,10 @@ export function HopDong() {
         // Ghi xuống bảng hop_dong
         try {
             const created = await contractService.create({
-                du_an_id: formData.projectId || null, // Sử dụng du_an_id thay vì project_name
-                project_name: selectedProject?.ten_du_an || null, // Giữ lại để backward compatibility
-                nhan_su_id: formData.nhanSuId || null, // Foreign key đến nhan_su
+                du_an_id: formData.projectId || null,
+                project_name: selectedProject?.ten_du_an || null,
+                nhan_su_ids: formData.nhanSuIds && formData.nhanSuIds.length > 0 ? formData.nhanSuIds : [],
+                nhan_su_id: formData.nhanSuIds?.[0] || formData.nhanSuId || null,
                 so_hop_dong: formData.soHopDong || null,
                 ten_goi_thau: formData.tenGoiThau || null,
                 loai_dich_vu: formData.loaiDichVu || null,
@@ -673,7 +689,7 @@ export function HopDong() {
             const existing = prev.find(p => p.projectName === projectName);
             const newContract: Contract = {
                 id: Date.now(),
-                uuid: created.id, // Lưu UUID thực sự từ database
+                uuid: created.id,
                 fileStatus: created.file_status || 'Chưa có file',
                 files: created.files || [],
                 ngayKyHD: created.ngay_ky_hd ? new Date(created.ngay_ky_hd).toLocaleDateString('vi-VN') : '',
@@ -682,9 +698,11 @@ export function HopDong() {
                 loaiDichVu: created.loai_dich_vu || '',
                 giaTriHD: Number(created.gia_tri_hd || 0),
                 giaTriQT: Number(created.gia_tri_qt || 0),
-                daThu: 0, // Sẽ được tính từ thu chi
+                daThu: 0,
                 conPhaiThu: Number(created.gia_tri_qt || 0),
                 ngayUpdate: created.ngay_update ? new Date(created.ngay_update).toLocaleDateString('vi-VN') : '',
+                nhanSuId: (created as any).nhan_su_id || null,
+                nhanSuIds: (created as any).nhan_su_ids && Array.isArray((created as any).nhan_su_ids) ? (created as any).nhan_su_ids : [],
             };
 
             if (!existing) {
@@ -762,7 +780,8 @@ export function HopDong() {
                 setEmployees(employeeList.map(emp => ({
                     id: emp.id.toString(),
                     full_name: emp.full_name || emp.name || emp.hoTen || '',
-                    code: emp.code || ''
+                    code: emp.code || '',
+                    anh_nhan_su: (emp as any).anh_nhan_su || null
                 })));
             } catch (error) {
                 console.error('Error loading employees:', error);
@@ -836,6 +855,7 @@ export function HopDong() {
                         conPhaiThu: giaTriQT - daThu,
                     ngayUpdate: c.ngay_update ? new Date(c.ngay_update).toLocaleDateString('vi-VN') : '',
                     nhanSuId: c.nhan_su_id || null,
+                    nhanSuIds: (c as any).nhan_su_ids && Array.isArray((c as any).nhan_su_ids) ? (c as any).nhan_su_ids : (c.nhan_su_id ? [c.nhan_su_id] : []),
                     nhanSuTen: c.nhan_su_ten || null,
                     nhanSuCode: c.nhan_su_code || null,
                     };
@@ -968,13 +988,13 @@ export function HopDong() {
             <div className="bg-white rounded-md border border-slate-200 overflow-hidden shadow-sm">
 
                 {/* Header */}
-                <div className="px-6 py-4 border-b border-slate-200 flex justify-between items-center bg-white">
-                    <h1 className="text-[16px] font-bold text-slate-700 uppercase">
+                <div className="px-6 py-4 border-b border-slate-200 flex justify-between items-center bg-gradient-to-r from-[var(--cobalt-dark)] to-[var(--cobalt)]">
+                    <h1 className="text-[16px] font-extrabold text-white uppercase tracking-wide">
                         Hợp đồng
                     </h1>
                     <button
                         onClick={handleAddClick}
-                        className="btn-primary ripple flex items-center gap-2 px-4 py-2 bg-[#9333EA] hover:bg-purple-700 text-white text-sm font-medium rounded-md shadow-sm"
+                        className="btn-primary ripple flex items-center gap-2 px-4 py-2 bg-white/10 hover:bg-white/20 text-white text-sm font-semibold rounded-md shadow-sm border border-white/40"
                     >
                         <Plus size={16} />
                         Thêm hợp đồng
@@ -1102,6 +1122,28 @@ export function HopDong() {
                     </div>
                 </div>
 
+                {/* Danh sách nhân sự (icon ảnh) - ngoài bảng */}
+                {employees.length > 0 && (
+                    <div className="px-6 py-4 bg-slate-50/80 border-b border-slate-200">
+                        <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-3">Nhân sự (ảnh đại diện)</p>
+                        <div className="flex flex-wrap gap-4">
+                            {employees.map((emp) => (
+                                <div key={emp.id} className="flex flex-col items-center gap-1.5">
+                                    <span className="w-12 h-12 rounded-full border-2 border-slate-200 shadow-sm flex-shrink-0 overflow-hidden bg-slate-200 flex items-center justify-center">
+                                        {emp.anh_nhan_su ? (
+                                            <img src={emp.anh_nhan_su} alt="" className="w-full h-full object-cover" onError={(e) => { const t = e.target as HTMLImageElement; t.style.display = 'none'; const parent = t.parentElement; if (parent) { const fallback = parent.querySelector('.avatar-fallback'); if (fallback) (fallback as HTMLElement).classList.remove('hidden'); } }} />
+                                        ) : null}
+                                        <span className={`avatar-fallback w-full h-full flex items-center justify-center ${emp.anh_nhan_su ? 'hidden' : ''}`}>
+                                            <User size={22} className="text-slate-400" />
+                                        </span>
+                                    </span>
+                                    <span className="text-[11px] text-slate-600 text-center max-w-[72px] truncate" title={emp.full_name}>{emp.code ? `[${emp.code}] ` : ''}{emp.full_name}</span>
+                                </div>
+                            ))}
+                        </div>
+                    </div>
+                )}
+
                 {/* Table */}
                 <div className="w-full overflow-x-auto bg-white">
                     <table className="w-full text-sm text-left">
@@ -1158,7 +1200,25 @@ export function HopDong() {
                                             <td className="py-3 px-3 text-slate-700 font-medium text-[12px]">{contract.soHopDong}</td>
                                             <td className="py-3 px-3 text-slate-600 text-[12px]">{contract.tenGoiThau}</td>
                                             <td className="py-3 px-3 text-slate-600 text-[12px]">
-                                                {contract.nhanSuTen ? (
+                                                {(contract.nhanSuIds && contract.nhanSuIds.length > 0) ? (
+                                                    <div className="flex flex-wrap items-center gap-2">
+                                                        {contract.nhanSuIds.map((id) => {
+                                                            const emp = employees.find((e) => String(e.id) === String(id));
+                                                            if (!emp) return null;
+                                                            return (
+                                                                <div key={id} className="flex items-center gap-1.5" title={`${emp.code ? `[${emp.code}] ` : ''}${emp.full_name}`}>
+                                                                    {emp.anh_nhan_su ? (
+                                                                        <img src={emp.anh_nhan_su} alt="" className="w-8 h-8 rounded-full object-cover border border-slate-200 flex-shrink-0" onError={(e) => { const t = e.target as HTMLImageElement; t.style.display = 'none'; const next = t.nextElementSibling as HTMLElement; if (next) next.classList.remove('hidden'); }} />
+                                                                    ) : null}
+                                                                    <span className={`w-8 h-8 rounded-full bg-slate-200 flex items-center justify-center flex-shrink-0 ${emp.anh_nhan_su ? 'hidden' : ''}`}>
+                                                                        <User size={14} className="text-slate-400" />
+                                                                    </span>
+                                                                    <span className="text-[11px] truncate max-w-[80px]">{(emp.code ? `[${emp.code}] ` : '') + emp.full_name}</span>
+                                                                </div>
+                                                            );
+                                                        })}
+                                                    </div>
+                                                ) : contract.nhanSuTen ? (
                                                     <span className="flex items-center gap-1">
                                                         {contract.nhanSuCode && <span className="text-slate-400">[{contract.nhanSuCode}]</span>}
                                                         {contract.nhanSuTen}
@@ -1780,19 +1840,41 @@ export function HopDong() {
                                 </div>
                             )}
                             <div>
-                                <label className="block text-sm font-medium text-slate-700 mb-1">Nhân sự phụ trách</label>
-                                <select
-                                    value={formData.nhanSuId}
-                                    onChange={(e) => setFormData({ ...formData, nhanSuId: e.target.value })}
-                                    className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-purple-500"
-                                >
-                                    <option value="">-- Chọn nhân sự (tùy chọn) --</option>
-                                    {employees.map(emp => (
-                                        <option key={emp.id} value={emp.id}>
-                                            {emp.code ? `${emp.code} - ` : ''}{emp.full_name}
-                                        </option>
-                                    ))}
-                                </select>
+                                <label className="block text-sm font-medium text-slate-700 mb-1">Nhân sự phụ trách <span className="text-slate-400 font-normal">(chọn nhiều – tickbox)</span></label>
+                                <div className="border border-slate-200 rounded-lg p-3 max-h-40 overflow-y-auto bg-slate-50/50">
+                                    {employees.length === 0 ? (
+                                        <p className="text-sm text-slate-500">Chưa có nhân sự</p>
+                                    ) : (
+                                        <div className="space-y-1.5">
+                                            {employees.map((emp) => {
+                                                const sid = String(emp.id);
+                                                const checked = (formData.nhanSuIds || []).includes(sid);
+                                                return (
+                                                    <label
+                                                        key={emp.id}
+                                                        className={`flex items-center gap-3 px-2 py-1.5 rounded cursor-pointer hover:bg-white transition-colors ${checked ? 'bg-purple-50' : ''}`}
+                                                    >
+                                                        <input
+                                                            type="checkbox"
+                                                            checked={checked}
+                                                            onChange={() => toggleNhanSu(emp.id)}
+                                                            className="rounded border-slate-300 w-4 h-4 text-purple-600 focus:ring-purple-500"
+                                                        />
+                                                        <div className="w-8 h-8 rounded-full bg-slate-200 flex items-center justify-center flex-shrink-0">
+                                                            <User size={14} className="text-slate-400" />
+                                                        </div>
+                                                        <span className="text-sm text-slate-800">
+                                                            {emp.code ? `[${emp.code}] ` : ''}{emp.full_name}
+                                                        </span>
+                                                    </label>
+                                                );
+                                            })}
+                                        </div>
+                                    )}
+                                </div>
+                                {(formData.nhanSuIds?.length ?? 0) > 0 && (
+                                    <p className="text-xs text-slate-500 mt-1">Đã chọn {formData.nhanSuIds?.length} người phụ trách</p>
+                                )}
                             </div>
                             <div>
                                 <label className="block text-sm font-medium text-slate-700 mb-1">Số hợp đồng</label>

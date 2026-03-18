@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { X, Calendar, Clock, ChevronDown, User } from 'lucide-react';
+import { X, ChevronDown, User } from 'lucide-react';
 import { customerService, Customer } from '../../lib/services/customerService';
 import { employeeService } from '../../lib/services/employeeService';
 
@@ -19,16 +19,13 @@ export function ThemDuAnModal({ isOpen, onClose, onSave, initialData }: Props) {
         time: '',
         status: 'Đang thực hiện',
         progress: 0,
-        managerId: '',
-        executorId: '',
-        managerImg: '',
-        executorImg: ''
+        managerIds: [] as string[],
+        executorIds: [] as string[],
     });
     const [customers, setCustomers] = useState<Customer[]>([]);
     const [employees, setEmployees] = useState<Array<{ id: string; full_name: string; code: string; anh_nhan_su?: string | null }>>([]);
     const [loadingCustomers, setLoadingCustomers] = useState(false);
     const [loadingEmployees, setLoadingEmployees] = useState(false);
-    const [errors, setErrors] = useState<{ managerId?: string; executorId?: string }>({});
 
     // Load danh sách khách hàng và nhân sự từ database
     useEffect(() => {
@@ -64,7 +61,6 @@ export function ThemDuAnModal({ isOpen, onClose, onSave, initialData }: Props) {
 
     useEffect(() => {
         if (isOpen) {
-            setErrors({}); // Reset errors khi mở modal
             if (initialData) {
                 // Ưu tiên lấy customerName từ ten_khach_hang hoặc customer_name (từ join)
                 // Nếu ten_khach_hang là ID (UUID format), tìm lại tên từ customers
@@ -87,31 +83,27 @@ export function ThemDuAnModal({ isOpen, onClose, onSave, initialData }: Props) {
                     }
                 }
                 
-                // Đảm bảo managerId và executorId là string để khớp với dropdown
-                const managerId = initialData.manager_id || initialData.managerId;
-                const executorId = initialData.executor_id || initialData.executorId;
-                
+                const managerIds = Array.isArray(initialData.manager_ids)
+                    ? initialData.manager_ids.map((id: any) => String(id))
+                    : (initialData.manager_id || initialData.managerId
+                        ? [String(initialData.manager_id || initialData.managerId)]
+                        : []);
+                const executorIds = Array.isArray(initialData.executor_ids)
+                    ? initialData.executor_ids.map((id: any) => String(id))
+                    : (initialData.executor_id || initialData.executorId
+                        ? [String(initialData.executor_id || initialData.executorId)]
+                        : []);
+
                 setFormData({
                     customerName: customerName,
                     customerId: initialData.customer_id || initialData.customerId || '',
-                    projectName: initialData.projectName || '',
+                    projectName: initialData.projectName || initialData.ten_du_an || '',
                     date: initialData.date || new Date().toISOString().split('T')[0],
                     time: initialData.time || new Date().toLocaleTimeString('en-US', { hour12: false }),
                     status: initialData.status || 'Đang thực hiện',
                     progress: initialData.progress || 0,
-                    managerId: managerId ? managerId.toString() : '',
-                    executorId: executorId ? executorId.toString() : '',
-                    managerImg: initialData.manager_img || initialData.managerImg || '',
-                    executorImg: initialData.executor_img || initialData.executorImg || ''
-                });
-                
-                console.log('[ThemDuAnModal] Loading initialData:', {
-                    manager_id: initialData.manager_id,
-                    managerId: initialData.managerId,
-                    finalManagerId: managerId ? managerId.toString() : '',
-                    executor_id: initialData.executor_id,
-                    executorId: initialData.executorId,
-                    finalExecutorId: executorId ? executorId.toString() : ''
+                    managerIds,
+                    executorIds,
                 });
             } else {
                 setFormData({
@@ -122,110 +114,40 @@ export function ThemDuAnModal({ isOpen, onClose, onSave, initialData }: Props) {
                     time: new Date().toLocaleTimeString('en-US', { hour12: false }),
                     status: 'Đang thực hiện',
                     progress: 0,
-                    managerId: '',
-                    executorId: '',
-                    managerImg: '',
-                    executorImg: ''
+                    managerIds: [],
+                    executorIds: [],
                 });
             }
         }
-    }, [isOpen, initialData]);
-
-    // Cập nhật ảnh khi chọn nhân sự
-    useEffect(() => {
-        if (formData.managerId) {
-            // So sánh với cả string và number để đảm bảo tìm được
-            const manager = employees.find(emp => 
-                emp.id === formData.managerId || 
-                emp.id.toString() === formData.managerId.toString() ||
-                String(emp.id) === String(formData.managerId)
-            );
-            console.log('[ThemDuAnModal] Finding manager:', {
-                managerId: formData.managerId,
-                employeesCount: employees.length,
-                found: manager ? 'YES' : 'NO',
-                managerData: manager
-            });
-            if (manager && manager.anh_nhan_su) {
-                setFormData(prev => ({ ...prev, managerImg: manager.anh_nhan_su || '' }));
-            } else {
-                // Nếu không tìm thấy trong employees, giữ nguyên ảnh từ initialData
-                setFormData(prev => ({ ...prev, managerImg: prev.managerImg || '' }));
-            }
-        } else {
-            setFormData(prev => ({ ...prev, managerImg: '' }));
-        }
-    }, [formData.managerId, employees]);
-
-    useEffect(() => {
-        if (formData.executorId) {
-            // So sánh với cả string và number để đảm bảo tìm được
-            const executor = employees.find(emp => 
-                emp.id === formData.executorId || 
-                emp.id.toString() === formData.executorId.toString() ||
-                String(emp.id) === String(formData.executorId)
-            );
-            console.log('[ThemDuAnModal] Finding executor:', {
-                executorId: formData.executorId,
-                employeesCount: employees.length,
-                found: executor ? 'YES' : 'NO',
-                executorData: executor
-            });
-            if (executor && executor.anh_nhan_su) {
-                setFormData(prev => ({ ...prev, executorImg: executor.anh_nhan_su || '' }));
-            } else {
-                // Nếu không tìm thấy trong employees, giữ nguyên ảnh từ initialData
-                setFormData(prev => ({ ...prev, executorImg: prev.executorImg || '' }));
-            }
-        } else {
-            setFormData(prev => ({ ...prev, executorImg: '' }));
-        }
-    }, [formData.executorId, employees]);
+    }, [isOpen, initialData, customers]);
 
     if (!isOpen) return null;
 
     const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
         const { name, value } = e.target;
         if (name === 'customerName') {
-            // Khi chọn khách hàng, tìm customerId tương ứng
             const selectedCustomer = customers.find(c => c.ten_don_vi === value);
             const newCustomerId = selectedCustomer?.id?.toString() || '';
-            console.log('[ThemDuAnModal] Selected customer:', value, 'customerId:', newCustomerId);
-            setFormData(prev => ({ 
-                ...prev, 
-                customerName: value,
-                customerId: newCustomerId
-            }));
+            setFormData(prev => ({ ...prev, customerName: value, customerId: newCustomerId }));
         } else {
             setFormData(prev => ({ ...prev, [name]: value }));
-            // Xóa lỗi khi người dùng chọn
-            if (name === 'managerId' || name === 'executorId') {
-                setErrors(prev => ({ ...prev, [name]: undefined }));
-            }
         }
+    };
+
+    const togglePerson = (role: 'manager' | 'executor', id: string) => {
+        const key = role === 'manager' ? 'managerIds' : 'executorIds';
+        setFormData(prev => {
+            const arr = prev[key];
+            const sid = String(id);
+            const next = arr.includes(sid) ? arr.filter((x) => x !== sid) : [...arr, sid];
+            return { ...prev, [key]: next };
+        });
     };
 
     const handleSubmit = (e: React.FormEvent) => {
         e.preventDefault();
         
         console.log('[ThemDuAnModal] Form data before validation:', formData);
-        
-        // Validation: Kiểm tra nhân sự phụ trách
-        const newErrors: { managerId?: string; executorId?: string } = {};
-        if (!formData.managerId) {
-            newErrors.managerId = 'Vui lòng chọn người quản lý';
-        }
-        if (!formData.executorId) {
-            newErrors.executorId = 'Vui lòng chọn người thực thi';
-        }
-        
-        if (Object.keys(newErrors).length > 0) {
-            console.log('[ThemDuAnModal] Validation errors:', newErrors);
-            setErrors(newErrors);
-            return;
-        }
-        
-        setErrors({});
         
         // Xử lý customerId - đảm bảo không phải empty string
         let finalCustomerId = formData.customerId && formData.customerId.trim() !== '' ? formData.customerId.trim() : null;
@@ -243,23 +165,16 @@ export function ThemDuAnModal({ isOpen, onClose, onSave, initialData }: Props) {
         
         const saveData = {
             ...formData,
-            id: initialData?.id || null, // Truyền id từ initialData nếu có
+            id: initialData?.id || null,
             customer_id: finalCustomerId,
             customerId: finalCustomerId,
-            customerName: formData.customerName, // Giữ lại customerName để dùng làm fallback
-            tenKhachHang: finalTenKhachHang || formData.customerName || null, // Đảm bảo luôn có giá trị
-            manager_id: formData.managerId || null,
-            executor_id: formData.executorId || null,
-            managerImg: formData.managerImg || null,
-            executorImg: formData.executorImg || null
+            customerName: formData.customerName,
+            tenKhachHang: finalTenKhachHang || formData.customerName || null,
+            managerIds: formData.managerIds,
+            executorIds: formData.executorIds,
+            manager_id: formData.managerIds[0] || null,
+            executor_id: formData.executorIds[0] || null,
         };
-        
-        console.log('[ThemDuAnModal] Sending data to onSave:', saveData);
-        console.log('[ThemDuAnModal] customerId:', formData.customerId, '-> finalCustomerId:', finalCustomerId);
-        console.log('[ThemDuAnModal] customerName:', formData.customerName, '-> finalTenKhachHang:', finalTenKhachHang);
-        console.log('[ThemDuAnModal] saveData.tenKhachHang:', saveData.tenKhachHang);
-        
-        // Gửi dữ liệu kèm manager_id và executor_id, customer_id, và id nếu đang edit
         onSave(saveData);
         onClose();
     };
@@ -396,95 +311,97 @@ export function ThemDuAnModal({ isOpen, onClose, onSave, initialData }: Props) {
                             />
                         </div>
 
-                        {/* Người quản lý */}
+                        {/* Người quản lý (chọn nhiều) */}
                         <div className="space-y-2">
                             <label className="text-[13px] text-slate-500">
-                                Người quản lý <span className="text-red-500">*</span>
+                                Người quản lý <span className="text-slate-400 font-normal">(có thể chọn nhiều)</span>
                             </label>
-                            <div className="flex items-center gap-3">
-                                <div className="relative flex-1">
-                                    <select
-                                        name="managerId"
-                                        value={formData.managerId}
-                                        onChange={handleChange}
-                                        disabled={loadingEmployees}
-                                        className={`w-full pl-4 pr-10 py-3 border rounded-md focus:outline-none focus:border-blue-500 text-sm text-slate-800 bg-white appearance-none disabled:bg-slate-100 disabled:cursor-not-allowed ${
-                                            errors.managerId ? 'border-red-500' : 'border-slate-300'
-                                        }`}
-                                        required
-                                    >
-                                        <option value="">{loadingEmployees ? 'Đang tải...' : 'Chọn người quản lý...'}</option>
-                                        {employees.map((emp) => (
-                                            <option key={emp.id} value={emp.id}>
-                                                {emp.code ? `[${emp.code}] ` : ''}{emp.full_name}
-                                            </option>
-                                        ))}
-                                    </select>
-                                    <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" size={18} />
-                                </div>
-                                {formData.managerImg ? (
-                                    <img 
-                                        src={formData.managerImg} 
-                                        alt="Manager" 
-                                        className="w-16 h-16 rounded-full object-cover border border-slate-200"
-                                        onError={(e) => {
-                                            (e.target as HTMLImageElement).style.display = 'none';
-                                        }}
-                                    />
+                            <div className="border border-slate-200 rounded-md p-3 max-h-40 overflow-y-auto bg-slate-50/50">
+                                {loadingEmployees ? (
+                                    <p className="text-sm text-slate-500">Đang tải...</p>
+                                ) : employees.length === 0 ? (
+                                    <p className="text-sm text-slate-500">Chưa có nhân sự</p>
                                 ) : (
-                                    <div className="w-16 h-16 rounded-full bg-slate-200 border border-slate-200 flex items-center justify-center">
-                                        <User size={20} className="text-slate-400" />
+                                    <div className="space-y-1.5">
+                                        {employees.map((emp) => {
+                                            const sid = String(emp.id);
+                                            const checked = formData.managerIds.includes(sid);
+                                            return (
+                                                <label
+                                                    key={emp.id}
+                                                    className={`flex items-center gap-3 px-2 py-1.5 rounded cursor-pointer hover:bg-white transition-colors ${checked ? 'bg-blue-50' : ''}`}
+                                                >
+                                                    <input
+                                                        type="checkbox"
+                                                        checked={checked}
+                                                        onChange={() => togglePerson('manager', emp.id)}
+                                                        className="rounded border-slate-300 w-4 h-4 text-blue-600 focus:ring-blue-500"
+                                                    />
+                                                    {emp.anh_nhan_su ? (
+                                                        <img src={emp.anh_nhan_su} alt="" className="w-8 h-8 rounded-full object-cover border border-slate-200" />
+                                                    ) : (
+                                                        <div className="w-8 h-8 rounded-full bg-slate-200 flex items-center justify-center">
+                                                            <User size={14} className="text-slate-400" />
+                                                        </div>
+                                                    )}
+                                                    <span className="text-sm text-slate-800">
+                                                        {emp.code ? `[${emp.code}] ` : ''}{emp.full_name}
+                                                    </span>
+                                                </label>
+                                            );
+                                        })}
                                     </div>
                                 )}
                             </div>
-                            {errors.managerId && (
-                                <p className="text-xs text-red-500 mt-1">{errors.managerId}</p>
+                            {formData.managerIds.length > 0 && (
+                                <p className="text-xs text-slate-500">Đã chọn {formData.managerIds.length} người quản lý</p>
                             )}
                         </div>
 
-                        {/* Người thực thi */}
+                        {/* Người thực thi (chọn nhiều) */}
                         <div className="space-y-2">
                             <label className="text-[13px] text-slate-500">
-                                Người thực thi <span className="text-red-500">*</span>
+                                Người thực thi <span className="text-slate-400 font-normal">(có thể chọn nhiều)</span>
                             </label>
-                            <div className="flex items-center gap-3">
-                                <div className="relative flex-1">
-                                    <select
-                                        name="executorId"
-                                        value={formData.executorId}
-                                        onChange={handleChange}
-                                        disabled={loadingEmployees}
-                                        className={`w-full pl-4 pr-10 py-3 border rounded-md focus:outline-none focus:border-blue-500 text-sm text-slate-800 bg-white appearance-none disabled:bg-slate-100 disabled:cursor-not-allowed ${
-                                            errors.executorId ? 'border-red-500' : 'border-slate-300'
-                                        }`}
-                                        required
-                                    >
-                                        <option value="">{loadingEmployees ? 'Đang tải...' : 'Chọn người thực thi...'}</option>
-                                        {employees.map((emp) => (
-                                            <option key={emp.id} value={emp.id}>
-                                                {emp.code ? `[${emp.code}] ` : ''}{emp.full_name}
-                                            </option>
-                                        ))}
-                                    </select>
-                                    <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" size={18} />
-                                </div>
-                                {formData.executorImg ? (
-                                    <img 
-                                        src={formData.executorImg} 
-                                        alt="Executor" 
-                                        className="w-16 h-16 rounded-full object-cover border border-slate-200"
-                                        onError={(e) => {
-                                            (e.target as HTMLImageElement).style.display = 'none';
-                                        }}
-                                    />
+                            <div className="border border-slate-200 rounded-md p-3 max-h-40 overflow-y-auto bg-slate-50/50">
+                                {loadingEmployees ? (
+                                    <p className="text-sm text-slate-500">Đang tải...</p>
+                                ) : employees.length === 0 ? (
+                                    <p className="text-sm text-slate-500">Chưa có nhân sự</p>
                                 ) : (
-                                    <div className="w-16 h-16 rounded-full bg-slate-200 border border-slate-200 flex items-center justify-center">
-                                        <User size={20} className="text-slate-400" />
+                                    <div className="space-y-1.5">
+                                        {employees.map((emp) => {
+                                            const sid = String(emp.id);
+                                            const checked = formData.executorIds.includes(sid);
+                                            return (
+                                                <label
+                                                    key={emp.id}
+                                                    className={`flex items-center gap-3 px-2 py-1.5 rounded cursor-pointer hover:bg-white transition-colors ${checked ? 'bg-blue-50' : ''}`}
+                                                >
+                                                    <input
+                                                        type="checkbox"
+                                                        checked={checked}
+                                                        onChange={() => togglePerson('executor', emp.id)}
+                                                        className="rounded border-slate-300 w-4 h-4 text-blue-600 focus:ring-blue-500"
+                                                    />
+                                                    {emp.anh_nhan_su ? (
+                                                        <img src={emp.anh_nhan_su} alt="" className="w-8 h-8 rounded-full object-cover border border-slate-200" />
+                                                    ) : (
+                                                        <div className="w-8 h-8 rounded-full bg-slate-200 flex items-center justify-center">
+                                                            <User size={14} className="text-slate-400" />
+                                                        </div>
+                                                    )}
+                                                    <span className="text-sm text-slate-800">
+                                                        {emp.code ? `[${emp.code}] ` : ''}{emp.full_name}
+                                                    </span>
+                                                </label>
+                                            );
+                                        })}
                                     </div>
                                 )}
                             </div>
-                            {errors.executorId && (
-                                <p className="text-xs text-red-500 mt-1">{errors.executorId}</p>
+                            {formData.executorIds.length > 0 && (
+                                <p className="text-xs text-slate-500">Đã chọn {formData.executorIds.length} người thực thi</p>
                             )}
                         </div>
 

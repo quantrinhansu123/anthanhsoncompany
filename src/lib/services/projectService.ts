@@ -9,6 +9,10 @@ export interface Project {
   progress: number;
   manager_id?: string | null;
   executor_id?: string | null;
+  /** Nhiều người quản lý (lưu trong cột manager_ids JSONB) */
+  manager_ids?: string[];
+  /** Nhiều người thực thi (lưu trong cột executor_ids JSONB) */
+  executor_ids?: string[];
   manager_img?: string | null;
   executor_img?: string | null;
   created_at?: string;
@@ -46,15 +50,17 @@ export const projectService = {
         const managerImg = row.manager_img || (manager?.anh_nhan_su || null);
         const executorImg = row.executor_img || (executor?.anh_nhan_su || null);
         
+        const managerIds = Array.isArray(row.manager_ids) ? row.manager_ids : (row.manager_ids ? [].concat(row.manager_ids) : []);
+        const executorIds = Array.isArray(row.executor_ids) ? row.executor_ids : (row.executor_ids ? [].concat(row.executor_ids) : []);
         return {
           ...row,
+          manager_ids: managerIds,
+          executor_ids: executorIds,
           manager_name: manager ? (manager.full_name || manager.name || manager.hoTen || '') : null,
           executor_name: executor ? (executor.full_name || executor.name || executor.hoTen || '') : null,
-          customer_name: row.ten_khach_hang || null, // Sử dụng ten_khach_hang từ du_an thay vì join
-          // Lấy ảnh từ nhân sự nếu không có manager_img/executor_img
+          customer_name: row.ten_khach_hang || null,
           manager_img: managerImg,
           executor_img: executorImg,
-          // Giữ lại manager và executor objects để có thể truy cập sau
           manager: manager,
           executor: executor,
         } as Project;
@@ -76,70 +82,52 @@ export const projectService = {
     }
   },
 
-  // Tạo dự án mới
+  // Tạo dự án mới (hỗ trợ nhiều người: managerIds, executorIds)
   async create(payload: {
     projectName: string;
     status: string;
     progress: number;
     managerId?: string;
     executorId?: string;
+    managerIds?: string[];
+    executorIds?: string[];
     managerImg?: string;
     executorImg?: string;
     customerId?: string;
     tenKhachHang?: string;
   }): Promise<Project | null> {
     try {
+      const managerIds = payload.managerIds && payload.managerIds.length > 0
+        ? payload.managerIds.map((id) => String(id).trim()).filter(Boolean)
+        : (payload.managerId && payload.managerId.trim() ? [payload.managerId.trim()] : []);
+      const executorIds = payload.executorIds && payload.executorIds.length > 0
+        ? payload.executorIds.map((id) => String(id).trim()).filter(Boolean)
+        : (payload.executorId && payload.executorId.trim() ? [payload.executorId.trim()] : []);
+
       const insertData: any = {
         ten_du_an: payload.projectName,
         status: payload.status,
         progress: payload.progress ?? 0,
+        manager_ids: managerIds,
+        executor_ids: executorIds,
+        manager_id: managerIds[0] || null,
+        executor_id: executorIds[0] || null,
       };
-      
-      // Xử lý customer_id - chỉ lưu nếu có giá trị hợp lệ
+
       if (payload.customerId && payload.customerId.toString().trim() !== '') {
         insertData.customer_id = payload.customerId.toString().trim();
-        console.log('[projectService.create] Setting customer_id:', insertData.customer_id);
       } else {
         insertData.customer_id = null;
-        console.log('[projectService.create] customer_id is null or empty');
       }
-      
-      // Xử lý ten_khach_hang - LUÔN lưu (kể cả khi null hoặc undefined)
-      // Luôn set ten_khach_hang vào insertData để đảm bảo cột được cập nhật
+
       if (payload.tenKhachHang && payload.tenKhachHang.toString().trim() !== '') {
         insertData.ten_khach_hang = payload.tenKhachHang.toString().trim();
-        console.log('[projectService.create] Setting ten_khach_hang:', insertData.ten_khach_hang);
       } else {
-        // Set null nếu không có giá trị
         insertData.ten_khach_hang = null;
-        console.log('[projectService.create] ten_khach_hang set to null. payload.tenKhachHang:', payload.tenKhachHang);
       }
-      
-      // Xử lý manager_id - chỉ lưu nếu có giá trị hợp lệ
-      if (payload.managerId && payload.managerId.toString().trim() !== '') {
-        insertData.manager_id = payload.managerId.toString().trim();
-        console.log('[projectService.create] Setting manager_id:', insertData.manager_id);
-      } else {
-        insertData.manager_id = null;
-        console.log('[projectService.create] manager_id is null or empty');
-      }
-      
-      // Xử lý executor_id - chỉ lưu nếu có giá trị hợp lệ
-      if (payload.executorId && payload.executorId.toString().trim() !== '') {
-        insertData.executor_id = payload.executorId.toString().trim();
-        console.log('[projectService.create] Setting executor_id:', insertData.executor_id);
-      } else {
-        insertData.executor_id = null;
-        console.log('[projectService.create] executor_id is null or empty');
-      }
-      
-      // Lưu manager_img và executor_img nếu có
-      if (payload.managerImg) {
-        insertData.manager_img = payload.managerImg;
-      }
-      if (payload.executorImg) {
-        insertData.executor_img = payload.executorImg;
-      }
+
+      if (payload.managerImg) insertData.manager_img = payload.managerImg;
+      if (payload.executorImg) insertData.executor_img = payload.executorImg;
 
       console.log('[projectService.create] Final insertData:', JSON.stringify(insertData, null, 2));
       
@@ -189,7 +177,7 @@ export const projectService = {
     }
   },
 
-  // Cập nhật dự án
+  // Cập nhật dự án (hỗ trợ nhiều người: managerIds, executorIds)
   async update(id: string, payload: {
     projectName?: string;
     status?: string;
@@ -198,6 +186,8 @@ export const projectService = {
     tenKhachHang?: string;
     managerId?: string;
     executorId?: string;
+    managerIds?: string[];
+    executorIds?: string[];
     managerImg?: string;
     executorImg?: string;
   }): Promise<Project | null> {
@@ -206,61 +196,34 @@ export const projectService = {
       if (payload.projectName !== undefined) updateData.ten_du_an = payload.projectName;
       if (payload.status !== undefined) updateData.status = payload.status;
       if (payload.progress !== undefined) updateData.progress = payload.progress;
-      // Xử lý customer_id - chỉ lưu nếu có giá trị hợp lệ
       if (payload.customerId !== undefined) {
-        if (payload.customerId && payload.customerId.toString().trim() !== '') {
-          updateData.customer_id = payload.customerId.toString().trim();
-          console.log('[projectService.update] Setting customer_id:', updateData.customer_id);
-        } else {
-          updateData.customer_id = null;
-          console.log('[projectService.update] customer_id is null or empty');
-        }
+        updateData.customer_id = payload.customerId && payload.customerId.toString().trim() !== ''
+          ? payload.customerId.toString().trim() : null;
       }
-      
-      // Xử lý ten_khach_hang - LUÔN lưu (kể cả khi null hoặc undefined)
-      // Luôn set ten_khach_hang vào updateData để đảm bảo cột được cập nhật
       if (payload.tenKhachHang !== undefined) {
-        if (payload.tenKhachHang && payload.tenKhachHang.toString().trim() !== '') {
-          updateData.ten_khach_hang = payload.tenKhachHang.toString().trim();
-          console.log('[projectService.update] Setting ten_khach_hang:', updateData.ten_khach_hang);
-        } else {
-          updateData.ten_khach_hang = null;
-          console.log('[projectService.update] ten_khach_hang set to null. payload.tenKhachHang:', payload.tenKhachHang);
-        }
-      } else {
-        // Nếu không có trong payload, không update (giữ nguyên giá trị cũ)
-        console.log('[projectService.update] tenKhachHang not provided, keeping existing value');
+        updateData.ten_khach_hang = payload.tenKhachHang && payload.tenKhachHang.toString().trim() !== ''
+          ? payload.tenKhachHang.toString().trim() : null;
       }
-      
-      // Xử lý manager_id - chỉ lưu nếu có giá trị hợp lệ
-      if (payload.managerId !== undefined) {
-        if (payload.managerId && payload.managerId.toString().trim() !== '') {
-          updateData.manager_id = payload.managerId.toString().trim();
-          console.log('[projectService.update] Setting manager_id:', updateData.manager_id);
-        } else {
-          updateData.manager_id = null;
-          console.log('[projectService.update] manager_id is null or empty');
-        }
+      if (payload.managerIds !== undefined) {
+        const arr = payload.managerIds.map((id) => String(id).trim()).filter(Boolean);
+        updateData.manager_ids = arr;
+        updateData.manager_id = arr[0] || null;
+      } else if (payload.managerId !== undefined) {
+        const v = payload.managerId && payload.managerId.toString().trim() !== '' ? payload.managerId.toString().trim() : null;
+        updateData.manager_id = v;
+        updateData.manager_ids = v ? [v] : [];
       }
-      
-      // Xử lý executor_id - chỉ lưu nếu có giá trị hợp lệ
-      if (payload.executorId !== undefined) {
-        if (payload.executorId && payload.executorId.toString().trim() !== '') {
-          updateData.executor_id = payload.executorId.toString().trim();
-          console.log('[projectService.update] Setting executor_id:', updateData.executor_id);
-        } else {
-          updateData.executor_id = null;
-          console.log('[projectService.update] executor_id is null or empty');
-        }
+      if (payload.executorIds !== undefined) {
+        const arr = payload.executorIds.map((id) => String(id).trim()).filter(Boolean);
+        updateData.executor_ids = arr;
+        updateData.executor_id = arr[0] || null;
+      } else if (payload.executorId !== undefined) {
+        const v = payload.executorId && payload.executorId.toString().trim() !== '' ? payload.executorId.toString().trim() : null;
+        updateData.executor_id = v;
+        updateData.executor_ids = v ? [v] : [];
       }
-      
-      // Lưu manager_img và executor_img nếu có
-      if (payload.managerImg !== undefined) {
-        updateData.manager_img = payload.managerImg || null;
-      }
-      if (payload.executorImg !== undefined) {
-        updateData.executor_img = payload.executorImg || null;
-      }
+      if (payload.managerImg !== undefined) updateData.manager_img = payload.managerImg || null;
+      if (payload.executorImg !== undefined) updateData.executor_img = payload.executorImg || null;
 
       console.log('[projectService.update] Final updateData:', JSON.stringify(updateData, null, 2));
       

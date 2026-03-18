@@ -16,7 +16,8 @@ export interface ContractRow {
   customer_name?: string | null; // Tên đơn vị tại thời điểm ký
   project_name?: string | null; // Deprecated: giữ lại để backward compatibility
   du_an_id?: string | null; // Foreign key đến du_an.id
-  nhan_su_id?: string | null; // Foreign key đến nhan_su.id
+  nhan_su_id?: string | null; // Foreign key đến nhan_su.id (người phụ trách chính)
+  nhan_su_ids?: string[] | null; // Nhiều người phụ trách (JSONB)
   file_status?: string | null;
   files?: ContractFile[] | null; // JSONB array of files
   ngay_ky_hd?: string | null; // ISO date
@@ -78,16 +79,17 @@ export const contractService = {
         employeeMap.set(emp.id.toString(), { name, code });
       });
 
-      // Map dữ liệu để lấy ten_du_an từ du_an_id và thông tin nhân sự từ nhan_su_id
+      // Map dữ liệu để lấy ten_du_an từ du_an_id, nhan_su_ids và thông tin nhân sự
       return (data || []).map((row: any) => {
         const employee = row.nhan_su_id ? employeeMap.get(row.nhan_su_id) : null;
-        // Hỗ trợ cả id và contract_id
         const contractId = row.contract_id || row.id;
+        const nhanSuIds = Array.isArray(row.nhan_su_ids) ? row.nhan_su_ids : (row.nhan_su_ids ? [].concat(row.nhan_su_ids) : []);
         return {
           ...row,
-          id: contractId, // Đảm bảo luôn có id
-          contract_id: contractId, // Alias
-          project_name: row.du_an_id ? (projectMap.get(row.du_an_id) || row.project_name) : (row.project_name || null), // Ưu tiên ten_du_an từ du_an_id, fallback về project_name cũ
+          id: contractId,
+          contract_id: contractId,
+          project_name: row.du_an_id ? (projectMap.get(row.du_an_id) || row.project_name) : (row.project_name || null),
+          nhan_su_ids: nhanSuIds,
           nhan_su_ten: employee?.name || null,
           nhan_su_code: employee?.code || null,
         };
@@ -98,14 +100,24 @@ export const contractService = {
     }
   },
 
-  // Tạo hợp đồng mới
+  // Tạo hợp đồng mới (hỗ trợ nhan_su_ids: nhiều người phụ trách)
   async create(payload: Partial<ContractRow>): Promise<ContractRow | null> {
     try {
-      console.log('[contractService] Creating contract with payload:', payload);
-      
+      const insertPayload: any = { ...payload };
+      if (Array.isArray(payload.nhan_su_ids) && payload.nhan_su_ids.length > 0) {
+        insertPayload.nhan_su_ids = payload.nhan_su_ids.map((id) => String(id).trim()).filter(Boolean);
+        insertPayload.nhan_su_id = insertPayload.nhan_su_id ?? insertPayload.nhan_su_ids[0] ?? null;
+      } else if (payload.nhan_su_id) {
+        insertPayload.nhan_su_ids = [payload.nhan_su_id];
+      } else {
+        insertPayload.nhan_su_ids = [];
+        insertPayload.nhan_su_id = null;
+      }
+      console.log('[contractService] Creating contract with payload:', insertPayload);
+
       const { data, error } = await supabase
         .from('hop_dong')
-        .insert([payload])
+        .insert([insertPayload])
         .select();
 
       if (error) {
@@ -142,7 +154,7 @@ export const contractService = {
       
       // Chỉ thêm các trường có giá trị hoặc null
       const allowedFields = [
-        'customer_id', 'customer_name', 'project_name', 'du_an_id', 'nhan_su_id',
+        'customer_id', 'customer_name', 'project_name', 'du_an_id', 'nhan_su_id', 'nhan_su_ids',
         'file_status', 'files', 'ngay_ky_hd', 'so_hop_dong', 'ten_goi_thau',
         'loai_dich_vu', 'gia_tri_hd', 'gia_tri_qt', 'da_thu', 'con_phai_thu',
         'progress', 'phan_tram_task_hoan_thanh', 'ngay_update',
@@ -154,9 +166,11 @@ export const contractService = {
       allowedFields.forEach(field => {
         if (field in payload) {
           const value = payload[field as keyof ContractRow];
-          // Xử lý đặc biệt cho files (JSONB)
-          if (field === 'files') {
-            // Nếu là array, chuyển thành JSON string hoặc giữ nguyên nếu Supabase tự xử lý
+          if (field === 'nhan_su_ids') {
+            const arr = Array.isArray(value) ? (value as string[]).map((id) => String(id).trim()).filter(Boolean) : [];
+            cleanPayload.nhan_su_ids = arr;
+            cleanPayload.nhan_su_id = arr[0] || null;
+          } else if (field === 'files') {
             cleanPayload[field] = value;
           } else {
             cleanPayload[field] = value;

@@ -4,11 +4,12 @@ import { X } from 'lucide-react';
 interface Props {
     isOpen: boolean;
     onClose: () => void;
-    onSave: (data: any) => void;
+    onSave: (data: any) => void | Promise<void>;
     initialData?: any;
 }
 
 export function ThemKhachHangModal({ isOpen, onClose, onSave, initialData }: Props) {
+    const [isSaving, setIsSaving] = useState(false);
     const [formData, setFormData] = useState({
         Ten_Don_Vi: '',
         Loai_Hinh: 'Tư nhân',
@@ -17,7 +18,6 @@ export function ThemKhachHangModal({ isOpen, onClose, onSave, initialData }: Pro
         Nguoi_Lien_He: '',
         Chuc_Vu_Lien_He: '',
         SDT_Lien_He: '',
-        GiaTriQuyetToan: ''
     });
 
     useEffect(() => {
@@ -32,8 +32,7 @@ export function ThemKhachHangModal({ isOpen, onClose, onSave, initialData }: Pro
                     Dia_Chi: '',
                     Nguoi_Lien_He: '',
                     Chuc_Vu_Lien_He: '',
-                    SDT_Lien_He: '',
-                    GiaTriQuyetToan: ''
+            SDT_Lien_He: '',
                 });
             }
         }
@@ -46,10 +45,17 @@ export function ThemKhachHangModal({ isOpen, onClose, onSave, initialData }: Pro
         setFormData(prev => ({ ...prev, [name]: value }));
     };
 
-    const handleSubmit = (e: React.FormEvent) => {
+    const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
-        onSave(formData);
-        onClose();
+        setIsSaving(true);
+        try {
+            await Promise.resolve(onSave(formData));
+            onClose();
+        } catch {
+            // Lỗi đã được parent xử lý (toast); giữ modal mở để sửa
+        } finally {
+            setIsSaving(false);
+        }
     };
 
     return (
@@ -76,10 +82,12 @@ export function ThemKhachHangModal({ isOpen, onClose, onSave, initialData }: Pro
                             Cancel
                         </button>
                         <button
+                            type="button"
                             onClick={handleSubmit}
-                            className="px-4 py-1.5 bg-blue-600 border border-blue-600 rounded text-sm font-medium text-white hover:bg-blue-700 transition-colors shadow-sm"
+                            disabled={isSaving}
+                            className="px-4 py-1.5 bg-blue-600 border border-blue-600 rounded text-sm font-medium text-white hover:bg-blue-700 transition-colors shadow-sm disabled:opacity-60 disabled:cursor-not-allowed"
                         >
-                            Save
+                            {isSaving ? 'Đang lưu...' : 'Save'}
                         </button>
                     </div>
                 </div>
@@ -162,17 +170,6 @@ export function ThemKhachHangModal({ isOpen, onClose, onSave, initialData }: Pro
                                 type="text"
                                 name="SDT_Lien_He"
                                 value={formData.SDT_Lien_He}
-                                onChange={handleChange}
-                                className="w-full px-3 py-2 border border-slate-300 rounded focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-blue-500 text-sm"
-                            />
-                        </div>
-
-                        <div className="space-y-1.5">
-                            <label className="text-xs font-medium text-slate-500">Giá trị quyết toán</label>
-                            <input
-                                type="text"
-                                name="GiaTriQuyetToan"
-                                value={formData.GiaTriQuyetToan}
                                 onChange={handleChange}
                                 className="w-full px-3 py-2 border border-slate-300 rounded focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-blue-500 text-sm"
                             />

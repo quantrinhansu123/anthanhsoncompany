@@ -17,6 +17,10 @@ import {
 import { ThemKhachHangModal } from './ThemKhachHangModal';
 import { ThemDuAnModal } from './ThemDuAnModal';
 import { useNavigate } from 'react-router-dom';
+import { customerService, type Customer } from '../../lib/services/customerService';
+import { projectService } from '../../lib/services/projectService';
+import { contractService } from '../../lib/services/contractService';
+import { thuChiService, type ThuChiRow } from '../../lib/services/thuChiService';
 
 // Toast notification component
 function Toast({ message, type, onClose }: { message: string; type: 'success' | 'info' | 'warning'; onClose: () => void }) {
@@ -92,7 +96,7 @@ const mockData = [
 
 export function DanhSachKhachHang() {
     const navigate = useNavigate();
-    const [items, setItems] = useState(mockData);
+    const [items, setItems] = useState<any[]>([]);
     const [isModalOpen, setIsModalOpen] = useState(false);
     const [isViewModalOpen, setIsViewModalOpen] = useState(false);
     const [selectedCustomer, setSelectedCustomer] = useState<any>(null);
@@ -117,8 +121,123 @@ export function DanhSachKhachHang() {
 
     const [isAddFinanceModalOpen, setIsAddFinanceModalOpen] = useState(false);
     const [financeForm, setFinanceForm] = useState({ type: 'Phiếu thu', amount: '', note: '' });
-    const [customerProjects, setCustomerProjects] = useState<{ [customerId: number]: any[] }>({});
+    const [customerProjects, setCustomerProjects] = useState<Record<string, any[]>>({});
     const [customerContracts, setCustomerContracts] = useState<{ [customerId: number]: any[] }>({});
+
+    // Load khách hàng + tính tự động: Tổng HĐ, Giá trị quyết toán, Đã thu, Còn phải thu từ dự án + hợp đồng + thu chi
+    React.useEffect(() => {
+        (async () => {
+            try {
+                const [customers, projects, contracts, allThuChi] = await Promise.all([
+                    customerService.getAll(),
+                    projectService.getAll(),
+                    contractService.getAll(),
+                    thuChiService.getAll(),
+                ]);
+
+                if (!customers || customers.length === 0) {
+                    setItems(mockData);
+                    return;
+                }
+
+                const customerIdToProjectIds = new Map<string, string[]>();
+                (projects || []).forEach((p: any) => {
+                    const cid = p.customer_id ? String(p.customer_id) : null;
+                    if (!cid) return;
+                    if (!customerIdToProjectIds.has(cid)) customerIdToProjectIds.set(cid, []);
+                    customerIdToProjectIds.get(cid)!.push(p.id);
+                });
+
+                const projectIdToName = new Map<string, string>();
+                (projects || []).forEach((p: any) => projectIdToName.set(p.id, p.ten_du_an || ''));
+
+                const financialsByCustomer = new Map<string, { tongHopDong: number; giaTriQuyetToan: number; daThu: number; conPhaiThu: number }>();
+
+                (contracts || []).forEach((c: any) => {
+                    const duAnId = c.du_an_id ? String(c.du_an_id) : null;
+                    const projectName = c.project_name || (duAnId ? projectIdToName.get(duAnId) : null);
+                    if (!duAnId && !projectName) return;
+                    for (const [cid, pids] of customerIdToProjectIds) {
+                        if (duAnId && pids.includes(duAnId)) {
+                            const f = financialsByCustomer.get(cid) || { tongHopDong: 0, giaTriQuyetToan: 0, daThu: 0, conPhaiThu: 0 };
+                            f.tongHopDong += Number(c.gia_tri_hd) || 0;
+                            f.giaTriQuyetToan += Number(c.gia_tri_qt) || 0;
+                            financialsByCustomer.set(cid, f);
+                            break;
+                        }
+                    }
+                });
+
+                (allThuChi || []).forEach((tc: ThuChiRow) => {
+                    const duAnId = tc.du_an_id ? String(tc.du_an_id) : null;
+                    if (!duAnId || tc.loai_phieu !== 'Phiếu thu') return;
+                    for (const [cid, pids] of customerIdToProjectIds) {
+                        if (pids.includes(duAnId)) {
+                            const f = financialsByCustomer.get(cid) || { tongHopDong: 0, giaTriQuyetToan: 0, daThu: 0, conPhaiThu: 0 };
+                            f.daThu += Number(tc.so_tien) || 0;
+                            financialsByCustomer.set(cid, f);
+                            break;
+                        }
+                    }
+                });
+
+                financialsByCustomer.forEach((f) => {
+                    f.conPhaiThu = f.giaTriQuyetToan - f.daThu;
+                });
+
+                setItems(
+                    customers.map((c: Customer) => {
+                        const cid = String(c.id);
+                        const calc = financialsByCustomer.get(cid);
+                        return {
+                            id: c.id,
+                            Ten_Don_Vi: c.ten_don_vi,
+                            Loai_Hinh: c.loai_hinh || '',
+                            MST: c.mst || '',
+                            Dia_Chi: c.dia_chi || '',
+                            Nguoi_Dai_Dien: c.nguoi_dai_dien || '',
+                            Chuc_Vu_Dai_Dien: c.chuc_vu_dai_dien || '',
+                            Nguoi_Lien_He: c.nguoi_lien_he || '',
+                            Chuc_Vu_Lien_He: c.chuc_vu_lien_he || '',
+                            SDT_Lien_He: c.sdt_lien_he || '',
+                            TongHopDong: calc?.tongHopDong ?? c.tong_hop_dong ?? 0,
+                            GiaTriQuyetToan: calc?.giaTriQuyetToan ?? c.gia_tri_quyet_toan ?? 0,
+                            DaThu: calc?.daThu ?? c.da_thu ?? 0,
+                            ConPhaiThu: calc?.conPhaiThu ?? (calc ? calc.giaTriQuyetToan - calc.daThu : (c.con_phai_thu ?? 0)),
+                        };
+                    }),
+                );
+            } catch (error) {
+                console.error('[DanhSachKhachHang] Error loading customers:', error);
+                setItems(mockData);
+            }
+        })();
+    }, []);
+
+    // Load dự án của khách hàng khi mở modal chi tiết
+    React.useEffect(() => {
+        if (!selectedCustomer?.id) return;
+        const cid = String(selectedCustomer.id);
+        (async () => {
+            try {
+                const all = await projectService.getAll();
+                const byCustomer = (all || []).filter(
+                    (p: any) => p.customer_id === cid || String(p.customer_id) === cid
+                );
+                const mapped = byCustomer.map((p: any) => ({
+                    id: p.id,
+                    projectName: p.ten_du_an,
+                    date: p.created_at ? new Date(p.created_at).toISOString().split('T')[0] : '',
+                    status: p.status,
+                    customerId: p.customer_id,
+                    customerName: p.ten_khach_hang || selectedCustomer.Ten_Don_Vi,
+                }));
+                setCustomerProjects(prev => ({ ...prev, [cid]: mapped }));
+            } catch (e) {
+                console.error('[DanhSachKhachHang] Error loading projects for customer:', e);
+            }
+        })();
+    }, [selectedCustomer?.id]);
 
     // Filtered items by search
     const filteredItems = useMemo(() => {
@@ -167,9 +286,20 @@ export function DanhSachKhachHang() {
         setIsDeleteModalOpen(true);
     };
 
-    const confirmDelete = () => {
-        if (customerToDelete !== null) {
+    const confirmDelete = async () => {
+        if (customerToDelete === null) return;
+        try {
+            // Nếu là dữ liệu từ DB (id là string uuid), gọi API xóa
+            const target = items.find((item: any) => item.id === customerToDelete);
+            if (target && typeof target.id === 'string') {
+                await customerService.delete(target.id);
+            }
             setItems(items.filter((item: any) => item.id !== customerToDelete));
+            setToast({ message: 'Đã xóa khách hàng', type: 'success' });
+        } catch (error) {
+            console.error('[DanhSachKhachHang] Error deleting customer:', error);
+            setToast({ message: 'Lỗi khi xóa khách hàng', type: 'warning' });
+        } finally {
             setIsDeleteModalOpen(false);
             setCustomerToDelete(null);
         }
@@ -272,32 +402,24 @@ export function DanhSachKhachHang() {
                                         {item.SDT_Lien_He || "(Trống)"}
                                     </td>
                                     <td className="p-4">
-                                        {item.TongHopDong > 0 ? (
-                                            <span className="text-slate-700">
-                                                {formatCurrency(item.TongHopDong)}
-                                            </span>
-                                        ) : "(Trống)"}
+                                        <span className="text-slate-700">
+                                            {formatCurrency(item.TongHopDong ?? 0)}
+                                        </span>
                                     </td>
                                     <td className="p-4">
-                                        {item.GiaTriQuyetToan > 0 ? (
-                                            <span className="text-slate-700">
-                                                {formatCurrency(item.GiaTriQuyetToan)}
-                                            </span>
-                                        ) : "(Trống)"}
+                                        <span className="text-slate-700">
+                                            {formatCurrency(item.GiaTriQuyetToan ?? 0)}
+                                        </span>
                                     </td>
                                     <td className="p-4">
-                                        {item.DaThu > 0 ? (
-                                            <span className="text-green-600">
-                                                {formatCurrency(item.DaThu)}
-                                            </span>
-                                        ) : "(Trống)"}
+                                        <span className="text-green-600">
+                                            {formatCurrency(item.DaThu ?? 0)}
+                                        </span>
                                     </td>
                                     <td className="p-4">
-                                        {item.ConPhaiThu > 0 ? (
-                                            <span className="text-red-500">
-                                                {formatCurrency(item.ConPhaiThu)}
-                                            </span>
-                                        ) : "(Trống)"}
+                                        <span className={item.ConPhaiThu >= 0 ? 'text-slate-700' : 'text-red-500'}>
+                                            {formatCurrency(item.ConPhaiThu ?? 0)}
+                                        </span>
                                     </td>
                                     <td className="p-4">
                                         <div className="flex items-center justify-center gap-2">
@@ -630,12 +752,69 @@ export function DanhSachKhachHang() {
                 isOpen={isModalOpen}
                 onClose={() => setIsModalOpen(false)}
                 initialData={modalData}
-                onSave={(data) => {
-                    if (data.id) {
-                        setItems(items.map((item: any) => item.id === data.id ? data : item));
-                    } else {
-                        setItems([{ ...data, id: Date.now(), TongHopDong: 0, GiaTriQuyetToan: Number(data.GiaTriQuyetToan || 0), DaThu: 0, ConPhaiThu: 0 }, ...items]);
-                    }
+                onSave={async (data) => {
+                    try {
+                        // Map formData -> payload cho bảng khach_hang (không gửi gia_tri_quyet_toan)
+                        const tenDonVi = (data.Ten_Don_Vi ?? '').trim();
+                        if (!data.id && !tenDonVi) {
+                            setToast({ message: 'Vui lòng nhập Tên đơn vị', type: 'warning' });
+                            throw new Error('Missing ten_don_vi');
+                        }
+                        const payload: Partial<Customer> = {
+                            ten_don_vi: tenDonVi,
+                            loai_hinh: (data.Loai_Hinh ?? '').trim() || undefined,
+                            mst: (data.MST ?? '').trim() || undefined,
+                            dia_chi: (data.Dia_Chi ?? '').trim() || undefined,
+                            nguoi_lien_he: (data.Nguoi_Lien_He ?? '').trim() || undefined,
+                            chuc_vu_lien_he: (data.Chuc_Vu_Lien_He ?? '').trim() || undefined,
+                            sdt_lien_he: (data.SDT_Lien_He ?? '').trim() || undefined,
+                        };
+
+                        let saved: any;
+                        if (data.id) {
+                            saved = await customerService.update(String(data.id), payload);
+                        } else {
+                            saved = await customerService.create(payload);
+                        }
+
+                        const mapped = {
+                        id: saved.id,
+                        Ten_Don_Vi: saved.ten_don_vi ?? '',
+                        Loai_Hinh: saved.loai_hinh || '',
+                        MST: saved.mst || '',
+                        Dia_Chi: saved.dia_chi || '',
+                        Nguoi_Dai_Dien: saved.nguoi_dai_dien || '',
+                        Chuc_Vu_Dai_Dien: saved.chuc_vu_dai_dien || '',
+                        Nguoi_Lien_He: saved.nguoi_lien_he || '',
+                        Chuc_Vu_Lien_He: saved.chuc_vu_lien_he || '',
+                        SDT_Lien_He: saved.sdt_lien_he || '',
+                        TongHopDong: saved.tong_hop_dong ?? 0,
+                        GiaTriQuyetToan: saved.gia_tri_quyet_toan ?? 0,
+                        DaThu: saved.da_thu ?? 0,
+                        ConPhaiThu: saved.con_phai_thu ?? 0,
+                    };
+
+                    setItems((prev) => {
+                        const exists = prev.some((item) => item.id === mapped.id);
+                        if (exists) {
+                            return prev.map((item) =>
+                                item.id === mapped.id ? mapped : item,
+                            );
+                        }
+                        return [mapped, ...prev];
+                    });
+
+                    setToast({
+                        message: data.id
+                            ? 'Cập nhật khách hàng thành công!'
+                            : 'Thêm khách hàng thành công!',
+                        type: 'success',
+                    });
+                } catch (error) {
+                    console.error('[DanhSachKhachHang] Error saving customer:', error);
+                    setToast({ message: 'Lỗi khi lưu khách hàng. Kiểm tra bảng khach_hang và kết nối Supabase.', type: 'warning' });
+                    throw error;
+                }
                 }}
             />
 
@@ -643,25 +822,48 @@ export function DanhSachKhachHang() {
             <ThemDuAnModal
                 isOpen={isAddProjectModalOpen}
                 onClose={() => setIsAddProjectModalOpen(false)}
-                onSave={(data) => {
-                    if (selectedCustomer) {
-                        const newProject = {
-                            ...data,
-                            id: Date.now(),
-                            customerId: selectedCustomer.id,
-                            customerName: selectedCustomer.Ten_Don_Vi
-                        };
-                        setCustomerProjects(prev => ({
-                            ...prev,
-                            [selectedCustomer.id]: [...(prev[selectedCustomer.id] || []), newProject]
-                        }));
-                        setToast({ message: 'Đã thêm dự án mới thành công!', type: 'success' });
-                    } else {
-                        setToast({ message: 'Đã thêm dự án mới thành công!', type: 'success' });
+                onSave={async (data) => {
+                    const customerId = selectedCustomer?.id != null ? String(selectedCustomer.id) : (data.customer_id || data.customerId);
+                    const tenKhachHang = selectedCustomer?.Ten_Don_Vi ?? data.tenKhachHang ?? data.customerName ?? '';
+                    const payload = {
+                        projectName: data.projectName || data.ten_du_an || '',
+                        status: data.status || 'Đang thực hiện',
+                        progress: Number(data.progress) || 0,
+                        customerId: customerId || undefined,
+                        tenKhachHang: tenKhachHang || undefined,
+                        managerIds: data.managerIds && data.managerIds.length > 0 ? data.managerIds : undefined,
+                        executorIds: data.executorIds && data.executorIds.length > 0 ? data.executorIds : undefined,
+                        managerId: data.manager_id || data.managerId || undefined,
+                        executorId: data.executor_id || data.executorId || undefined,
+                    };
+                    try {
+                        const saved = await projectService.create(payload);
+                        if (saved && customerId) {
+                            const row = {
+                                id: saved.id,
+                                projectName: saved.ten_du_an,
+                                date: data.date || (saved.created_at ? new Date(saved.created_at).toISOString().split('T')[0] : ''),
+                                status: saved.status,
+                                customerId: saved.customer_id,
+                                customerName: saved.ten_khach_hang || tenKhachHang,
+                            };
+                            setCustomerProjects(prev => ({
+                                ...prev,
+                                [customerId]: [...(prev[customerId] || []), row],
+                            }));
+                            setToast({ message: 'Đã thêm dự án mới thành công!', type: 'success' });
+                        } else if (saved) {
+                            setToast({ message: 'Đã thêm dự án mới thành công!', type: 'success' });
+                        } else {
+                            setToast({ message: 'Lỗi khi lưu dự án', type: 'warning' });
+                        }
+                    } catch (err) {
+                        console.error('[DanhSachKhachHang] Error saving project:', err);
+                        setToast({ message: 'Lỗi khi lưu dự án. Kiểm tra bảng du_an và kết nối Supabase.', type: 'warning' });
                     }
                     setIsAddProjectModalOpen(false);
                 }}
-                initialData={selectedCustomer ? { customerName: selectedCustomer.Ten_Don_Vi } : undefined}
+                initialData={selectedCustomer ? { customerName: selectedCustomer.Ten_Don_Vi, customer_id: selectedCustomer.id } : undefined}
             />
 
             {/* Add Contract Modal */}
