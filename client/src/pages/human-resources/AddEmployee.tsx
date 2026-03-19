@@ -105,12 +105,109 @@ export function AddEmployee() {
   const [showCertificateFileNameDropdown, setShowCertificateFileNameDropdown] = useState(false);
   const [saving, setSaving] = useState(false);
 
+  // Dropdown options for "Phòng ban" and "Chức vụ"
+  const [phongBanOptions, setPhongBanOptions] = useState<string[]>([]);
+  const [chucVuOptions, setChucVuOptions] = useState<string[]>([]);
+  const [showAddPhongBanModal, setShowAddPhongBanModal] = useState(false);
+  const [showAddChucVuModal, setShowAddChucVuModal] = useState(false);
+  const [newPhongBanValue, setNewPhongBanValue] = useState('');
+  const [newChucVuValue, setNewChucVuValue] = useState('');
+  const [loadingOrgOptions, setLoadingOrgOptions] = useState(false);
+
   // Load employee data nếu là edit mode
   useEffect(() => {
     if (isEditMode && id) {
       loadEmployeeData(id);
     }
   }, [isEditMode, id]);
+
+  // Load existing dropdown values from existing employees (distinct by case-insensitive)
+  useEffect(() => {
+    let cancelled = false;
+
+    const uniqByLower = (arr: string[]) => {
+      const map = new Map<string, string>();
+      for (const v of arr) {
+        const s = (v ?? '').toString().trim();
+        if (!s) continue;
+        const k = s.toLowerCase();
+        if (!map.has(k)) map.set(k, s);
+      }
+      return Array.from(map.values()).sort((a, b) => a.localeCompare(b, 'vi'));
+    };
+
+    (async () => {
+      try {
+        setLoadingOrgOptions(true);
+        const allEmployees = await employeeService.getAll();
+        if (cancelled) return;
+
+        const depts = uniqByLower(
+          (allEmployees || [])
+            .map((emp: any) => emp?.phong_ban ?? emp?.phongBan ?? emp?.department ?? '')
+            .filter(Boolean)
+        );
+
+        const positions = uniqByLower(
+          (allEmployees || [])
+            .map((emp: any) => emp?.chuc_vu ?? emp?.chucVu ?? emp?.position ?? '')
+            .filter(Boolean)
+        );
+
+        setPhongBanOptions(depts);
+        setChucVuOptions(positions);
+      } catch (err) {
+        console.error('[AddEmployee] Failed to load dropdown options:', err);
+      } finally {
+        if (!cancelled) setLoadingOrgOptions(false);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  // Ensure current values show up even if option list hasn't loaded (or load failed)
+  useEffect(() => {
+    const current = (formData.phongBan ?? '').toString().trim();
+    if (!current) return;
+    const exists = phongBanOptions.some((o) => o.toLowerCase() === current.toLowerCase());
+    if (!exists) setPhongBanOptions((prev) => [...prev, current]);
+  }, [formData.phongBan, phongBanOptions]);
+
+  useEffect(() => {
+    const current = (formData.chucVu ?? '').toString().trim();
+    if (!current) return;
+    const exists = chucVuOptions.some((o) => o.toLowerCase() === current.toLowerCase());
+    if (!exists) setChucVuOptions((prev) => [...prev, current]);
+  }, [formData.chucVu, chucVuOptions]);
+
+  const addPhongBanOption = () => {
+    const v = newPhongBanValue.trim();
+    if (!v) return;
+    setPhongBanOptions((prev) => {
+      const exists = prev.some((o) => o.toLowerCase() === v.toLowerCase());
+      if (exists) return prev;
+      return [...prev, v].sort((a, b) => a.localeCompare(b, 'vi'));
+    });
+    setFormData((prev) => ({ ...prev, phongBan: v }));
+    setNewPhongBanValue('');
+    setShowAddPhongBanModal(false);
+  };
+
+  const addChucVuOption = () => {
+    const v = newChucVuValue.trim();
+    if (!v) return;
+    setChucVuOptions((prev) => {
+      const exists = prev.some((o) => o.toLowerCase() === v.toLowerCase());
+      if (exists) return prev;
+      return [...prev, v].sort((a, b) => a.localeCompare(b, 'vi'));
+    });
+    setFormData((prev) => ({ ...prev, chucVu: v }));
+    setNewChucVuValue('');
+    setShowAddChucVuModal(false);
+  };
 
   const loadEmployeeData = async (employeeId: string | number) => {
     try {
@@ -304,7 +401,15 @@ export function AddEmployee() {
       } else {
         // Create new employee - không cần id vì database tự tạo UUID
         // Chỉ cần code - KHÔNG truyền id vào employeeData
-        employeeData.code = formData.soCCCD || `NV${Date.now()}`;
+        // `nhan_su.code` là UNIQUE (idx_nhan_su_code_unique). `soCCCD` có thể trùng giữa các bản ghi
+        // nên không dùng trực tiếp làm code để tránh lỗi duplicate key.
+        // Use UUID to avoid collisions of `nhan_su.code` (UNIQUE).
+        const uuid =
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          (globalThis.crypto as any)?.randomUUID?.() ??
+          `${Date.now()}-${Math.random()}`.replace(/[^a-zA-Z0-9]/g, '');
+        employeeData.code = `NV-${uuid}`.slice(0, 50);
+        console.log('[AddEmployee] Generated employee code:', employeeData.code);
 
         // Đảm bảo không có id trong employeeData để database tự tạo UUID
         delete employeeData.id;
@@ -727,13 +832,33 @@ export function AddEmployee() {
                   <label className="block text-sm font-medium text-slate-700 mb-1.5">
                     Phòng ban
                   </label>
-                  <input
-                    type="text"
-                    value={formData.phongBan}
-                    onChange={(e) => handleInputChange('phongBan', e.target.value)}
-                    className="w-full px-3 py-2 border border-slate-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all"
-                    placeholder="Nhập phòng ban"
-                  />
+                  <div className="flex items-center gap-2">
+                    <select
+                      value={formData.phongBan}
+                      onChange={(e) => handleInputChange('phongBan', e.target.value)}
+                      className="w-full px-3 py-2 border border-slate-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all bg-white"
+                      disabled={loadingOrgOptions}
+                    >
+                      <option value="">{loadingOrgOptions ? 'Đang tải...' : 'Chọn phòng ban'}</option>
+                      {phongBanOptions.map((opt) => (
+                        <option key={opt} value={opt}>
+                          {opt}
+                        </option>
+                      ))}
+                    </select>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setNewPhongBanValue('');
+                        setShowAddPhongBanModal(true);
+                      }}
+                      className="shrink-0 p-2 border border-slate-200 rounded-md bg-slate-50 hover:bg-slate-100 text-blue-600 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                      disabled={loadingOrgOptions}
+                      title="Thêm phòng ban mới"
+                    >
+                      <Plus size={16} />
+                    </button>
+                  </div>
                 </div>
 
                 {/* Chức vụ */}
@@ -741,13 +866,33 @@ export function AddEmployee() {
                   <label className="block text-sm font-medium text-slate-700 mb-1.5">
                     Chức vụ
                   </label>
-                  <input
-                    type="text"
-                    value={formData.chucVu}
-                    onChange={(e) => handleInputChange('chucVu', e.target.value)}
-                    className="w-full px-3 py-2 border border-slate-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all"
-                    placeholder="Nhập chức vụ"
-                  />
+                  <div className="flex items-center gap-2">
+                    <select
+                      value={formData.chucVu}
+                      onChange={(e) => handleInputChange('chucVu', e.target.value)}
+                      className="w-full px-3 py-2 border border-slate-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all bg-white"
+                      disabled={loadingOrgOptions}
+                    >
+                      <option value="">{loadingOrgOptions ? 'Đang tải...' : 'Chọn chức vụ'}</option>
+                      {chucVuOptions.map((opt) => (
+                        <option key={opt} value={opt}>
+                          {opt}
+                        </option>
+                      ))}
+                    </select>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setNewChucVuValue('');
+                        setShowAddChucVuModal(true);
+                      }}
+                      className="shrink-0 p-2 border border-slate-200 rounded-md bg-slate-50 hover:bg-slate-100 text-blue-600 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                      disabled={loadingOrgOptions}
+                      title="Thêm chức vụ mới"
+                    >
+                      <Plus size={16} />
+                    </button>
+                  </div>
                 </div>
 
                 {/* Ngày vào làm */}
@@ -952,10 +1097,19 @@ export function AddEmployee() {
                     </button>
                     <input
                       type="number"
-                      value={formData.namTotNghiep}
-                      onChange={(e) => handleInputChange('namTotNghiep', parseInt(e.target.value) || 0)}
+                      value={formData.namTotNghiep === 0 ? '' : formData.namTotNghiep}
+                      onChange={(e) => {
+                        const raw = e.target.value;
+                        if (raw === '') {
+                          handleInputChange('namTotNghiep', 0);
+                          return;
+                        }
+                        const parsed = parseInt(raw, 10);
+                        handleInputChange('namTotNghiep', Number.isNaN(parsed) ? 0 : parsed);
+                      }}
                       className="flex-1 px-3 py-2 border border-slate-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all text-center"
                       min="0"
+                      placeholder="Nhập năm"
                     />
                     <button
                       type="button"
@@ -1219,6 +1373,121 @@ export function AddEmployee() {
           </div>
         )}
       </div>
+
+      {/* Dependent Modal */}
+      {/* Add Phòng ban Modal */}
+      {showAddPhongBanModal && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-lg shadow-xl w-full max-w-md overflow-hidden">
+            <div className="px-6 py-4 border-b border-slate-200 flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <div className="w-9 h-9 bg-blue-50 rounded-md flex items-center justify-center text-blue-600">
+                  <Plus size={18} />
+                </div>
+                <h3 className="text-lg font-bold text-slate-800">Thêm phòng ban</h3>
+              </div>
+              <button
+                onClick={() => setShowAddPhongBanModal(false)}
+                className="p-1.5 hover:bg-slate-100 rounded transition-colors"
+                type="button"
+              >
+                <X size={18} className="text-slate-600" />
+              </button>
+            </div>
+
+            <div className="p-6 space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-1.5">
+                  Giá trị phòng ban mới
+                </label>
+                <input
+                  type="text"
+                  value={newPhongBanValue}
+                  onChange={(e) => setNewPhongBanValue(e.target.value)}
+                  className="w-full px-3 py-2 border border-slate-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all"
+                  placeholder="Ví dụ: Phòng Nhân sự"
+                  autoFocus
+                />
+              </div>
+            </div>
+
+            <div className="px-6 py-4 border-t border-slate-200 flex items-center justify-end gap-2">
+              <button
+                onClick={() => setShowAddPhongBanModal(false)}
+                className="px-4 py-2 border border-slate-200 rounded-md text-sm font-semibold text-slate-600 hover:bg-slate-50 transition-colors"
+                type="button"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={addPhongBanOption}
+                disabled={!newPhongBanValue.trim()}
+                className="px-4 py-2 bg-blue-600 text-white rounded-md text-sm font-semibold hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                type="button"
+              >
+                Thêm
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Add Chức vụ Modal */}
+      {showAddChucVuModal && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-lg shadow-xl w-full max-w-md overflow-hidden">
+            <div className="px-6 py-4 border-b border-slate-200 flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <div className="w-9 h-9 bg-blue-50 rounded-md flex items-center justify-center text-blue-600">
+                  <Plus size={18} />
+                </div>
+                <h3 className="text-lg font-bold text-slate-800">Thêm chức vụ</h3>
+              </div>
+              <button
+                onClick={() => setShowAddChucVuModal(false)}
+                className="p-1.5 hover:bg-slate-100 rounded transition-colors"
+                type="button"
+              >
+                <X size={18} className="text-slate-600" />
+              </button>
+            </div>
+
+            <div className="p-6 space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-1.5">
+                  Giá trị chức vụ mới
+                </label>
+                <input
+                  type="text"
+                  value={newChucVuValue}
+                  onChange={(e) => setNewChucVuValue(e.target.value)}
+                  className="w-full px-3 py-2 border border-slate-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all"
+                  placeholder="Ví dụ: Trưởng phòng"
+                  autoFocus
+                />
+              </div>
+            </div>
+
+            <div className="px-6 py-4 border-t border-slate-200 flex items-center justify-end gap-2">
+              <button
+                onClick={() => setShowAddChucVuModal(false)}
+                className="px-4 py-2 border border-slate-200 rounded-md text-sm font-semibold text-slate-600 hover:bg-slate-50 transition-colors"
+                type="button"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={addChucVuOption}
+                disabled={!newChucVuValue.trim()}
+                className="px-4 py-2 bg-blue-600 text-white rounded-md text-sm font-semibold hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                type="button"
+              >
+                Thêm
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Dependent Modal */}
       {showDependentModal && (

@@ -472,186 +472,206 @@ export function HopDong() {
                     </div>
                 </div>
 
-                {/* Danh sách nhân sự (icon ảnh) - ngoài bảng */}
-                {employees.length > 0 && (
-                    <div className="px-6 py-4 bg-slate-50/80 border-b border-slate-200">
-                        <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-3">Nhân sự (ảnh đại diện)</p>
-                        <div className="flex flex-wrap gap-4">
-                            {employees.map((emp) => (
-                                <div key={emp.id} className="flex flex-col items-center gap-1.5">
-                                    <span className="w-12 h-12 rounded-full border-2 border-slate-200 shadow-sm flex-shrink-0 overflow-hidden bg-slate-200 flex items-center justify-center">
-                                        {emp.anh_nhan_su ? (
-                                            <img src={emp.anh_nhan_su} alt="" className="w-full h-full object-cover" onError={(e) => { const t = e.target as HTMLImageElement; t.style.display = 'none'; const parent = t.parentElement; if (parent) { const fallback = parent.querySelector('.avatar-fallback'); if (fallback) (fallback as HTMLElement).classList.remove('hidden'); } }} />
-                                        ) : null}
-                                        <span className={`avatar-fallback w-full h-full flex items-center justify-center ${emp.anh_nhan_su ? 'hidden' : ''}`}>
-                                            <User size={22} className="text-slate-400" />
-                                        </span>
-                                    </span>
-                                    <span className="text-[11px] text-slate-600 text-center max-w-[72px] truncate" title={emp.full_name}>{emp.code ? `[${emp.code}] ` : ''}{emp.full_name}</span>
-                                </div>
-                            ))}
-                        </div>
-                    </div>
-                )}
+                {/* Folder view */}
+                <div className="w-full bg-white px-4 pb-3">
+                    <div className="py-3 space-y-2">
+                        {filteredItems.map((project) => {
+                            const isOpen = expandedProjects.includes(project.id);
 
-                {/* Table */}
-                <div className="w-full overflow-x-auto bg-white">
-                    <table className="w-full text-sm text-left">
-                        <thead>
-                            <tr className="border-b border-slate-200 text-slate-500 bg-slate-50/50">
-                                <th className="py-3.5 pl-6 pr-2 font-semibold text-xs uppercase tracking-wider w-8"></th>
-                                <th className="py-3.5 px-3 font-semibold text-xs uppercase tracking-wider min-w-[180px]">Trạng thái file</th>
-                                <th className="py-3.5 px-3 font-semibold text-xs uppercase tracking-wider min-w-[100px]">Ngày ký HĐ</th>
-                                <th className="py-3.5 px-3 font-semibold text-xs uppercase tracking-wider min-w-[160px]">Số hợp đồng</th>
-                                <th className="py-3.5 px-3 font-semibold text-xs uppercase tracking-wider min-w-[160px]">Tên gói thầu</th>
-                                <th className="py-3.5 px-3 font-semibold text-xs uppercase tracking-wider min-w-[150px]">Nhân sự phụ trách</th>
-                                <th className="py-3.5 px-3 font-semibold text-xs uppercase tracking-wider min-w-[110px]">Loại dịch vụ</th>
-                                <th className="py-3.5 px-3 font-semibold text-xs uppercase tracking-wider text-right min-w-[120px]">Giá trị HĐ</th>
-                                <th className="py-3.5 px-3 font-semibold text-xs uppercase tracking-wider text-right min-w-[120px]">Giá trị QT</th>
-                                <th className="py-3.5 px-3 font-semibold text-xs uppercase tracking-wider text-right min-w-[110px]">Đã thu</th>
-                                <th className="py-3.5 px-3 font-semibold text-xs uppercase tracking-wider text-right min-w-[110px]">Còn phải thu</th>
-                                <th className="py-3.5 px-3 font-semibold text-xs uppercase tracking-wider min-w-[120px]">Tiến độ</th>
-                                <th className="py-3.5 px-3 font-semibold text-xs uppercase tracking-wider min-w-[100px]">Ngày update</th>
-                                <th className="py-3.5 px-3 pr-6 font-semibold text-xs uppercase tracking-wider text-center w-[100px]">Hành động</th>
-                            </tr>
-                        </thead>
-                        <tbody className="divide-y divide-slate-100">
-                            {filteredItems.map((project) => (
-                                <React.Fragment key={project.id}>
-                                    {/* Project Row */}
-                                    <tr
-                                        className="bg-slate-50/70 cursor-pointer hover:bg-slate-100/70 transition-colors"
+                            return (
+                                <div key={project.id} className="border border-slate-200 rounded-lg overflow-hidden bg-white">
+                                    <button
+                                        type="button"
+                                        className="w-full text-left px-3 py-2.5 flex items-center justify-between gap-3 bg-blue-900/90 hover:bg-blue-900 transition-colors"
                                         onClick={() => toggleProject(project.id)}
                                     >
-                                        <td className="py-3 pl-6 pr-2">
-                                            <div className={`transition-transform duration-200 ${expandedProjects.includes(project.id) ? 'rotate-0' : '-rotate-90'}`}>
-                                                <ChevronDown size={16} className="text-slate-400" />
-                                            </div>
-                                        </td>
-                                        <td colSpan={12} className="py-3 px-3">
-                                            <div className="flex items-center gap-2">
-                                                <span className="text-red-500 text-base">★</span>
-                                                <span className="font-semibold text-slate-700 text-[13px] leading-snug">{project.projectName}</span>
-                                                <span className="px-1.5 py-0.5 bg-slate-200 text-slate-600 rounded text-[10px] font-bold">{project.contracts.length}</span>
-                                            </div>
-                                        </td>
-                                    </tr>
+                                        <div className="flex items-center gap-2 min-w-0">
+                                            <span className={`transition-transform duration-200 ${isOpen ? 'rotate-0' : '-rotate-90'} inline-flex`}>
+                                                <ChevronDown size={16} className="text-white" />
+                                            </span>
+                                            <FolderOpen size={18} className="text-white/90 flex-shrink-0" />
+                                            <span className="text-white font-semibold text-[13px] truncate">{project.projectName}</span>
+                                            <span className="ml-2 px-1.5 py-0.5 bg-white/10 text-white rounded text-[10px] font-bold flex-shrink-0">
+                                                {project.contracts.length}
+                                            </span>
+                                        </div>
+                                    </button>
 
-                                    {/* Contract Rows */}
-                                    {expandedProjects.includes(project.id) && project.contracts.map((contract) => (
-                                        <tr key={contract.id} className="hover:bg-blue-50/30 transition-colors group fade-in-up">
-                                            <td className="py-3 pl-6 pr-2"></td>
-                                            <td className="py-3 px-3">
-                                                <span className="text-red-600 font-semibold italic text-[12px]">
-                                                    {contract.fileStatus}
-                                                </span>
-                                            </td>
-                                            <td className="py-3 px-3 text-slate-600">{contract.ngayKyHD}</td>
-                                            <td className="py-3 px-3 text-slate-700 font-medium text-[12px]">{contract.soHopDong}</td>
-                                            <td className="py-3 px-3 text-slate-600 text-[12px]">{contract.tenGoiThau}</td>
-                                            <td className="py-3 px-3 text-slate-600 text-[12px]">
-                                                {(contract.nhanSuIds && contract.nhanSuIds.length > 0) ? (
-                                                    <div className="flex flex-wrap items-center gap-2">
-                                                        {contract.nhanSuIds.map((id) => {
-                                                            const emp = employees.find((e) => String(e.id) === String(id));
-                                                            if (!emp) return null;
-                                                            return (
-                                                                <div key={id} className="flex items-center gap-1.5" title={`${emp.code ? `[${emp.code}] ` : ''}${emp.full_name}`}>
-                                                                    {emp.anh_nhan_su ? (
-                                                                        <img src={emp.anh_nhan_su} alt="" className="w-8 h-8 rounded-full object-cover border border-slate-200 flex-shrink-0" onError={(e) => { const t = e.target as HTMLImageElement; t.style.display = 'none'; const next = t.nextElementSibling as HTMLElement; if (next) next.classList.remove('hidden'); }} />
-                                                                    ) : null}
-                                                                    <span className={`w-8 h-8 rounded-full bg-slate-200 flex items-center justify-center flex-shrink-0 ${emp.anh_nhan_su ? 'hidden' : ''}`}>
-                                                                        <User size={14} className="text-slate-400" />
-                                                                    </span>
-                                                                    <span className="text-[11px] truncate max-w-[80px]">{(emp.code ? `[${emp.code}] ` : '') + emp.full_name}</span>
-                                                                </div>
-                                                            );
-                                                        })}
-                                                    </div>
-                                                ) : contract.nhanSuTen ? (
-                                                    <span className="flex items-center gap-1">
-                                                        {contract.nhanSuCode && <span className="text-slate-400">[{contract.nhanSuCode}]</span>}
-                                                        {contract.nhanSuTen}
-                                                    </span>
-                                                ) : (
-                                                    <span className="text-slate-400 italic">—</span>
-                                                )}
-                                            </td>
-                                            <td className="py-3 px-3 text-slate-600">{contract.loaiDichVu || '—'}</td>
-                                            <td className="py-3 px-3 text-right">
-                                                <span className="text-slate-700 font-medium">{formatCurrency(contract.giaTriHD)}</span>
-                                            </td>
-                                            <td className="py-3 px-3 text-right">
-                                                <span className="text-green-600 font-medium">{formatCurrency(contract.giaTriQT)}</span>
-                                            </td>
-                                            <td className="py-3 px-3 text-right">
-                                                <span className="text-green-600 font-medium">{formatCurrency(contract.daThu)}</span>
-                                            </td>
-                                            <td className="py-3 px-3 text-right">
-                                                {contract.conPhaiThu > 0 ? (
-                                                    <span className="text-red-500 font-medium">{formatCurrency(contract.conPhaiThu)}</span>
-                                                ) : (
-                                                    <span className="text-green-600 font-medium">0</span>
-                                                )}
-                                            </td>
-                                            <td className="py-3 px-3">
-                                                {(() => {
-                                                    const progress = getContractProgress(contract.uuid);
-                                                    const contractTasks = tasksByContract.get(contract.uuid || '') || [];
-                                                    return (
-                                                        <div className="flex items-center gap-2">
-                                                            <div className="flex-1 bg-slate-200 rounded-full h-2 overflow-hidden min-w-[60px]">
-                                                                <div
-                                                                    className={`h-full rounded-full transition-all duration-300 ${
-                                                                        progress === 100 ? 'bg-emerald-500' :
-                                                                        progress >= 75 ? 'bg-blue-500' :
-                                                                        progress >= 50 ? 'bg-yellow-500' :
-                                                                        progress >= 25 ? 'bg-orange-500' :
-                                                                        'bg-slate-400'
-                                                                    }`}
-                                                                    style={{ width: `${progress}%` }}
-                                                                />
+                                    {isOpen && (
+                                        <div className="p-2 space-y-2 bg-white">
+                                            {project.contracts.map((contract) => (
+                                                <div
+                                                    key={contract.id}
+                                                    className="border border-slate-200 rounded-md p-2 hover:bg-slate-50/60 transition-colors"
+                                                >
+                                                    <div className="flex flex-wrap items-start justify-between gap-2">
+                                                        <div className="min-w-[220px] flex-1">
+                                                            <div className="flex items-center gap-2 flex-wrap">
+                                                                <span className="text-red-600 font-semibold italic text-[12px]">
+                                                                    {contract.fileStatus}
+                                                                </span>
+                                                                <span className="text-slate-800 font-semibold text-[13px]">
+                                                                    {contract.soHopDong}
+                                                                </span>
+                                                                <span className="text-slate-500 text-[12px]">{contract.ngayKyHD}</span>
                                                             </div>
-                                                            <span className="text-xs font-medium text-slate-600 w-10 text-right">{progress}%</span>
-                                                            {contractTasks.length > 0 && (
-                                                                <span className="text-xs text-slate-400">({contractTasks.filter(t => t.tien_do === 100).length}/{contractTasks.length})</span>
+                                                            <div className="text-slate-600 text-[12px] mt-1">{contract.tenGoiThau}</div>
+                                                            <div className="text-slate-500 text-[12px] mt-1">
+                                                                Loại dịch vụ: <span className="font-medium text-slate-700">{contract.loaiDichVu || '—'}</span>
+                                                            </div>
+                                                        </div>
+
+                                                        <div className="flex items-center gap-1.5 flex-shrink-0">
+                                                            <button
+                                                                className="action-btn p-1.5 text-purple-600 bg-purple-50 border border-purple-100 rounded-md hover:bg-purple-100"
+                                                                title="Xem"
+                                                                onClick={(e) => { e.stopPropagation(); openChiTietHopDong(contract); }}
+                                                            >
+                                                                <Eye size={14} />
+                                                            </button>
+                                                            <button
+                                                                className="action-btn p-1.5 text-orange-500 bg-orange-50 border border-orange-100 rounded-md hover:bg-orange-100"
+                                                                title="Sửa"
+                                                                onClick={(e) => { e.stopPropagation(); openThemHopDong(contract); }}
+                                                            >
+                                                                <Edit size={14} />
+                                                            </button>
+                                                            <button
+                                                                className="action-btn p-1.5 text-red-500 bg-red-50 border border-red-100 rounded-md hover:bg-red-100"
+                                                                title="Xóa"
+                                                                onClick={(e) => { e.stopPropagation(); handleDeleteClick(contract); }}
+                                                            >
+                                                                <Trash2 size={14} />
+                                                            </button>
+                                                        </div>
+                                                    </div>
+
+                                                    <div className="mt-2 grid grid-cols-1 lg:grid-cols-[1fr_1fr_1fr] gap-2">
+                                                        <div>
+                                                            <div className="text-[11px] uppercase tracking-wider text-slate-500 font-semibold mb-1">
+                                                                Nhân sự phụ trách
+                                                            </div>
+                                                            {(contract.nhanSuIds && contract.nhanSuIds.length > 0) ? (
+                                                                <div className="flex flex-wrap items-center gap-1.5">
+                                                                    {contract.nhanSuIds.map((id) => {
+                                                                        const emp = employees.find((e) => String(e.id) === String(id));
+                                                                        if (!emp) return null;
+                                                                        return (
+                                                                            <div
+                                                                                key={id}
+                                                                                className="flex items-center gap-1.5"
+                                                                                title={`${emp.code ? `[${emp.code}] ` : ''}${emp.full_name}`}
+                                                                            >
+                                                                                {emp.anh_nhan_su ? (
+                                                                                    <img
+                                                                                        src={emp.anh_nhan_su}
+                                                                                        alt=""
+                                                                                        className="w-7 h-7 rounded-full object-cover border border-slate-200 flex-shrink-0"
+                                                                                        onError={(e) => {
+                                                                                            const t = e.target as HTMLImageElement;
+                                                                                            t.style.display = 'none';
+                                                                                            const next = t.nextElementSibling as HTMLElement;
+                                                                                            if (next) next.classList.remove('hidden');
+                                                                                        }}
+                                                                                    />
+                                                                                ) : null}
+                                                                                <span
+                                                                                    className={`w-7 h-7 rounded-full bg-slate-200 flex items-center justify-center flex-shrink-0 ${emp.anh_nhan_su ? 'hidden' : ''}`}
+                                                                                >
+                                                                                    <User size={13} className="text-slate-400" />
+                                                                                </span>
+                                                                                <span className="text-[11px] truncate max-w-[90px]">
+                                                                                    {(emp.code ? `[${emp.code}] ` : '') + emp.full_name}
+                                                                                </span>
+                                                                            </div>
+                                                                        );
+                                                                    })}
+                                                                </div>
+                                                            ) : contract.nhanSuTen ? (
+                                                                <span className="flex items-center gap-1 text-slate-700">
+                                                                    {contract.nhanSuCode && <span className="text-slate-400">[{contract.nhanSuCode}]</span>}
+                                                                    {contract.nhanSuTen}
+                                                                </span>
+                                                            ) : (
+                                                                <span className="text-slate-400 italic">—</span>
                                                             )}
                                                         </div>
-                                                    );
-                                                })()}
-                                            </td>
-                                            <td className="py-3 px-3 text-slate-500 text-[12px]">{contract.ngayUpdate}</td>
-                                            <td className="py-3 px-3 pr-6 text-center">
-                                                <div className="flex items-center justify-center gap-1.5 transition-opacity">
-                                                    <button
-                                                        className="action-btn p-1.5 text-purple-600 bg-purple-50 border border-purple-100 rounded-md hover:bg-purple-100"
-                                                        title="Xem"
-                                                        onClick={(e) => { e.stopPropagation(); openChiTietHopDong(contract); }}
-                                                    >
-                                                        <Eye size={14} />
-                                                    </button>
-                                                    <button
-                                                        className="action-btn p-1.5 text-orange-500 bg-orange-50 border border-orange-100 rounded-md hover:bg-orange-100"
-                                                        title="Sửa"
-                                                        onClick={(e) => { e.stopPropagation(); openThemHopDong(contract); }}
-                                                    >
-                                                        <Edit size={14} />
-                                                    </button>
-                                                    <button
-                                                        className="action-btn p-1.5 text-red-500 bg-red-50 border border-red-100 rounded-md hover:bg-red-100"
-                                                        title="Xóa"
-                                                        onClick={(e) => { e.stopPropagation(); handleDeleteClick(contract); }}
-                                                    >
-                                                        <Trash2 size={14} />
-                                                    </button>
+
+                                                        <div>
+                                                            <div className="text-[11px] uppercase tracking-wider text-slate-500 font-semibold mb-1">
+                                                                Giá trị
+                                                            </div>
+                                                            <div className="space-y-1.5">
+                                                                <div className="flex items-center justify-between gap-2">
+                                                                    <span className="text-slate-500 text-[12px]">Giá trị HĐ</span>
+                                                                    <span className="text-slate-800 font-medium text-[12px]">{formatCurrency(contract.giaTriHD)}</span>
+                                                                </div>
+                                                                <div className="flex items-center justify-between gap-2">
+                                                                    <span className="text-slate-500 text-[12px]">Giá trị QT</span>
+                                                                    <span className="text-green-600 font-medium text-[12px]">{formatCurrency(contract.giaTriQT)}</span>
+                                                                </div>
+                                                                <div className="flex items-center justify-between gap-2">
+                                                                    <span className="text-slate-500 text-[12px]">Đã thu</span>
+                                                                    <span className="text-green-600 font-medium text-[12px]">{formatCurrency(contract.daThu)}</span>
+                                                                </div>
+                                                                <div className="flex items-center justify-between gap-2">
+                                                                    <span className="text-slate-500 text-[12px]">Còn phải thu</span>
+                                                                    {contract.conPhaiThu > 0 ? (
+                                                                        <span className="text-red-500 font-medium text-[12px]">{formatCurrency(contract.conPhaiThu)}</span>
+                                                                    ) : (
+                                                                        <span className="text-green-600 font-medium text-[12px]">0</span>
+                                                                    )}
+                                                                </div>
+                                                            </div>
+                                                        </div>
+
+                                                        <div>
+                                                            <div className="text-[11px] uppercase tracking-wider text-slate-500 font-semibold mb-1">
+                                                                Tiến độ
+                                                            </div>
+                                                            {(() => {
+                                                                const progress = getContractProgress(contract.uuid);
+                                                                const contractTasks = tasksByContract.get(contract.uuid || '') || [];
+                                                                const completed = contractTasks.filter(t => t.tien_do === 100).length;
+
+                                                                return (
+                                                                    <div className="space-y-1.5">
+                                                                        <div className="flex items-center gap-1.5">
+                                                                            <div className="flex-1 bg-slate-200 rounded-full h-2 overflow-hidden min-w-[60px]">
+                                                                                <div
+                                                                                    className={`h-full rounded-full transition-all duration-300 ${
+                                                                                        progress === 100 ? 'bg-emerald-500' :
+                                                                                        progress >= 75 ? 'bg-blue-500' :
+                                                                                        progress >= 50 ? 'bg-yellow-500' :
+                                                                                        progress >= 25 ? 'bg-orange-500' :
+                                                                                        'bg-slate-400'
+                                                                                    }`}
+                                                                                    style={{ width: `${progress}%` }}
+                                                                                />
+                                                                            </div>
+                                                                            <span className="text-xs font-medium text-slate-600 w-10 text-right">{progress}%</span>
+                                                                        </div>
+                                                                        {contractTasks.length > 0 && (
+                                                                            <div className="text-xs text-slate-400">
+                                                                                ({completed}/{contractTasks.length})
+                                                                            </div>
+                                                                        )}
+                                                                        <div className="text-[12px] text-slate-500">
+                                                                            Ngày update: <span className="font-medium text-slate-700">{contract.ngayUpdate}</span>
+                                                                        </div>
+                                                                    </div>
+                                                                );
+                                                            })()}
+                                                        </div>
+                                                    </div>
                                                 </div>
-                                            </td>
-                                        </tr>
-                                    ))}
-                                </React.Fragment>
-                            ))}
-                        </tbody>
-                    </table>
+                                            ))}
+                                        </div>
+                                    )}
+                                </div>
+                            );
+                        })}
+                    </div>
                 </div>
 
                 {/* Summary Footer */}

@@ -1,5 +1,5 @@
-import React, { useState, useEffect, useCallback } from 'react';
-import { X, User, FileText, Link as LinkIcon, ExternalLink, Trash2 } from 'lucide-react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
+import { X, Link as LinkIcon, Trash2, Plus } from 'lucide-react';
 import { contractService, ContractFile } from '../../lib/services/contractService';
 import { projectService } from '../../lib/services/projectService';
 import { employeeService } from '../../lib/services/employeeService';
@@ -43,12 +43,17 @@ const FILE_TYPES = [
 export function ThemHopDongModal({ isOpen, onClose, editData, onSuccess }: ThemHopDongModalProps) {
     const [projects, setProjects] = useState<Array<{ id: string; ten_du_an: string }>>([]);
     const [employees, setEmployees] = useState<Array<{ id: string; full_name: string; code: string }>>([]);
+    const [loaiDichVuOptions, setLoaiDichVuOptions] = useState<string[]>([]);
     const [isSaving, setIsSaving] = useState(false);
     const [contractFiles, setContractFiles] = useState<ContractFile[]>([]);
     const [selectedFileType, setSelectedFileType] = useState<string>('File_BBTT');
     const [fileLink, setFileLink] = useState<string>('');
     const [isAddingLink, setIsAddingLink] = useState(false);
     const [isDeletingFile, setIsDeletingFile] = useState(false);
+    const [openNhanSuDropdown, setOpenNhanSuDropdown] = useState(false);
+    const nhanSuDropdownRef = useRef<HTMLDivElement | null>(null);
+    const [showAddLoaiDichVuModal, setShowAddLoaiDichVuModal] = useState(false);
+    const [newLoaiDichVuValue, setNewLoaiDichVuValue] = useState('');
 
     const [formData, setFormData] = useState({
         soHopDong: '',
@@ -65,9 +70,10 @@ export function ThemHopDongModal({ isOpen, onClose, editData, onSuccess }: ThemH
     useEffect(() => {
         const loadInitialData = async () => {
             try {
-                const [projectList, employeeList] = await Promise.all([
+                const [projectList, employeeList, contractList] = await Promise.all([
                     projectService.getAll(),
-                    employeeService.getAll()
+                    employeeService.getAll(),
+                    contractService.getAll(),
                 ]);
                 setProjects(projectList.map(p => ({ id: p.id, ten_du_an: p.ten_du_an })));
                 setEmployees(employeeList.map(emp => ({
@@ -75,6 +81,15 @@ export function ThemHopDongModal({ isOpen, onClose, editData, onSuccess }: ThemH
                     full_name: emp.full_name || emp.name || emp.hoTen || '',
                     code: emp.code || ''
                 })));
+
+                const uniqueLoaiDichVu = Array.from(
+                    new Set(
+                        (contractList || [])
+                            .map((c) => c?.loai_dich_vu)
+                            .filter((v): v is string => Boolean(v && v.toString().trim() !== ''))
+                    )
+                ).sort((a, b) => a.localeCompare(b, 'vi'));
+                setLoaiDichVuOptions(uniqueLoaiDichVu);
             } catch (error) {
                 console.error('Error loading initial data:', error);
             }
@@ -114,6 +129,20 @@ export function ThemHopDongModal({ isOpen, onClose, editData, onSuccess }: ThemH
         }
     }, [editData, isOpen]);
 
+    // Close dropdown when clicking outside
+    useEffect(() => {
+        if (!openNhanSuDropdown) return;
+        const onMouseDown = (e: MouseEvent) => {
+            const el = nhanSuDropdownRef.current;
+            if (!el) return;
+            if (e.target instanceof Node && !el.contains(e.target)) {
+                setOpenNhanSuDropdown(false);
+            }
+        };
+        document.addEventListener('mousedown', onMouseDown);
+        return () => document.removeEventListener('mousedown', onMouseDown);
+    }, [openNhanSuDropdown]);
+
     const calculateFileStatus = (files: ContractFile[]): string => {
         const uploadedTypes = new Set(files.filter(f => f.file_url && f.file_url.trim() !== '').map(f => f.file_type));
         const missingFiles = FILE_TYPES.filter(type => !uploadedTypes.has(type));
@@ -128,6 +157,24 @@ export function ThemHopDongModal({ isOpen, onClose, editData, onSuccess }: ThemH
             return { ...prev, nhanSuIds: next, nhanSuId: next[0] || '' };
         });
     };
+
+    const addLoaiDichVuOption = () => {
+        const v = newLoaiDichVuValue.trim();
+        if (!v) return;
+        setLoaiDichVuOptions((prev) => {
+            const exists = prev.some((o) => o.toLowerCase() === v.toLowerCase());
+            if (exists) return prev;
+            return [...prev, v].sort((a, b) => a.localeCompare(b, 'vi'));
+        });
+        setFormData((prev) => ({ ...prev, loaiDichVu: v }));
+        setNewLoaiDichVuValue('');
+        setShowAddLoaiDichVuModal(false);
+    };
+
+    const selectedEmployees = useCallback(() => {
+        const ids = new Set(formData.nhanSuIds || []);
+        return employees.filter((e) => ids.has(e.id));
+    }, [employees, formData.nhanSuIds]);
 
     const handleAddLink = async () => {
         if (!fileLink.trim() || !editData?.uuid || isAddingLink) return;
@@ -156,6 +203,12 @@ export function ThemHopDongModal({ isOpen, onClose, editData, onSuccess }: ThemH
     const handleSave = async () => {
         setIsSaving(true);
         try {
+            if (!formData.ngayKyHD) {
+                alert('Vui lòng chọn ngày ký HĐ trước khi lưu.');
+                setIsSaving(false);
+                return;
+            }
+
             const giaTriHD = Number(formData.giaTriHD.replace(/\./g, '')) || 0;
             const giaTriQT = Number(formData.giaTriQT.replace(/\./g, '')) || 0;
             const fileStatus = calculateFileStatus(contractFiles);
@@ -167,8 +220,9 @@ export function ThemHopDongModal({ isOpen, onClose, editData, onSuccess }: ThemH
                 nhan_su_id: formData.nhanSuIds?.[0] || null,
                 so_hop_dong: formData.soHopDong,
                 ten_goi_thau: formData.tenGoiThau,
-                loai_dich_vu: formData.loaiDichVu,
-                ngay_ky_hd: formData.ngayKyHD,
+                loai_dich_vu: formData.loaiDichVu || null,
+                // Supabase/Postgres `date` không nhận chuỗi rỗng "".
+                ngay_ky_hd: formData.ngayKyHD || null,
                 gia_tri_hd: giaTriHD,
                 gia_tri_qt: giaTriQT,
                 file_status: fileStatus,
@@ -238,21 +292,53 @@ export function ThemHopDongModal({ isOpen, onClose, editData, onSuccess }: ThemH
                     )}
                     <div>
                         <label className="block text-sm font-medium text-slate-700 mb-1">Nhân sự phụ trách</label>
-                        <div className="border border-slate-200 rounded-lg p-3 max-h-40 overflow-y-auto bg-slate-50/50">
-                            <div className="space-y-1.5">
-                                {employees.map((emp) => {
-                                    const checked = formData.nhanSuIds.includes(emp.id);
-                                    return (
-                                        <label key={emp.id} className={`flex items-center gap-3 px-2 py-1.5 rounded cursor-pointer hover:bg-white transition-colors ${checked ? 'bg-purple-50' : ''}`}>
-                                            <input type="checkbox" checked={checked} onChange={() => toggleNhanSu(emp.id)} className="rounded border-slate-300 w-4 h-4 text-purple-600" />
-                                            <div className="w-8 h-8 rounded-full bg-slate-200 flex items-center justify-center">
-                                                <User size={14} className="text-slate-400" />
+                        <div ref={nhanSuDropdownRef} className="relative">
+                            <button
+                                type="button"
+                                onClick={() => setOpenNhanSuDropdown((v) => !v)}
+                                className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-purple-500 bg-white flex items-center justify-between gap-3"
+                            >
+                                <span className="text-slate-700">
+                                    {formData.nhanSuIds.length === 0
+                                        ? 'Chọn nhân sự phụ trách'
+                                        : formData.nhanSuIds.length === 1
+                                          ? selectedEmployees()[0]?.full_name
+                                          : `${selectedEmployees().length} nhân sự`}
+                                </span>
+                                <span className="text-slate-400">▾</span>
+                            </button>
+
+                            {openNhanSuDropdown && (
+                                <div className="absolute left-0 right-0 mt-2 z-50 border border-slate-200 rounded-lg bg-white shadow-lg max-h-44 overflow-y-auto">
+                                    <div className="p-2 space-y-1">
+                                        {employees.map((emp) => {
+                                            const checked = (formData.nhanSuIds || []).includes(emp.id);
+                                            return (
+                                                <label
+                                                    key={emp.id}
+                                                    className={`flex items-center gap-2 px-2 py-1.5 rounded cursor-pointer hover:bg-slate-50 transition-colors ${
+                                                        checked ? 'bg-purple-50' : ''
+                                                    }`}
+                                                >
+                                                    <input
+                                                        type="checkbox"
+                                                        checked={checked}
+                                                        onChange={() => toggleNhanSu(emp.id)}
+                                                        className="rounded border-slate-300 w-4 h-4 text-purple-600"
+                                                    />
+                                                    <span className="text-sm text-slate-800 truncate">{emp.full_name}</span>
+                                                </label>
+                                            );
+                                        })}
+
+                                        {employees.length === 0 && (
+                                            <div className="px-2 py-3 text-sm text-slate-400">
+                                                Không có dữ liệu nhân sự.
                                             </div>
-                                            <span className="text-sm text-slate-800">{emp.code ? `[${emp.code}] ` : ''}{emp.full_name}</span>
-                                        </label>
-                                    );
-                                })}
-                            </div>
+                                        )}
+                                    </div>
+                                </div>
+                            )}
                         </div>
                     </div>
                     <div>
@@ -266,7 +352,29 @@ export function ThemHopDongModal({ isOpen, onClose, editData, onSuccess }: ThemH
                     <div className="grid grid-cols-2 gap-4">
                         <div>
                             <label className="block text-sm font-medium text-slate-700 mb-1">Loại dịch vụ</label>
-                            <input type="text" value={formData.loaiDichVu} onChange={(e) => setFormData({ ...formData, loaiDichVu: e.target.value })} className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-purple-500" placeholder="Loại dịch vụ..." />
+                            <div className="flex items-center gap-2">
+                                <select
+                                    value={formData.loaiDichVu}
+                                    onChange={(e) => setFormData({ ...formData, loaiDichVu: e.target.value })}
+                                    className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-purple-500 bg-white"
+                                >
+                                    <option value="">-- Chọn loại dịch vụ --</option>
+                                    {loaiDichVuOptions.map((opt) => (
+                                        <option key={opt} value={opt}>{opt}</option>
+                                    ))}
+                                </select>
+                                <button
+                                    type="button"
+                                    onClick={() => {
+                                        setNewLoaiDichVuValue('');
+                                        setShowAddLoaiDichVuModal(true);
+                                    }}
+                                    className="shrink-0 p-2 border border-slate-200 rounded-lg bg-slate-50 hover:bg-slate-100 text-blue-600 transition-colors"
+                                    title="Thêm loại dịch vụ mới"
+                                >
+                                    <Plus size={16} />
+                                </button>
+                            </div>
                         </div>
                         <div>
                             <label className="block text-sm font-medium text-slate-700 mb-1">Ngày ký HĐ</label>
@@ -328,6 +436,54 @@ export function ThemHopDongModal({ isOpen, onClose, editData, onSuccess }: ThemH
                         {isSaving ? 'Đang xử lý...' : (editData ? 'Cập nhật' : 'Thêm')}
                     </button>
                 </div>
+
+                {/* Add Loai Dich Vu Modal */}
+                {showAddLoaiDichVuModal && (
+                    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-[80] p-4">
+                        <div className="bg-white w-full max-w-sm rounded-xl shadow-xl overflow-hidden">
+                            <div className="px-6 py-4 border-b border-slate-200 flex items-center justify-between">
+                                <h3 className="text-lg font-bold text-slate-800">Thêm loại dịch vụ</h3>
+                                <button
+                                    type="button"
+                                    onClick={() => setShowAddLoaiDichVuModal(false)}
+                                    className="p-1.5 hover:bg-slate-100 rounded transition-colors"
+                                >
+                                    <X size={18} className="text-slate-600" />
+                                </button>
+                            </div>
+                            <div className="p-6 space-y-4">
+                                <div>
+                                    <label className="block text-sm font-medium text-slate-700 mb-1">Giá trị mới</label>
+                                    <input
+                                        type="text"
+                                        value={newLoaiDichVuValue}
+                                        onChange={(e) => setNewLoaiDichVuValue(e.target.value)}
+                                        className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-purple-500"
+                                        placeholder="Ví dụ: Tư vấn, Thi công..."
+                                        autoFocus
+                                    />
+                                </div>
+                                <div className="flex items-center justify-end gap-2">
+                                    <button
+                                        type="button"
+                                        onClick={() => setShowAddLoaiDichVuModal(false)}
+                                        className="px-4 py-2 border border-slate-200 rounded-lg text-sm font-semibold text-slate-600 hover:bg-slate-50"
+                                    >
+                                        Hủy
+                                    </button>
+                                    <button
+                                        type="button"
+                                        onClick={addLoaiDichVuOption}
+                                        disabled={!newLoaiDichVuValue.trim()}
+                                        className="px-4 py-2 bg-blue-600 rounded-lg text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                                    >
+                                        Thêm
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                )}
             </div>
         </div>
     );
