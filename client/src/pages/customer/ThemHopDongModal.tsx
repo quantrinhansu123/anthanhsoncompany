@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { X, User, FileText, Link as LinkIcon, ExternalLink, Trash2 } from 'lucide-react';
+import { X, User, FileText, Link as LinkIcon, ExternalLink, Trash2, Plus, Info } from 'lucide-react';
 import { contractService, ContractFile } from '../../lib/services/contractService';
 import { projectService } from '../../lib/services/projectService';
 import { employeeService } from '../../lib/services/employeeService';
@@ -22,6 +22,7 @@ interface Contract {
     ngayUpdate: string;
     nhanSuId?: string | null;
     nhanSuIds?: string[];
+    nhanSuTen?: string | null;
 }
 
 interface ThemHopDongModalProps {
@@ -42,13 +43,11 @@ const FILE_TYPES = [
 
 export function ThemHopDongModal({ isOpen, onClose, editData, onSuccess }: ThemHopDongModalProps) {
     const [projects, setProjects] = useState<Array<{ id: string; ten_du_an: string }>>([]);
-    const [employees, setEmployees] = useState<Array<{ id: string; full_name: string; code: string }>>([]);
+    const [employees, setEmployees] = useState<Array<{ id: string; full_name: string; code: string; anh_nhan_su?: string }>>([]);
     const [isSaving, setIsSaving] = useState(false);
     const [contractFiles, setContractFiles] = useState<ContractFile[]>([]);
     const [selectedFileType, setSelectedFileType] = useState<string>('File_BBTT');
     const [fileLink, setFileLink] = useState<string>('');
-    const [isAddingLink, setIsAddingLink] = useState(false);
-    const [isDeletingFile, setIsDeletingFile] = useState(false);
 
     const [formData, setFormData] = useState({
         soHopDong: '',
@@ -58,7 +57,6 @@ export function ThemHopDongModal({ isOpen, onClose, editData, onSuccess }: ThemH
         giaTriHD: '',
         giaTriQT: '',
         projectId: '',
-        nhanSuId: '',
         nhanSuIds: [] as string[],
     });
 
@@ -73,7 +71,8 @@ export function ThemHopDongModal({ isOpen, onClose, editData, onSuccess }: ThemH
                 setEmployees(employeeList.map(emp => ({
                     id: emp.id.toString(),
                     full_name: emp.full_name || emp.name || emp.hoTen || '',
-                    code: emp.code || ''
+                    code: emp.code || '',
+                    anh_nhan_su: emp.anh_nhan_su
                 })));
             } catch (error) {
                 console.error('Error loading initial data:', error);
@@ -91,10 +90,9 @@ export function ThemHopDongModal({ isOpen, onClose, editData, onSuccess }: ThemH
                 tenGoiThau: editData.tenGoiThau || '',
                 loaiDichVu: editData.loaiDichVu || '',
                 ngayKyHD: editData.ngayKyHD ? (editData.ngayKyHD.includes('/') ? editData.ngayKyHD.split('/').reverse().join('-') : editData.ngayKyHD) : '',
-                giaTriHD: editData.giaTriHD ? editData.giaTriHD.toString() : '',
-                giaTriQT: editData.giaTriQT ? editData.giaTriQT.toString() : '',
+                giaTriHD: editData.giaTriHD ? editData.giaTriHD.toString() : '0',
+                giaTriQT: editData.giaTriQT ? editData.giaTriQT.toString() : '0',
                 projectId: editData.duAnId || '',
-                nhanSuId: editData.nhanSuId || '',
                 nhanSuIds: editData.nhanSuIds || (editData.nhanSuId ? [editData.nhanSuId] : []),
             });
             setContractFiles(editData.files || []);
@@ -103,16 +101,25 @@ export function ThemHopDongModal({ isOpen, onClose, editData, onSuccess }: ThemH
                 soHopDong: '',
                 tenGoiThau: '',
                 loaiDichVu: '',
-                ngayKyHD: '',
-                giaTriHD: '',
-                giaTriQT: '',
+                ngayKyHD: new Date().toISOString().split('T')[0],
+                giaTriHD: '0',
+                giaTriQT: '0',
                 projectId: '',
-                nhanSuId: '',
                 nhanSuIds: [],
             });
             setContractFiles([]);
         }
     }, [editData, isOpen]);
+
+    const formatCurrency = (value: string) => {
+        const number = parseInt(value.replace(/\D/g, '')) || 0;
+        return number.toLocaleString('vi-VN');
+    };
+
+    const handlePriceChange = (field: 'giaTriHD' | 'giaTriQT', value: string) => {
+        const rawValue = value.replace(/\D/g, '');
+        setFormData(prev => ({ ...prev, [field]: rawValue }));
+    };
 
     const calculateFileStatus = (files: ContractFile[]): string => {
         const uploadedTypes = new Set(files.filter(f => f.file_url && f.file_url.trim() !== '').map(f => f.file_type));
@@ -125,39 +132,40 @@ export function ThemHopDongModal({ isOpen, onClose, editData, onSuccess }: ThemH
         setFormData(prev => {
             const arr = prev.nhanSuIds || [];
             const next = arr.includes(sid) ? arr.filter((x) => x !== sid) : [...arr, sid];
-            return { ...prev, nhanSuIds: next, nhanSuId: next[0] || '' };
+            return { ...prev, nhanSuIds: next };
         });
     };
 
-    const handleAddLink = async () => {
-        if (!fileLink.trim() || !editData?.uuid || isAddingLink) return;
-        setIsAddingLink(true);
-        try {
-            const newFile: ContractFile = {
-                file_type: selectedFileType,
-                file_name: fileLink.trim(),
-                file_url: fileLink.trim(),
-                uploaded_at: new Date().toISOString()
-            };
-            const updatedFiles = [...contractFiles, newFile];
-            setContractFiles(updatedFiles);
-            setFileLink('');
-        } catch (error) {
-            console.error('Error adding link:', error);
-        } finally {
-            setIsAddingLink(false);
-        }
+    const handleAddLink = () => {
+        if (!fileLink.trim()) return;
+        const newFile: ContractFile = {
+            file_type: selectedFileType,
+            file_name: fileLink.trim(),
+            file_url: fileLink.trim(),
+            uploaded_at: new Date().toISOString()
+        };
+        // Replace if exists, otherwise add
+        setContractFiles(prev => {
+            const filtered = prev.filter(f => f.file_type !== selectedFileType);
+            return [...filtered, newFile];
+        });
+        setFileLink('');
     };
 
-    const handleDeleteFile = async (fileType: string) => {
+    const handleDeleteFile = (fileType: string) => {
         setContractFiles(prev => prev.filter(f => f.file_type !== fileType));
     };
 
     const handleSave = async () => {
+        if (!formData.soHopDong || !formData.tenGoiThau || !formData.projectId) {
+            alert('Vui lòng điền đầy đủ các thông tin bắt buộc (Số HĐ, Tên gói thầu, Dự án)');
+            return;
+        }
+
         setIsSaving(true);
         try {
-            const giaTriHD = Number(formData.giaTriHD.replace(/\./g, '')) || 0;
-            const giaTriQT = Number(formData.giaTriQT.replace(/\./g, '')) || 0;
+            const giaTriHD = Number(formData.giaTriHD) || 0;
+            const giaTriQT = Number(formData.giaTriQT) || 0;
             const fileStatus = calculateFileStatus(contractFiles);
 
             const payload = {
@@ -177,8 +185,7 @@ export function ThemHopDongModal({ isOpen, onClose, editData, onSuccess }: ThemH
             };
 
             if (editData?.uuid) {
-                // For "Đã thu", we should calculate it or preserve it. 
-                // In HopDong.tsx it was recalculating daThu.
+                // Preserve daThu for updates
                 const allThuChi = await thuChiService.getAll();
                 const daThu = allThuChi
                     .filter(tc => tc.hop_dong_id === editData.uuid && tc.loai_phieu === 'Phiếu thu')
@@ -209,123 +216,262 @@ export function ThemHopDongModal({ isOpen, onClose, editData, onSuccess }: ThemH
     if (!isOpen) return null;
 
     return (
-        <div className="fixed inset-0 z-[70] flex items-center justify-center bg-black/40 p-4">
-            <div className="bg-white w-full max-w-lg rounded-2xl shadow-lg flex flex-col max-h-[90vh]">
-                <div className="px-6 py-4 flex justify-between items-center border-b border-slate-200">
-                    <h2 className="text-lg font-bold text-slate-800">
-                        {editData ? 'Chỉnh sửa hợp đồng' : 'Thêm hợp đồng mới'}
-                    </h2>
-                    <button onClick={onClose} className="p-1.5 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-lg">
+        <div className="fixed inset-0 z-[70] flex items-center justify-center bg-black/40 p-4 backdrop-blur-sm animate-in fade-in duration-200">
+            <div className="bg-white w-full max-w-2xl rounded-2xl shadow-xl flex flex-col max-h-[90vh] animate-in zoom-in-95 duration-200 overflow-hidden">
+                {/* Header */}
+                <div className="px-6 py-4 flex justify-between items-center border-b border-slate-200 bg-white">
+                    <div>
+                        <h2 className="text-lg font-bold text-slate-800">
+                            {editData ? 'Chỉnh sửa hợp đồng' : 'Thêm hợp đồng mới'}
+                        </h2>
+                        <p className="text-xs text-slate-500 mt-0.5">Vui lòng điền các thông tin chi tiết dưới đây</p>
+                    </div>
+                    <button onClick={onClose} className="p-1.5 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-lg transition-colors">
                         <X size={20} />
                     </button>
                 </div>
 
-                <div className="p-6 overflow-y-auto space-y-4">
-                    {!editData && (
-                        <div>
-                            <label className="block text-sm font-medium text-slate-700 mb-1">Dự án</label>
-                            <select
-                                value={formData.projectId}
-                                onChange={(e) => setFormData({ ...formData, projectId: e.target.value })}
-                                className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-purple-500"
-                            >
-                                <option value="">-- Chọn dự án --</option>
-                                {projects.map(p => (
-                                    <option key={p.id} value={p.id}>{p.ten_du_an}</option>
-                                ))}
-                            </select>
+                <div className="p-6 overflow-y-auto space-y-6 bg-slate-50/30">
+                    {/* Basic Info Group */}
+                    <div className="space-y-4">
+                        <div className="flex items-center gap-2 text-slate-800 font-bold text-sm border-l-4 border-purple-500 pl-3">
+                            <Info size={16} />
+                            <span>Thông tin cơ bản</span>
                         </div>
-                    )}
-                    <div>
-                        <label className="block text-sm font-medium text-slate-700 mb-1">Nhân sự phụ trách</label>
-                        <div className="border border-slate-200 rounded-lg p-3 max-h-40 overflow-y-auto bg-slate-50/50">
-                            <div className="space-y-1.5">
+                        
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                            <div>
+                                <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1">Dự án <span className="text-red-500">*</span></label>
+                                <select
+                                    value={formData.projectId}
+                                    onChange={(e) => setFormData({ ...formData, projectId: e.target.value })}
+                                    className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-purple-500/20 focus:border-purple-500 transition-all bg-white"
+                                >
+                                    <option value="">-- Chọn dự án --</option>
+                                    {projects.map(p => (
+                                        <option key={p.id} value={p.id}>{p.ten_du_an}</option>
+                                    ))}
+                                </select>
+                            </div>
+                            <div>
+                                <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1">Ngày ký HĐ</label>
+                                <input 
+                                    type="date" 
+                                    value={formData.ngayKyHD} 
+                                    onChange={(e) => setFormData({ ...formData, ngayKyHD: e.target.value })} 
+                                    className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-purple-500/20 focus:border-purple-500 transition-all" 
+                                />
+                            </div>
+                        </div>
+
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                            <div>
+                                <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1">Số hợp đồng <span className="text-red-500">*</span></label>
+                                <input 
+                                    type="text" 
+                                    value={formData.soHopDong} 
+                                    onChange={(e) => setFormData({ ...formData, soHopDong: e.target.value })} 
+                                    className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-purple-500/20 focus:border-purple-500 transition-all font-medium" 
+                                    placeholder="Ví dụ: 123/2024/HD-ATS" 
+                                />
+                            </div>
+                            <div>
+                                <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1">Loại dịch vụ</label>
+                                <input 
+                                    type="text" 
+                                    value={formData.loaiDichVu} 
+                                    onChange={(e) => setFormData({ ...formData, loaiDichVu: e.target.value })} 
+                                    className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-purple-500/20 focus:border-purple-500 transition-all" 
+                                    placeholder="Ví dụ: Tư vấn thiết kế" 
+                                />
+                            </div>
+                        </div>
+
+                        <div>
+                            <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1">Tên gói thầu <span className="text-red-500">*</span></label>
+                            <textarea 
+                                value={formData.tenGoiThau} 
+                                onChange={(e) => setFormData({ ...formData, tenGoiThau: e.target.value })} 
+                                className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-purple-500/20 focus:border-purple-500 transition-all min-h-[80px]" 
+                                placeholder="Nhập tên gói thầu đầy đủ..."
+                            />
+                        </div>
+                    </div>
+
+                    {/* Personnel Group */}
+                    <div className="space-y-3">
+                        <div className="flex items-center gap-2 text-slate-800 font-bold text-sm border-l-4 border-blue-500 pl-3">
+                            <User size={16} />
+                            <span>Nhân sự phụ trách</span>
+                        </div>
+                        <div className="bg-white border border-slate-200 rounded-xl p-4 max-h-48 overflow-y-auto shadow-sm">
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                                 {employees.map((emp) => {
-                                    const checked = formData.nhanSuIds.includes(emp.id);
+                                    const isSelected = formData.nhanSuIds.includes(emp.id);
                                     return (
-                                        <label key={emp.id} className={`flex items-center gap-3 px-2 py-1.5 rounded cursor-pointer hover:bg-white transition-colors ${checked ? 'bg-purple-50' : ''}`}>
-                                            <input type="checkbox" checked={checked} onChange={() => toggleNhanSu(emp.id)} className="rounded border-slate-300 w-4 h-4 text-purple-600" />
-                                            <div className="w-8 h-8 rounded-full bg-slate-200 flex items-center justify-center">
-                                                <User size={14} className="text-slate-400" />
+                                        <button
+                                            key={emp.id}
+                                            type="button"
+                                            onClick={() => toggleNhanSu(emp.id)}
+                                            className={`flex items-center gap-3 px-3 py-2 rounded-lg border transition-all text-left ${
+                                                isSelected 
+                                                ? 'bg-blue-50 border-blue-300 ring-2 ring-blue-500/10' 
+                                                : 'bg-white border-slate-100 hover:border-slate-300'
+                                            }`}
+                                        >
+                                            <div className="relative shrink-0">
+                                                {emp.anh_nhan_su ? (
+                                                    <img src={emp.anh_nhan_su} alt="" className="w-8 h-8 rounded-full object-cover border border-slate-200" />
+                                                ) : (
+                                                    <div className="w-8 h-8 rounded-full bg-slate-100 flex items-center justify-center border border-slate-200 text-slate-400">
+                                                        <User size={16} />
+                                                    </div>
+                                                )}
+                                                {isSelected && (
+                                                    <div className="absolute -top-1 -right-1 w-3.5 h-3.5 bg-blue-600 rounded-full border-2 border-white flex items-center justify-center">
+                                                        <div className="w-1.5 h-1.5 bg-white rounded-full" />
+                                                    </div>
+                                                )}
                                             </div>
-                                            <span className="text-sm text-slate-800">{emp.code ? `[${emp.code}] ` : ''}{emp.full_name}</span>
-                                        </label>
+                                            <div className="min-w-0">
+                                                <div className="text-xs font-bold text-slate-800 truncate">{emp.full_name}</div>
+                                                <div className="text-[10px] text-slate-500 font-medium">Mã: {emp.code || '—'}</div>
+                                            </div>
+                                        </button>
                                     );
                                 })}
                             </div>
                         </div>
                     </div>
-                    <div>
-                        <label className="block text-sm font-medium text-slate-700 mb-1">Số hợp đồng</label>
-                        <input type="text" value={formData.soHopDong} onChange={(e) => setFormData({ ...formData, soHopDong: e.target.value })} className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-purple-500" placeholder="Nhập số hợp đồng..." />
-                    </div>
-                    <div>
-                        <label className="block text-sm font-medium text-slate-700 mb-1">Tên gói thầu</label>
-                        <input type="text" value={formData.tenGoiThau} onChange={(e) => setFormData({ ...formData, tenGoiThau: e.target.value })} className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-purple-500" placeholder="Nhập tên gói thầu..." />
-                    </div>
-                    <div className="grid grid-cols-2 gap-4">
-                        <div>
-                            <label className="block text-sm font-medium text-slate-700 mb-1">Loại dịch vụ</label>
-                            <input type="text" value={formData.loaiDichVu} onChange={(e) => setFormData({ ...formData, loaiDichVu: e.target.value })} className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-purple-500" placeholder="Loại dịch vụ..." />
-                        </div>
-                        <div>
-                            <label className="block text-sm font-medium text-slate-700 mb-1">Ngày ký HĐ</label>
-                            <input type="date" value={formData.ngayKyHD} onChange={(e) => setFormData({ ...formData, ngayKyHD: e.target.value })} className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-purple-500" />
-                        </div>
-                    </div>
-                    <div className="grid grid-cols-2 gap-4">
-                        <div>
-                            <label className="block text-sm font-medium text-slate-700 mb-1">Giá trị HĐ</label>
-                            <input
-                                type="text"
-                                value={formData.giaTriHD ? (Number(formData.giaTriHD) || 0).toLocaleString('vi-VN') : ''}
-                                onChange={(e) => setFormData({ ...formData, giaTriHD: e.target.value.replace(/\./g, '') })}
-                                className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-purple-500"
-                                placeholder="0"
-                            />
-                        </div>
-                        <div>
-                            <label className="block text-sm font-medium text-slate-700 mb-1">Giá trị QT</label>
-                            <input
-                                type="text"
-                                value={formData.giaTriQT ? (Number(formData.giaTriQT) || 0).toLocaleString('vi-VN') : ''}
-                                onChange={(e) => setFormData({ ...formData, giaTriQT: e.target.value.replace(/\./g, '') })}
-                                className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-purple-500"
-                                placeholder="0"
-                            />
-                        </div>
-                    </div>
 
-                    {editData && (
-                        <div className="border-t border-slate-200 pt-4 mt-4">
-                            <label className="block text-sm font-medium text-slate-700 mb-2">Quản lý file</label>
-                            <div className="space-y-3">
-                                <div className="flex gap-2">
-                                    <select value={selectedFileType} onChange={(e) => setSelectedFileType(e.target.value)} className="flex-1 px-3 py-2 border border-slate-200 rounded-lg text-sm">
-                                        {FILE_TYPES.map(type => (
-                                            <option key={type} value={type}>{type}</option>
-                                        ))}
-                                    </select>
-                                    <input type="url" value={fileLink} onChange={(e) => setFileLink(e.target.value)} placeholder="Nhập link..." className="flex-1 px-3 py-2 border border-slate-200 rounded-lg text-sm" />
-                                    <button onClick={handleAddLink} className="px-3 py-2 bg-purple-600 text-white rounded-lg text-sm"><LinkIcon size={16} /></button>
+                    {/* Finance Group */}
+                    <div className="space-y-4">
+                        <div className="flex items-center gap-2 text-slate-800 font-bold text-sm border-l-4 border-emerald-500 pl-3">
+                            <FileText size={16} />
+                            <span>Thông tin tài chính</span>
+                        </div>
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                            <div>
+                                <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1">Giá trị HĐ (VNĐ)</label>
+                                <div className="relative">
+                                    <input
+                                        type="text"
+                                        value={formatCurrency(formData.giaTriHD)}
+                                        onChange={(e) => handlePriceChange('giaTriHD', e.target.value)}
+                                        className="w-full border border-slate-200 rounded-lg pl-3 pr-10 py-2 text-sm font-bold text-slate-700 bg-white"
+                                        placeholder="0"
+                                    />
+                                    <span className="absolute right-3 top-1/2 -translate-y-1/2 text-[10px] font-bold text-slate-400">VNĐ</span>
                                 </div>
-                                <div className="border border-slate-200 rounded-lg divide-y divide-slate-100">
-                                    {contractFiles.map((file, idx) => (
-                                        <div key={idx} className="px-3 py-2 flex items-center justify-between">
-                                            <div className="text-xs font-medium text-slate-800">{file.file_type}</div>
-                                            <button onClick={() => handleDeleteFile(file.file_type)} className="text-red-500"><Trash2 size={14} /></button>
-                                        </div>
-                                    ))}
+                            </div>
+                            <div>
+                                <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1">Giá trị quyết toán</label>
+                                <div className="relative">
+                                    <input
+                                        type="text"
+                                        value={formatCurrency(formData.giaTriQT)}
+                                        onChange={(e) => handlePriceChange('giaTriQT', e.target.value)}
+                                        className="w-full border border-slate-200 rounded-lg pl-3 pr-10 py-2 text-sm font-bold text-emerald-600 bg-white"
+                                        placeholder="0"
+                                    />
+                                    <span className="absolute right-3 top-1/2 -translate-y-1/2 text-[10px] font-bold text-slate-400">VNĐ</span>
                                 </div>
                             </div>
                         </div>
-                    )}
+                    </div>
+
+                    {/* Files Group */}
+                    <div className="space-y-4">
+                        <div className="flex items-center gap-2 text-slate-800 font-bold text-sm border-l-4 border-orange-500 pl-3">
+                            <LinkIcon size={16} />
+                            <span>Tài liệu đính kèm</span>
+                        </div>
+                        
+                        <div className="bg-white border border-slate-200 rounded-xl overflow-hidden shadow-sm">
+                            <div className="p-4 bg-slate-50/50 border-b border-slate-100 flex gap-3">
+                                <select 
+                                    value={selectedFileType} 
+                                    onChange={(e) => setSelectedFileType(e.target.value)} 
+                                    className="flex-1 min-w-[120px] px-3 py-2 border border-slate-200 rounded-lg text-sm bg-white focus:outline-none focus:ring-2 focus:ring-orange-500/20"
+                                >
+                                    {FILE_TYPES.map(type => (
+                                        <option key={type} value={type}>{type}</option>
+                                    ))}
+                                </select>
+                                <input 
+                                    type="url" 
+                                    value={fileLink} 
+                                    onChange={(e) => setFileLink(e.target.value)} 
+                                    placeholder="Dán link tài liệu..." 
+                                    className="flex-[2] px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-orange-500/20" 
+                                />
+                                <button 
+                                    type="button"
+                                    onClick={handleAddLink} 
+                                    className="px-4 py-2 bg-orange-500 text-white rounded-lg text-sm font-bold hover:bg-orange-600 transition-colors flex items-center gap-2"
+                                >
+                                    <Plus size={16} />
+                                    <span>Thêm</span>
+                                </button>
+                            </div>
+                            
+                            <div className="divide-y divide-slate-100">
+                                {contractFiles.length > 0 ? contractFiles.map((file, idx) => (
+                                    <div key={idx} className="px-4 py-3 flex items-center justify-between hover:bg-slate-50 transition-colors">
+                                        <div className="flex items-center gap-3 overflow-hidden">
+                                            <FileText size={18} className="text-orange-400 shrink-0" />
+                                            <div className="min-w-0">
+                                                <div className="text-xs font-bold text-slate-800">{file.file_type}</div>
+                                                <div className="text-[10px] text-slate-500 truncate">{file.file_url}</div>
+                                            </div>
+                                        </div>
+                                        <div className="flex items-center gap-2 shrink-0">
+                                            <a href={file.file_url} target="_blank" rel="noopener noreferrer" className="p-1 text-blue-600 hover:bg-blue-50 rounded">
+                                                <ExternalLink size={14} />
+                                            </a>
+                                            <button onClick={() => handleDeleteFile(file.file_type)} className="p-1 text-red-500 hover:bg-red-50 rounded">
+                                                <Trash2 size={14} />
+                                            </button>
+                                        </div>
+                                    </div>
+                                )) : (
+                                    <div className="p-8 text-center text-slate-400 italic text-sm">
+                                        Chưa có tài liệu đính kèm
+                                    </div>
+                                )}
+                            </div>
+                        </div>
+
+                        {/* Status Preview */}
+                        <div className="bg-amber-50 border border-amber-100 rounded-lg p-3 flex items-start gap-3">
+                            <Info size={16} className="text-amber-600 mt-0.5 shrink-0" />
+                            <div>
+                                <p className="text-xs font-bold text-amber-800 uppercase tracking-wide">Trạng thái file dự kiến:</p>
+                                <p className="text-xs text-amber-700 mt-1 font-medium">{calculateFileStatus(contractFiles)}</p>
+                            </div>
+                        </div>
+                    </div>
                 </div>
 
-                <div className="px-6 py-4 border-t border-slate-200 flex justify-end gap-2">
-                    <button onClick={onClose} className="px-4 py-2 border border-slate-300 rounded-lg text-sm font-medium text-slate-700 hover:bg-slate-50">Hủy</button>
-                    <button onClick={handleSave} disabled={isSaving} className="px-4 py-2 bg-purple-600 rounded-lg text-sm font-medium text-white hover:bg-purple-700">
-                        {isSaving ? 'Đang xử lý...' : (editData ? 'Cập nhật' : 'Thêm')}
+                {/* Footer */}
+                <div className="px-6 py-4 border-t border-slate-200 flex justify-end gap-3 bg-white">
+                    <button 
+                        onClick={onClose} 
+                        className="px-6 py-2 border border-slate-300 rounded-lg text-sm font-bold text-slate-600 hover:bg-slate-50 transition-colors"
+                    >
+                        Hủy
+                    </button>
+                    <button 
+                        onClick={handleSave} 
+                        disabled={isSaving} 
+                        className="px-8 py-2 bg-purple-600 rounded-lg text-sm font-extrabold text-white hover:bg-purple-700 disabled:opacity-50 shadow-md shadow-purple-200 transition-all active:scale-95"
+                    >
+                        {isSaving ? (
+                            <div className="flex items-center gap-2">
+                                <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                                <span>Đang lưu...</span>
+                            </div>
+                        ) : (editData ? 'Cập nhật hợp đồng' : 'Tạo mới hợp đồng')}
                     </button>
                 </div>
             </div>
