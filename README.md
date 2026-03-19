@@ -1,20 +1,37 @@
-<div align="center">
-<img width="1200" height="475" alt="GHBanner" src="https://github.com/user-attachments/assets/0aa67016-6eaf-458a-adb2-6e31a0763ed6" />
-</div>
+# An Thanh Sơn - Project Infrastructure
 
-# Run and deploy your AI Studio app
+Hệ thống được chuyển đổi sang kiến trúc Client-Server chuyên nghiệp.
 
-This contains everything you need to run your app locally.
+## Cấu trúc thư mục
+- `/client`: Frontend React + Vite
+- `/server`: Backend Express + TypeScript
 
-View your app in AI Studio: https://ai.studio/apps/4dc59da9-2f73-4034-b858-d35504908889
+## Hướng dẫn chạy hệ thống
 
-## Run Locally
+### 1. Khởi động Backend
+```bash
+cd server
+npm install
+npm run dev
+```
+Backend sẽ chạy tại: `http://localhost:3000`
 
-**Prerequisites:**  Node.js
+### 2. Khởi động Frontend
+```bash
+cd client
+npm install
+npm run dev
+```
+Frontend sẽ chạy tại: `http://localhost:3001`
 
+## Các logic đã chuyển sang Backend
+1. **Quản lý Nhân sự (Employees)**: CRUD và Tìm kiếm.
+2. **Quản lý Dự án (Projects)**: CRUD và tự động Join thông tin Manager/Executor.
+3. **Quản lý Hợp đồng (Contracts)**: CRUD và tự động Join Dự án/Nhân sự.
+4. **Quản lý Công việc (Tasks)**: CRUD và lọc theo Hợp đồng.
+5. **Trợ lý AI (AI Assistant)**: Xử lý ngôn ngữ tự nhiên thông qua Gemini API trên Server.
 
-1. Install dependencies:
-   `npm install`
-2. Set the `GEMINI_API_KEY` in [.env.local](.env.local) to your Gemini API key
-3. Run the app:
-   `npm run dev`
+## Lợi ích của kiến trúc mới
+- **Bảo mật**: Thông tin Service Role Key của Supabase được giữ kín ở Server.
+- **Hiệu năng**: Các phép Join dữ liệu phức tạp được thực hiện ở Server thay vì Client.
+- **Mở rộng**: Dễ dàng thêm logic nghiệp vụ, phân quyền và log mà không làm nặng Client.
