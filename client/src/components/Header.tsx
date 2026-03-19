@@ -1,15 +1,16 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Bell, Calendar, Clock, User, Settings, LogOut, ChevronDown, Home, ChevronRight, Menu } from 'lucide-react';
+import { Bell, Calendar, Clock, User, Settings, LogOut, ChevronDown, Home, ChevronRight, Menu, PanelLeftOpen, PanelLeftClose } from 'lucide-react';
 import { format } from 'date-fns';
 import { vi } from 'date-fns/locale';
 import { Link, useLocation } from 'react-router-dom';
 
 interface HeaderProps {
   onMenuClick?: () => void;
+  isOpen?: boolean;
   isMobile?: boolean;
 }
 
-export function Header({ onMenuClick, isMobile = false }: HeaderProps) {
+export function Header({ onMenuClick, isOpen = true, isMobile = false }: HeaderProps) {
   const [currentTime, setCurrentTime] = useState(new Date());
   const [isProfileOpen, setIsProfileOpen] = useState(false);
   const [isNotifOpen, setIsNotifOpen] = useState(false);
@@ -68,6 +69,17 @@ export function Header({ onMenuClick, isMobile = false }: HeaderProps) {
             aria-label="Mở menu"
           >
             <Menu size={20} />
+          </button>
+        )}
+
+        {/* Sidebar Toggle - for desktop */}
+        {!isMobile && onMenuClick && (
+          <button
+            onClick={onMenuClick}
+            className="p-2 -ml-2 rounded-lg hover:bg-slate-100 text-slate-500 hover:text-blue-600 transition-colors shrink-0"
+            title={isOpen ? "Thu nhỏ menu" : "Mở rộng menu"}
+          >
+            {isOpen ? <PanelLeftClose size={20} /> : <PanelLeftOpen size={20} />}
           </button>
         )}
 
