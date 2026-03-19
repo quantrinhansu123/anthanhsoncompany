@@ -1,3 +1,11 @@
+﻿-- FULL SCHEMA INLINE FOR SUPABASE SQL EDITOR
+-- Generated: 2026-03-19 18:39:40
+
+
+-- =========================================================
+-- SOURCE: supabase_schema.sql
+-- =========================================================
+
 -- Helper function để xử lý conflict giữa lowercase và camelCase columns
 CREATE OR REPLACE FUNCTION handle_column_conflict(
   p_table_name TEXT,
@@ -1499,3 +1507,98 @@ CREATE INDEX IF NOT EXISTS idx_tai_lieu_loai ON public.tai_lieu(loai);
 -- CREATE POLICY "Allow all operations" ON public.nhan_su FOR ALL USING (true) WITH CHECK (true);
 -- CREATE POLICY "Allow all operations" ON public.dependents FOR ALL USING (true) WITH CHECK (true);
 -- CREATE POLICY "Allow all operations" ON public.nhan_su_chi_tiet FOR ALL USING (true) WITH CHECK (true);
+
+-- =========================================================
+-- SOURCE: create_cong_viec_chi_tiet_table.sql
+-- =========================================================
+
+-- Tạo extension để sinh UUID (nếu chưa có)
+create extension if not exists "pgcrypto";
+
+-- Hàm auto-update cột updated_at
+create or replace function public.set_current_timestamp_updated_at()
+returns trigger as $$
+begin
+  new.updated_at = now();
+  return new;
+end;
+$$ language plpgsql;
+
+-- Bảng chi tiết công việc (các task con / bước chi tiết)
+create table if not exists public.cong_viec_chi_tiet (
+  id uuid primary key default gen_random_uuid(),
+  task_id uuid not null references public.task(id) on delete cascade,
+
+  ten_cong_viec text not null,
+  mo_ta text,
+  nguoi_thuc_hien text,
+  han_hoan_thanh date,
+
+  trang_thai text default 'Chưa bắt đầu',
+  tien_do numeric default 0,
+  ghi_chu text,
+
+  created_at timestamptz default now(),
+  updated_at timestamptz default now()
+);
+
+create index if not exists idx_cong_viec_chi_tiet_task_id
+  on public.cong_viec_chi_tiet(task_id);
+
+-- Trigger cập nhật updated_at
+drop trigger if exists set_timestamp_cong_viec_chi_tiet on public.cong_viec_chi_tiet;
+
+create trigger set_timestamp_cong_viec_chi_tiet
+before update on public.cong_viec_chi_tiet
+for each row
+execute procedure public.set_current_timestamp_updated_at();
+
+
+-- =========================================================
+-- SOURCE: create_task_template_table.sql
+-- =========================================================
+
+-- Task template table (độc lập, không liên quan hợp đồng)
+-- Lưu: loai_cv, cv, task, mo_ta, tieu_chuan(list), cac_buoc(list{hanh_dong, ghi_chu})
+
+-- UUID generator
+create extension if not exists pgcrypto;
+
+-- updated_at trigger function (tạo 1 lần)
+create or replace function public.set_current_timestamp_updated_at()
+returns trigger as $$
+begin
+  new.updated_at = now();
+  return new;
+end;
+$$ language plpgsql;
+
+create table if not exists public.task_template (
+  id uuid primary key default gen_random_uuid(),
+  loai_cv text not null,
+  cv text not null,
+  task text not null,
+  mo_ta text,
+  tieu_chuan jsonb not null default '[]'::jsonb,
+  cac_buoc jsonb not null default '[]'::jsonb,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+drop trigger if exists task_template_set_updated_at on public.task_template;
+create trigger task_template_set_updated_at
+before update on public.task_template
+for each row
+execute procedure public.set_current_timestamp_updated_at();
+
+
+-- =========================================================
+-- SOURCE: add_cong_viec_buoc_danh_gia.sql
+-- =========================================================
+
+-- Thêm cột các bước đánh giá / phê duyệt cho cong_viec_chi_tiet (JSONB)
+-- Mỗi bước: { "id": "truong_bo_phan", "ten": "Trưởng bộ phận phê duyệt", "trang_thai": "cho"|"da_duyet", "nguoi_duyet": "...", "ngay_gio": "ISO", "ghi_chu": "..." }
+-- Chạy trong Supabase SQL Editor.
+
+ALTER TABLE public.cong_viec_chi_tiet
+  ADD COLUMN IF NOT EXISTS buoc_danh_gia JSONB DEFAULT '[]'::jsonb;

@@ -84,8 +84,8 @@ const modules = [
     path: '/quy-trinh',
   },
   {
-    title: 'Quản lý Task',
-    description: 'Thêm mới và lưu trữ các task theo hợp đồng.',
+    title: 'Quy trình & Task',
+    description: 'Quản lý quy trình, mỗi quy trình có thể gán nhiều task.',
     icon: ClipboardList,
     color: 'bg-sky-600',
     path: '/quy-trinh/task',
@@ -131,8 +131,8 @@ const allGroups = [
     color: 'bg-teal-600',
     items: [
       { title: 'Thư viện lỗi', description: 'Quản lý thư viện lỗi, phân loại, xử lý và giải pháp.', icon: BookOpen, color: 'text-blue-600', bgColor: 'bg-blue-50', path: '/quy-trinh/thu-vien-loi' },
-      { title: 'Quản lý Task', description: 'Thêm mới và lưu trữ các Task theo hợp đồng (Kanban).', icon: ClipboardList, color: 'text-sky-600', bgColor: 'bg-sky-50', path: '/quy-trinh/task' },
-      { title: 'Danh sách Task', description: 'Xem danh sách Task dạng bảng, lọc theo hợp đồng.', icon: ClipboardList, color: 'text-orange-600', bgColor: 'bg-orange-50', path: '/quy-trinh/task-list' },
+      { title: 'Quy trình & Task', description: 'Quản lý theo quy trình, mỗi quy trình có nhiều task.', icon: ClipboardList, color: 'text-sky-600', bgColor: 'bg-sky-50', path: '/quy-trinh/task' },
+      { title: 'Danh sách Task', description: 'Xem danh sách task theo quy trình (folder view).', icon: ClipboardList, color: 'text-orange-600', bgColor: 'bg-orange-50', path: '/quy-trinh/task-list' },
     ],
   },
 ];

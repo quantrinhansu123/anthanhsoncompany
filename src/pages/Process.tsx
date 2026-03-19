@@ -82,8 +82,8 @@ const sections = [
     title: '',
     items: [
       { id: 'thu-vien-loi', title: 'Thư viện lỗi', description: 'Quản lý thư viện lỗi, phân loại, xử lý và giải pháp.', icon: BookOpen, color: 'text-blue-600', bgColor: 'bg-blue-50', path: '/quy-trinh/thu-vien-loi' },
-      { id: 'task', title: 'Quản lý Task', description: 'Thêm mới và lưu trữ các Task theo hợp đồng, theo dõi tiến độ bằng Kanban board.', icon: ClipboardList, color: 'text-orange-600', bgColor: 'bg-orange-50', path: '/quy-trinh/task' },
-      { id: 'task-list', title: 'Danh sách Task', description: 'Xem toàn bộ Task theo bảng, lọc theo hợp đồng.', icon: ClipboardList, color: 'text-sky-600', bgColor: 'bg-sky-50', path: '/quy-trinh/task-list' },
+      { id: 'task', title: 'Quy trình & Task', description: 'Quản lý theo quy trình: mỗi quy trình có thể gán nhiều task.', icon: ClipboardList, color: 'text-orange-600', bgColor: 'bg-orange-50', path: '/quy-trinh/task' },
+      { id: 'task-list', title: 'Danh sách Task', description: 'Xem và chỉnh sửa task theo từng quy trình (dạng folder).', icon: ClipboardList, color: 'text-sky-600', bgColor: 'bg-sky-50', path: '/quy-trinh/task-list' },
       { id: 'quan-ly-cong-viec', title: 'Quản lý công việc', description: 'Giao diện danh sách công việc + chi tiết + quy trình duyệt giống hình mẫu.', icon: ClipboardList, color: 'text-emerald-600', bgColor: 'bg-emerald-50', path: '/quy-trinh/quan-ly-cong-viec' },
     ]
   }

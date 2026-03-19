@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { Plus, Search, Edit, Trash2, X, FolderKanban, FileText } from 'lucide-react';
+import { Plus, Search, Edit, Trash2, X, FolderKanban, FileText, ChevronDown, ChevronRight, FolderOpen, Eye } from 'lucide-react';
 import {
   taskTemplateService,
   type TaskTemplateRow,
@@ -46,12 +46,15 @@ function Toast({
 export function TaskList() {
   const [items, setItems] = useState<TaskTemplateRow[]>([]);
   const [searchTerm, setSearchTerm] = useState('');
+  const [expandedFolders, setExpandedFolders] = useState<Record<string, boolean>>({});
+  const [selectedFolderKey, setSelectedFolderKey] = useState<string>('');
   const [loading, setLoading] = useState(false);
   const [toast, setToast] = useState<{
     message: string;
     type: 'success' | 'info' | 'warning';
   } | null>(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
+  const [viewingTask, setViewingTask] = useState<TaskTemplateRow | null>(null);
   const [editingTask, setEditingTask] = useState<TaskTemplateRow | null>(null);
   const [saving, setSaving] = useState(false);
   const [formData, setFormData] = useState<
@@ -120,6 +123,34 @@ export function TaskList() {
       (sum, s) => sum + (Number(s?.diem) || 0),
       0,
     );
+
+  useEffect(() => {
+    setExpandedFolders((prev) => {
+      const next: Record<string, boolean> = {};
+      groupedByLoaiCV.forEach((group) => {
+        next[group.key] = prev[group.key] ?? true;
+      });
+      return next;
+    });
+  }, [groupedByLoaiCV]);
+
+  const toggleFolder = (folderKey: string) => {
+    setExpandedFolders((prev) => ({
+      ...prev,
+      [folderKey]: !prev[folderKey],
+    }));
+  };
+
+  useEffect(() => {
+    if (!groupedByLoaiCV.length) {
+      setSelectedFolderKey('');
+      return;
+    }
+    const hasSelected = groupedByLoaiCV.some((g) => g.key === selectedFolderKey);
+    if (!hasSelected) {
+      setSelectedFolderKey(groupedByLoaiCV[0].key);
+    }
+  }, [groupedByLoaiCV, selectedFolderKey]);
 
   const openAddModal = () => {
     setEditingTask(null);
@@ -289,126 +320,248 @@ export function TaskList() {
             Không có task nào phù hợp với bộ lọc.
           </div>
         ) : (
-          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
-            {groupedByLoaiCV.map(({ label: loai, items: tasks, key }) => (
-              <div
-                key={key}
-                className="bg-white rounded-xl border border-slate-200 shadow-sm flex flex-col overflow-hidden"
-              >
-                <div className="px-4 py-3 bg-gradient-to-r from-slate-900 to-slate-700 text-white flex items-center justify-between">
-                  <div className="flex items-center gap-2">
-                    <span className="inline-flex w-8 h-8 items-center justify-center rounded-md bg-white/10 text-xs font-bold">
-                      <FolderKanban className="w-4 h-4" />
-                    </span>
-                    <div className="flex flex-col">
-                      <span className="text-xs font-semibold uppercase tracking-wide">
-                        {loai}
-                      </span>
-                      <span className="text-[11px] text-slate-200">
-                        {tasks.length} task
-                      </span>
+          <div className="grid grid-cols-1 lg:grid-cols-12 gap-4">
+            <div className="lg:col-span-4 xl:col-span-3 bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+              <div className="px-4 py-3 border-b border-slate-200 bg-slate-50">
+                <p className="text-xs font-bold uppercase tracking-wide text-slate-600">Thư mục Loại CV</p>
+              </div>
+              <div className="p-2 space-y-1 max-h-[540px] overflow-y-auto">
+                {groupedByLoaiCV.map(({ key, label, items: tasks }) => (
+                  <button
+                    key={key}
+                    type="button"
+                    onClick={() => {
+                      setSelectedFolderKey(key);
+                      toggleFolder(key);
+                    }}
+                    className={`w-full flex items-center justify-between px-3 py-2 rounded-lg border text-left transition-all ${
+                      selectedFolderKey === key
+                        ? 'bg-blue-50 border-blue-200 text-blue-700'
+                        : 'bg-white border-transparent hover:bg-slate-50 hover:border-slate-200 text-slate-700'
+                    }`}
+                  >
+                    <div className="flex items-center gap-2 min-w-0">
+                      {expandedFolders[key] ? (
+                        <ChevronDown className="w-4 h-4 shrink-0" />
+                      ) : (
+                        <ChevronRight className="w-4 h-4 shrink-0" />
+                      )}
+                      {expandedFolders[key] ? (
+                        <FolderOpen className="w-4 h-4 shrink-0" />
+                      ) : (
+                        <FolderKanban className="w-4 h-4 shrink-0" />
+                      )}
+                      <span className="text-sm font-semibold truncate">{label}</span>
                     </div>
-                  </div>
-                  <span className="text-[11px] font-semibold">
-                    Số task: <span className="font-bold">{tasks.length}</span>
-                  </span>
-                </div>
-                <div className="p-3 space-y-3 max-h-[420px] overflow-y-auto bg-slate-50/40">
-                  {Array.from(
-                    tasks.reduce((map, t) => {
-                      const raw = (t.cv || 'Khác').trim();
-                      const norm = raw.toLowerCase() || 'khác';
-                      if (!map.has(norm)) {
-                        map.set(norm, { label: raw || 'Khác', items: [] as TaskTemplateRow[] });
-                      }
-                      map.get(norm)!.items.push(t);
-                      return map;
-                    }, new Map<string, { label: string; items: TaskTemplateRow[] }>()),
-                  ).map(([cvKey, group]) => (
-                    <div key={cvKey} className="space-y-2">
-                      <div className="flex items-center justify-between px-1">
-                        <span className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">
-                          {group.label || 'Khác'}
-                        </span>
-                        <span className="text-[10px] text-slate-400">
-                          {group.items.length} task
-                        </span>
+                    <span className="text-xs font-bold">{tasks.length}</span>
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div className="lg:col-span-8 xl:col-span-9 bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+              {(() => {
+                const selected = groupedByLoaiCV.find((g) => g.key === selectedFolderKey) || groupedByLoaiCV[0];
+                const tasks = selected?.items || [];
+                return (
+                  <>
+                    <div className="px-4 py-3 border-b border-slate-200 bg-gradient-to-r from-slate-900 to-slate-700 text-white flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <FolderOpen className="w-4 h-4" />
+                        <span className="text-sm font-semibold uppercase tracking-wide">{selected?.label || 'Khác'}</span>
                       </div>
-                      {group.items.map((task) => (
-                        <div
-                          key={task.id}
-                          className="bg-white rounded-lg border border-slate-200 shadow-sm p-3 hover:border-blue-300 hover:shadow-md transition-all"
-                        >
-                          <div className="flex items-start justify-between gap-2">
-                            <div className="flex items-start gap-2 min-w-0">
-                              <div className="mt-0.5">
-                                <div className="relative w-6 h-6">
-                                  <div className="absolute inset-0 translate-x-[2px] translate-y-[2px] rounded-[6px] bg-slate-200" />
-                                  <div className="absolute inset-0 rounded-[6px] bg-white border border-slate-300 flex items-center justify-center">
-                                    <FileText className="w-3.5 h-3.5 text-slate-500" />
+                      <span className="text-xs font-bold">Số task: {tasks.length}</span>
+                    </div>
+                    {!expandedFolders[selected?.key || ''] ? (
+                      <div className="p-8 text-center text-slate-500 text-sm bg-slate-50/40">
+                        Folder đang thu gọn. Bấm vào thư mục bên trái để mở.
+                      </div>
+                    ) : (
+                      <div className="p-3 space-y-3 max-h-[540px] overflow-y-auto bg-slate-50/40">
+                        {Array.from(
+                          tasks.reduce((map, t) => {
+                            const raw = (t.cv || 'Khác').trim();
+                            const norm = raw.toLowerCase() || 'khác';
+                            if (!map.has(norm)) {
+                              map.set(norm, { label: raw || 'Khác', items: [] as TaskTemplateRow[] });
+                            }
+                            map.get(norm)!.items.push(t);
+                            return map;
+                          }, new Map<string, { label: string; items: TaskTemplateRow[] }>()),
+                        ).map(([cvKey, group]) => (
+                          <div key={cvKey} className="space-y-2">
+                            <div className="flex items-center justify-between px-1">
+                              <span className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+                                {group.label || 'Khác'}
+                              </span>
+                              <span className="text-[10px] text-slate-400">{group.items.length} task</span>
+                            </div>
+                            <div className="space-y-2">
+                              {group.items.map((task) => (
+                                <div
+                                  key={task.id}
+                                  className="group bg-white rounded-xl border border-slate-200 shadow-sm p-3 hover:border-blue-300 hover:shadow-md transition-all"
+                                >
+                                  <div className="flex items-start gap-3">
+                                    <div className="relative shrink-0 mt-0.5">
+                                      <div className="absolute inset-0 translate-x-[4px] translate-y-[4px] rounded-xl bg-slate-200" />
+                                      <div className="relative w-14 h-14 rounded-xl bg-white border border-slate-300 flex items-center justify-center">
+                                        <FileText className="w-8 h-8 text-slate-500 group-hover:text-blue-600 transition-colors" />
+                                      </div>
+                                    </div>
+                                    <div className="min-w-0 flex-1">
+                                      <div className="flex items-start justify-between gap-2">
+                                        <div className="min-w-0">
+                                          <p className="text-[13px] font-semibold text-slate-800 line-clamp-2">
+                                            {task.task}
+                                          </p>
+                                          {task.mo_ta && (
+                                            <p className="text-[11px] text-slate-500 mt-0.5 line-clamp-2">
+                                              {task.mo_ta}
+                                            </p>
+                                          )}
+                                        </div>
+                                        <div className="shrink-0 text-right text-[10px] text-slate-500 space-y-0.5">
+                                          <div>
+                                            TC:{' '}
+                                            <span className="font-semibold text-slate-800">
+                                              {(task.tieu_chuan || []).length}
+                                            </span>
+                                          </div>
+                                          <div>
+                                            Điểm:{' '}
+                                            <span className="font-bold text-emerald-600">
+                                              {getTotalScore(task)}
+                                            </span>
+                                          </div>
+                                          <div>
+                                            Bước:{' '}
+                                            <span className="font-semibold text-slate-800">
+                                              {(task.cac_buoc || []).length}
+                                            </span>
+                                          </div>
+                                        </div>
+                                      </div>
+                                      <div className="mt-2 flex items-center justify-end gap-1.5">
+                                        <button
+                                          onClick={() => setViewingTask(task)}
+                                          className="inline-flex items-center justify-center px-2 py-1 rounded-md border border-blue-200 text-[10px] font-semibold text-blue-600 hover:bg-blue-50"
+                                          title="Xem"
+                                        >
+                                          <Eye size={11} className="mr-1" />
+                                          Xem
+                                        </button>
+                                        <button
+                                          onClick={() => openEditModal(task)}
+                                          className="inline-flex items-center justify-center px-2 py-1 rounded-md border border-amber-200 text-[10px] font-semibold text-amber-600 hover:bg-amber-50"
+                                          title="Sửa"
+                                        >
+                                          <Edit size={11} className="mr-1" />
+                                          Sửa
+                                        </button>
+                                        <button
+                                          onClick={() => handleDelete(task.id)}
+                                          className="inline-flex items-center justify-center px-2 py-1 rounded-md border border-red-200 text-[10px] font-semibold text-red-600 hover:bg-red-50"
+                                          title="Xóa"
+                                        >
+                                          <Trash2 size={11} className="mr-1" />
+                                          Xóa
+                                        </button>
+                                      </div>
+                                    </div>
                                   </div>
                                 </div>
-                              </div>
-                              <div className="min-w-0">
-                                <p className="text-[13px] font-semibold text-slate-800 line-clamp-2">
-                                  {task.task}
-                                </p>
-                                {task.mo_ta && (
-                                  <p className="text-[11px] text-slate-500 mt-0.5 line-clamp-2">
-                                    {task.mo_ta}
-                                  </p>
-                                )}
-                              </div>
-                            </div>
-                            <div className="shrink-0 text-right text-[11px] text-slate-500 space-y-0.5">
-                              <div>
-                                TC:{' '}
-                                <span className="font-semibold text-slate-800">
-                                  {(task.tieu_chuan || []).length}
-                                </span>
-                              </div>
-                              <div>
-                                Điểm:{' '}
-                                <span className="font-bold text-emerald-600">
-                                  {getTotalScore(task)}
-                                </span>
-                              </div>
-                              <div>
-                                Bước:{' '}
-                                <span className="font-semibold text-slate-800">
-                                  {(task.cac_buoc || []).length}
-                                </span>
-                              </div>
+                              ))}
                             </div>
                           </div>
-                          <div className="mt-2 flex items-center justify-end gap-1.5">
-                            <button
-                              onClick={() => openEditModal(task)}
-                              className="inline-flex items-center justify-center px-2 py-1 rounded-md border border-amber-200 text-[11px] font-semibold text-amber-600 hover:bg-amber-50"
-                              title="Sửa"
-                            >
-                              <Edit size={12} className="mr-1" />
-                              Sửa
-                            </button>
-                            <button
-                              onClick={() => handleDelete(task.id)}
-                              className="inline-flex items-center justify-center px-2 py-1 rounded-md border border-red-200 text-[11px] font-semibold text-red-600 hover:bg-red-50"
-                              title="Xóa"
-                            >
-                              <Trash2 size={12} className="mr-1" />
-                              Xóa
-                            </button>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  ))}
-                </div>
-              </div>
-            ))}
+                        ))}
+                      </div>
+                    )}
+                  </>
+                );
+              })()}
+            </div>
           </div>
         )}
       </div>
+
+      {/* View Modal */}
+      {viewingTask && (
+        <div className="fixed inset-0 z-[150] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl overflow-hidden animate-in zoom-in-95 duration-200">
+            <div className="px-6 py-4 bg-slate-50 border-b border-slate-200 flex items-center justify-between">
+              <h2 className="text-lg font-bold text-slate-800 uppercase tracking-tight">
+                Xem Task
+              </h2>
+              <button
+                onClick={() => setViewingTask(null)}
+                className="p-1.5 hover:bg-slate-200 rounded-lg transition-colors text-slate-400 hover:text-slate-600"
+              >
+                <X size={20} />
+              </button>
+            </div>
+            <div className="p-6 space-y-4 max-h-[75vh] overflow-y-auto">
+              <div>
+                <p className="text-xs font-bold text-slate-500 uppercase mb-1">Loại CV</p>
+                <p className="text-sm font-semibold text-slate-800">{viewingTask.loai_cv || '-'}</p>
+              </div>
+              <div>
+                <p className="text-xs font-bold text-slate-500 uppercase mb-1">CV</p>
+                <p className="text-sm font-semibold text-slate-800">{viewingTask.cv || '-'}</p>
+              </div>
+              <div>
+                <p className="text-xs font-bold text-slate-500 uppercase mb-1">Task</p>
+                <p className="text-sm font-semibold text-slate-800">{viewingTask.task || '-'}</p>
+              </div>
+              <div>
+                <p className="text-xs font-bold text-slate-500 uppercase mb-1">Mô tả</p>
+                <p className="text-sm text-slate-700 whitespace-pre-wrap">{viewingTask.mo_ta || 'Không có mô tả'}</p>
+              </div>
+              <div>
+                <p className="text-xs font-bold text-slate-500 uppercase mb-2">
+                  Tiêu chuẩn ({(viewingTask.tieu_chuan || []).length})
+                </p>
+                <div className="space-y-1.5">
+                  {(viewingTask.tieu_chuan || []).length ? (
+                    (viewingTask.tieu_chuan || []).map((tc, idx) => (
+                      <div key={idx} className="text-sm text-slate-700 bg-slate-50 border border-slate-200 rounded-lg px-3 py-2">
+                        <span className="font-semibold">#{idx + 1}</span> - {tc.noi_dung} ({tc.diem || 0} điểm)
+                      </div>
+                    ))
+                  ) : (
+                    <p className="text-sm text-slate-500">Không có tiêu chuẩn.</p>
+                  )}
+                </div>
+              </div>
+              <div>
+                <p className="text-xs font-bold text-slate-500 uppercase mb-2">
+                  Các bước ({(viewingTask.cac_buoc || []).length})
+                </p>
+                <div className="space-y-1.5">
+                  {(viewingTask.cac_buoc || []).length ? (
+                    (viewingTask.cac_buoc || []).map((step, idx) => (
+                      <div key={idx} className="text-sm text-slate-700 bg-slate-50 border border-slate-200 rounded-lg px-3 py-2">
+                        <span className="font-semibold">Bước {idx + 1}:</span> {step.hanh_dong || '-'}
+                        {step.ghi_chu ? <span className="text-slate-500"> - {step.ghi_chu}</span> : null}
+                      </div>
+                    ))
+                  ) : (
+                    <p className="text-sm text-slate-500">Không có bước thực hiện.</p>
+                  )}
+                </div>
+              </div>
+            </div>
+            <div className="px-6 py-4 bg-slate-50 border-t border-slate-200 flex items-center justify-end">
+              <button
+                onClick={() => setViewingTask(null)}
+                className="px-4 py-2 text-sm font-bold text-white bg-blue-600 hover:bg-blue-700 rounded-lg transition-colors shadow-md"
+              >
+                Đóng
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Add/Edit Modal */}
       {isModalOpen && (
@@ -607,9 +760,9 @@ export function TaskList() {
                           }}
                           placeholder={`Hành động #${idx + 1}`}
                         />
-                        <input
-                          type="text"
-                          className="md:col-span-4 w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
+                        <textarea
+                          rows={3}
+                          className="md:col-span-4 w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 resize-y"
                           value={step.ghi_chu || ''}
                           onChange={(e) => {
                             const next = [...(formData.cac_buoc || [])];
@@ -619,7 +772,7 @@ export function TaskList() {
                             };
                             setFormData({ ...formData, cac_buoc: next });
                           }}
-                          placeholder="Ghi chú"
+                          placeholder="Ghi chú (có thể nhập nhiều dòng)"
                         />
                         <button
                           type="button"
