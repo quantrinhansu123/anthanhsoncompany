@@ -84,7 +84,8 @@ export function DanhSachKhachHang() {
                 ]);
 
                 if (!customers || customers.length === 0) {
-                    setItems(mockData);
+                    setItems([]);
+                    setToast({ message: 'Không có dữ liệu khách hàng từ database.', type: 'info' });
                     return;
                 }
 
@@ -157,7 +158,11 @@ export function DanhSachKhachHang() {
                 );
             } catch (error) {
                 console.error('[DanhSachKhachHang] Error loading customers:', error);
-                setItems(mockData);
+                setItems([]);
+                setToast({
+                    message: 'Không kết nối được database. Vui lòng kiểm tra Supabase env và quyền truy cập (RLS).',
+                    type: 'warning',
+                });
             }
         })();
     }, []);

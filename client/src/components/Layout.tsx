@@ -26,6 +26,7 @@ import { ThemThuChiHopDongModal } from '../pages/customer/ThemThuChiHopDongModal
 import { ThemCongViecHopDongModal } from '../pages/customer/ThemCongViecHopDongModal';
 import { NghiemThuCongViecModal } from '../pages/customer/NghiemThuCongViecModal';
 import { XacNhanXoaHopDongModal } from '../pages/customer/XacNhanXoaHopDongModal';
+import { customerService } from '../lib/services/customerService';
 
 export function Layout() {
   const [sidebarOpen, setSidebarOpen] = useState(true);
@@ -185,8 +186,35 @@ export function Layout() {
         isOpen={isKhachHangAddEditOpen}
         onClose={closeThemKhachHang}
         initialData={editData}
-        onSave={(data) => {
-            console.log('Customer saved:', data);
+        onSave={async (data) => {
+          const payload = {
+            ten_don_vi: data.Ten_Don_Vi,
+            loai_hinh: data.Loai_Hinh,
+            mst: data.MST,
+            dia_chi: data.Dia_Chi,
+            nguoi_lien_he: data.Nguoi_Lien_He,
+            chuc_vu_lien_he: data.Chuc_Vu_Lien_He,
+            sdt_lien_he: data.SDT_Lien_He,
+          };
+
+          try {
+            if (editData?.id) {
+              await customerService.update(String(editData.id), payload);
+            } else {
+              await customerService.create(payload);
+            }
+
+            // Refresh so list reflects newly saved data
+            window.location.reload();
+          } catch (err: any) {
+            console.error('[KhachHang] Save failed:', err);
+            const message =
+              err?.message ||
+              err?.error_description ||
+              'Không thể lưu dữ liệu khách hàng. Hãy kiểm tra kết nối Supabase / quyền truy cập.';
+            alert(message);
+            throw err;
+          }
         }}
       />
 

@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { X, User, FileText, Link as LinkIcon, ExternalLink, Trash2, Plus, Info } from 'lucide-react';
 import { contractService, ContractFile } from '../../lib/services/contractService';
 import { projectService } from '../../lib/services/projectService';
@@ -44,18 +44,24 @@ const FILE_TYPES = [
 export function ThemHopDongModal({ isOpen, onClose, editData, onSuccess }: ThemHopDongModalProps) {
     const [projects, setProjects] = useState<Array<{ id: string; ten_du_an: string }>>([]);
     const [employees, setEmployees] = useState<Array<{ id: string; full_name: string; code: string; anh_nhan_su?: string }>>([]);
+    const [loaiDichVuOptions, setLoaiDichVuOptions] = useState<string[]>([]);
     const [isSaving, setIsSaving] = useState(false);
     const [contractFiles, setContractFiles] = useState<ContractFile[]>([]);
     const [selectedFileType, setSelectedFileType] = useState<string>('File_BBTT');
     const [fileLink, setFileLink] = useState<string>('');
+    const [isAddingLink, setIsAddingLink] = useState(false);
+    const [openNhanSuDropdown, setOpenNhanSuDropdown] = useState(false);
+    const nhanSuDropdownRef = useRef<HTMLDivElement | null>(null);
+    const [showAddLoaiDichVuModal, setShowAddLoaiDichVuModal] = useState(false);
+    const [newLoaiDichVuValue, setNewLoaiDichVuValue] = useState('');
 
     const [formData, setFormData] = useState({
         soHopDong: '',
         tenGoiThau: '',
         loaiDichVu: '',
         ngayKyHD: '',
-        giaTriHD: '',
-        giaTriQT: '',
+        giaTriHD: '0',
+        giaTriQT: '0',
         projectId: '',
         nhanSuIds: [] as string[],
     });
@@ -63,9 +69,10 @@ export function ThemHopDongModal({ isOpen, onClose, editData, onSuccess }: ThemH
     useEffect(() => {
         const loadInitialData = async () => {
             try {
-                const [projectList, employeeList] = await Promise.all([
+                const [projectList, employeeList, contractList] = await Promise.all([
                     projectService.getAll(),
-                    employeeService.getAll()
+                    employeeService.getAll(),
+                    contractService.getAll(),
                 ]);
                 setProjects(projectList.map(p => ({ id: p.id, ten_du_an: p.ten_du_an })));
                 setEmployees(employeeList.map(emp => ({
@@ -74,6 +81,15 @@ export function ThemHopDongModal({ isOpen, onClose, editData, onSuccess }: ThemH
                     code: emp.code || '',
                     anh_nhan_su: emp.anh_nhan_su
                 })));
+
+                const uniqueLoaiDichVu = Array.from(
+                    new Set(
+                        (contractList || [])
+                            .map((c) => c?.loai_dich_vu)
+                            .filter((v): v is string => Boolean(v && v.toString().trim() !== ''))
+                    )
+                ).sort((a, b) => a.localeCompare(b, 'vi'));
+                setLoaiDichVuOptions(uniqueLoaiDichVu);
             } catch (error) {
                 console.error('Error loading initial data:', error);
             }
@@ -111,15 +127,19 @@ export function ThemHopDongModal({ isOpen, onClose, editData, onSuccess }: ThemH
         }
     }, [editData, isOpen]);
 
-    const formatCurrency = (value: string) => {
-        const number = parseInt(value.replace(/\D/g, '')) || 0;
-        return number.toLocaleString('vi-VN');
-    };
-
-    const handlePriceChange = (field: 'giaTriHD' | 'giaTriQT', value: string) => {
-        const rawValue = value.replace(/\D/g, '');
-        setFormData(prev => ({ ...prev, [field]: rawValue }));
-    };
+    // Close dropdown when clicking outside
+    useEffect(() => {
+        if (!openNhanSuDropdown) return;
+        const onMouseDown = (e: MouseEvent) => {
+            const el = nhanSuDropdownRef.current;
+            if (!el) return;
+            if (e.target instanceof Node && !el.contains(e.target)) {
+                setOpenNhanSuDropdown(false);
+            }
+        };
+        document.addEventListener('mousedown', onMouseDown);
+        return () => document.removeEventListener('mousedown', onMouseDown);
+    }, [openNhanSuDropdown]);
 
     const calculateFileStatus = (files: ContractFile[]): string => {
         const uploadedTypes = new Set(files.filter(f => f.file_url && f.file_url.trim() !== '').map(f => f.file_type));
@@ -136,20 +156,50 @@ export function ThemHopDongModal({ isOpen, onClose, editData, onSuccess }: ThemH
         });
     };
 
-    const handleAddLink = () => {
-        if (!fileLink.trim()) return;
-        const newFile: ContractFile = {
-            file_type: selectedFileType,
-            file_name: fileLink.trim(),
-            file_url: fileLink.trim(),
-            uploaded_at: new Date().toISOString()
-        };
-        // Replace if exists, otherwise add
-        setContractFiles(prev => {
-            const filtered = prev.filter(f => f.file_type !== selectedFileType);
-            return [...filtered, newFile];
+    const formatCurrency = (value: string) => {
+        const number = parseInt(value.toString().replace(/\D/g, '')) || 0;
+        return number.toLocaleString('vi-VN');
+    };
+
+    const handlePriceChange = (field: 'giaTriHD' | 'giaTriQT', value: string) => {
+        const rawValue = value.replace(/\D/g, '');
+        setFormData(prev => ({ ...prev, [field]: rawValue }));
+    };
+
+    const addLoaiDichVuOption = () => {
+        const v = newLoaiDichVuValue.trim();
+        if (!v) return;
+        setLoaiDichVuOptions((prev) => {
+            const exists = prev.some((o) => o.toLowerCase() === v.toLowerCase());
+            if (exists) return prev;
+            return [...prev, v].sort((a, b) => a.localeCompare(b, 'vi'));
         });
-        setFileLink('');
+        setFormData((prev) => ({ ...prev, loaiDichVu: v }));
+        setNewLoaiDichVuValue('');
+        setShowAddLoaiDichVuModal(false);
+    };
+
+    const handleAddLink = async () => {
+        if (!fileLink.trim() || isAddingLink) return;
+        setIsAddingLink(true);
+        try {
+            const newFile: ContractFile = {
+                file_type: selectedFileType,
+                file_name: fileLink.trim(),
+                file_url: fileLink.trim(),
+                uploaded_at: new Date().toISOString()
+            };
+            // Replace if exists, otherwise add
+            setContractFiles(prev => {
+                const filtered = prev.filter(f => f.file_type !== selectedFileType);
+                return [...filtered, newFile];
+            });
+            setFileLink('');
+        } catch (error) {
+            console.error('Error adding link:', error);
+        } finally {
+            setIsAddingLink(false);
+        }
     };
 
     const handleDeleteFile = (fileType: string) => {
@@ -159,6 +209,11 @@ export function ThemHopDongModal({ isOpen, onClose, editData, onSuccess }: ThemH
     const handleSave = async () => {
         if (!formData.soHopDong || !formData.tenGoiThau || !formData.projectId) {
             alert('Vui lòng điền đầy đủ các thông tin bắt buộc (Số HĐ, Tên gói thầu, Dự án)');
+            return;
+        }
+
+        if (!formData.ngayKyHD) {
+            alert('Vui lòng chọn ngày ký HĐ trước khi lưu.');
             return;
         }
 
@@ -175,8 +230,8 @@ export function ThemHopDongModal({ isOpen, onClose, editData, onSuccess }: ThemH
                 nhan_su_id: formData.nhanSuIds?.[0] || null,
                 so_hop_dong: formData.soHopDong,
                 ten_goi_thau: formData.tenGoiThau,
-                loai_dich_vu: formData.loaiDichVu,
-                ngay_ky_hd: formData.ngayKyHD,
+                loai_dich_vu: formData.loaiDichVu || null,
+                ngay_ky_hd: formData.ngayKyHD || null,
                 gia_tri_hd: giaTriHD,
                 gia_tri_qt: giaTriQT,
                 file_status: fileStatus,
@@ -185,7 +240,6 @@ export function ThemHopDongModal({ isOpen, onClose, editData, onSuccess }: ThemH
             };
 
             if (editData?.uuid) {
-                // Preserve daThu for updates
                 const allThuChi = await thuChiService.getAll();
                 const daThu = allThuChi
                     .filter(tc => tc.hop_dong_id === editData.uuid && tc.loai_phieu === 'Phiếu thu')
@@ -259,7 +313,7 @@ export function ThemHopDongModal({ isOpen, onClose, editData, onSuccess }: ThemH
                                     type="date" 
                                     value={formData.ngayKyHD} 
                                     onChange={(e) => setFormData({ ...formData, ngayKyHD: e.target.value })} 
-                                    className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-purple-500/20 focus:border-purple-500 transition-all" 
+                                    className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-purple-500/20 focus:border-purple-500 transition-all font-medium" 
                                 />
                             </div>
                         </div>
@@ -277,13 +331,29 @@ export function ThemHopDongModal({ isOpen, onClose, editData, onSuccess }: ThemH
                             </div>
                             <div>
                                 <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1">Loại dịch vụ</label>
-                                <input 
-                                    type="text" 
-                                    value={formData.loaiDichVu} 
-                                    onChange={(e) => setFormData({ ...formData, loaiDichVu: e.target.value })} 
-                                    className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-purple-500/20 focus:border-purple-500 transition-all" 
-                                    placeholder="Ví dụ: Tư vấn thiết kế" 
-                                />
+                                <div className="flex items-center gap-2">
+                                    <select
+                                        value={formData.loaiDichVu}
+                                        onChange={(e) => setFormData({ ...formData, loaiDichVu: e.target.value })}
+                                        className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-purple-500/20 focus:border-purple-500 transition-all bg-white"
+                                    >
+                                        <option value="">-- Chọn loại dịch vụ --</option>
+                                        {loaiDichVuOptions.map((opt) => (
+                                            <option key={opt} value={opt}>{opt}</option>
+                                        ))}
+                                    </select>
+                                    <button
+                                        type="button"
+                                        onClick={() => {
+                                            setNewLoaiDichVuValue('');
+                                            setShowAddLoaiDichVuModal(true);
+                                        }}
+                                        className="shrink-0 p-2 border border-slate-200 rounded-lg bg-slate-50 hover:bg-slate-100 text-blue-600 transition-colors"
+                                        title="Thêm loại dịch vụ mới"
+                                    >
+                                        <Plus size={16} />
+                                    </button>
+                                </div>
                             </div>
                         </div>
 
@@ -474,6 +544,54 @@ export function ThemHopDongModal({ isOpen, onClose, editData, onSuccess }: ThemH
                         ) : (editData ? 'Cập nhật hợp đồng' : 'Tạo mới hợp đồng')}
                     </button>
                 </div>
+
+                {/* Add Loai Dich Vu Modal */}
+                {showAddLoaiDichVuModal && (
+                    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-[80] p-4">
+                        <div className="bg-white w-full max-w-sm rounded-xl shadow-xl overflow-hidden">
+                            <div className="px-6 py-4 border-b border-slate-200 flex items-center justify-between">
+                                <h3 className="text-lg font-bold text-slate-800">Thêm loại dịch vụ</h3>
+                                <button
+                                    type="button"
+                                    onClick={() => setShowAddLoaiDichVuModal(false)}
+                                    className="p-1.5 hover:bg-slate-100 rounded transition-colors"
+                                >
+                                    <X size={18} className="text-slate-600" />
+                                </button>
+                            </div>
+                            <div className="p-6 space-y-4">
+                                <div>
+                                    <label className="block text-sm font-medium text-slate-700 mb-1">Giá trị mới</label>
+                                    <input
+                                        type="text"
+                                        value={newLoaiDichVuValue}
+                                        onChange={(e) => setNewLoaiDichVuValue(e.target.value)}
+                                        className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-purple-500"
+                                        placeholder="Ví dụ: Tư vấn, Thi công..."
+                                        autoFocus
+                                    />
+                                </div>
+                                <div className="flex items-center justify-end gap-2">
+                                    <button
+                                        type="button"
+                                        onClick={() => setShowAddLoaiDichVuModal(false)}
+                                        className="px-4 py-2 border border-slate-200 rounded-lg text-sm font-semibold text-slate-600 hover:bg-slate-50"
+                                    >
+                                        Hủy
+                                    </button>
+                                    <button
+                                        type="button"
+                                        onClick={addLoaiDichVuOption}
+                                        disabled={!newLoaiDichVuValue.trim()}
+                                        className="px-4 py-2 bg-blue-600 rounded-lg text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                                    >
+                                        Thêm
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                )}
             </div>
         </div>
     );

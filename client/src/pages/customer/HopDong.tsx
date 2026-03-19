@@ -504,27 +504,33 @@ export function HopDong() {
                 )}
 
                 {/* Footer Stats */}
-                <div className="px-8 py-4 bg-slate-900 flex flex-wrap items-center gap-12">
-                    <div className="flex items-center gap-4">
-                        <div className="p-2.5 bg-white/10 rounded-2xl text-white"><Briefcase size={20} /></div>
-                        <div>
-                            <div className="text-[10px] font-black text-slate-500 uppercase tracking-widest">Hợp đồng</div>
-                            <div className="text-white font-black">{items.reduce((sum, p) => sum + p.contracts.length, 0)} dự án</div>
+                <div className="px-8 py-4 bg-slate-900 flex flex-wrap items-center gap-12 text-sm justify-between">
+                    <div className="flex flex-wrap items-center gap-12">
+                        <div className="flex items-center gap-4">
+                            <div className="p-2.5 bg-white/10 rounded-2xl text-white"><Briefcase size={20} /></div>
+                            <div>
+                                <div className="text-[10px] font-black text-slate-500 uppercase tracking-widest">Hợp đồng</div>
+                                <div className="text-white font-black">{items.reduce((sum, p) => sum + p.contracts.length, 0)} hợp đồng</div>
+                            </div>
+                        </div>
+                        <div className="flex items-center gap-4">
+                            <div className="p-2.5 bg-white/10 rounded-2xl text-emerald-400"><BarChart3 size={20} /></div>
+                            <div>
+                                <div className="text-[10px] font-black text-slate-500 uppercase tracking-widest">Tổng quyết toán</div>
+                                <div className="text-white font-black">{formatCurrency(items.reduce((sum, p) => sum + p.contracts.reduce((s, c) => s + c.giaTriQT, 0), 0))} VNĐ</div>
+                            </div>
+                        </div>
+                        <div className="flex items-center gap-4">
+                            <div className="p-2.5 bg-white/10 rounded-2xl text-amber-400"><CheckCircle size={20} /></div>
+                            <div>
+                                <div className="text-[10px] font-black text-slate-500 uppercase tracking-widest">Đã thu hồi</div>
+                                <div className="text-emerald-400 font-black">{formatCurrency(items.reduce((sum, p) => sum + p.contracts.reduce((s, c) => s + c.daThu, 0), 0))} VNĐ</div>
+                            </div>
                         </div>
                     </div>
-                    <div className="flex items-center gap-4">
-                        <div className="p-2.5 bg-white/10 rounded-2xl text-emerald-400"><BarChart3 size={20} /></div>
-                        <div>
-                            <div className="text-[10px] font-black text-slate-500 uppercase tracking-widest">Tổng quyết toán</div>
-                            <div className="text-white font-black">{formatCurrency(items.reduce((sum, p) => sum + p.contracts.reduce((s, c) => s + c.giaTriQT, 0), 0))} VNĐ</div>
-                        </div>
-                    </div>
-                    <div className="flex items-center gap-4">
-                        <div className="p-2.5 bg-white/10 rounded-2xl text-amber-400"><CheckCircle size={20} /></div>
-                        <div>
-                            <div className="text-[10px] font-black text-slate-500 uppercase tracking-widest">Đã thu hồi</div>
-                            <div className="text-emerald-400 font-black">{formatCurrency(items.reduce((sum, p) => sum + p.contracts.reduce((s, c) => s + c.daThu, 0), 0))} VNĐ</div>
-                        </div>
+                    <div className="flex items-center gap-2">
+                        <span className="text-slate-500 text-[10px] font-black uppercase tracking-widest">Tổng dự án:</span>
+                        <span className="font-bold text-white">{items.length}</span>
                     </div>
                 </div>
             </div>

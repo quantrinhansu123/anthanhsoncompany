@@ -36,7 +36,8 @@ export const customerService = {
       return data || [];
     } catch (err) {
       console.error('Exception in getAll:', err);
-      return [];
+      // Let callers decide how to handle connection/auth/table errors.
+      throw err;
     }
   },
 
