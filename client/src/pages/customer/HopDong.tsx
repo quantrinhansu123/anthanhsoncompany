@@ -498,14 +498,15 @@ export function HopDong() {
                                     </button>
 
                                     {isOpen && (
-                                        <div className="p-2 space-y-2 bg-white">
-                                            {project.contracts.map((contract) => (
-                                                <div
-                                                    key={contract.id}
-                                                    className="border border-slate-200 rounded-md p-2 hover:bg-slate-50/60 transition-colors"
-                                                >
+                                        <div className="p-2 bg-white">
+                                            <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-1.5">
+                                                {project.contracts.map((contract) => (
+                                                    <div
+                                                        key={contract.id}
+                                                        className="border border-slate-200 rounded-md p-1.5 hover:bg-slate-50/60 transition-colors"
+                                                    >
                                                     <div className="flex flex-wrap items-start justify-between gap-2">
-                                                        <div className="min-w-[220px] flex-1">
+                                                        <div className="min-w-[200px] flex-1">
                                                             <div className="flex items-center gap-2 flex-wrap">
                                                                 <span className="text-red-600 font-semibold italic text-[12px]">
                                                                     {contract.fileStatus}
@@ -546,7 +547,7 @@ export function HopDong() {
                                                         </div>
                                                     </div>
 
-                                                    <div className="mt-2 grid grid-cols-1 lg:grid-cols-[1fr_1fr_1fr] gap-2">
+                                                    <div className="mt-1.5 grid grid-cols-1 lg:grid-cols-[1fr_1fr_1fr] gap-1.5">
                                                         <div>
                                                             <div className="text-[11px] uppercase tracking-wider text-slate-500 font-semibold mb-1">
                                                                 Nhân sự phụ trách
@@ -557,16 +558,16 @@ export function HopDong() {
                                                                         const emp = employees.find((e) => String(e.id) === String(id));
                                                                         if (!emp) return null;
                                                                         return (
-                                                                            <div
-                                                                                key={id}
-                                                                                className="flex items-center gap-1.5"
-                                                                                title={`${emp.code ? `[${emp.code}] ` : ''}${emp.full_name}`}
-                                                                            >
+                                                                        <div
+                                                                            key={id}
+                                                                            className="flex items-center gap-1"
+                                                                            title={emp.full_name}
+                                                                        >
                                                                                 {emp.anh_nhan_su ? (
                                                                                     <img
                                                                                         src={emp.anh_nhan_su}
                                                                                         alt=""
-                                                                                        className="w-7 h-7 rounded-full object-cover border border-slate-200 flex-shrink-0"
+                                                                                        className="w-5 h-5 rounded-full object-cover border border-slate-200 flex-shrink-0"
                                                                                         onError={(e) => {
                                                                                             const t = e.target as HTMLImageElement;
                                                                                             t.style.display = 'none';
@@ -576,22 +577,21 @@ export function HopDong() {
                                                                                     />
                                                                                 ) : null}
                                                                                 <span
-                                                                                    className={`w-7 h-7 rounded-full bg-slate-200 flex items-center justify-center flex-shrink-0 ${emp.anh_nhan_su ? 'hidden' : ''}`}
+                                                                                    className={`w-5 h-5 rounded-full bg-slate-200 flex items-center justify-center flex-shrink-0 ${emp.anh_nhan_su ? 'hidden' : ''}`}
                                                                                 >
-                                                                                    <User size={13} className="text-slate-400" />
+                                                                                    <User size={11} className="text-slate-400" />
                                                                                 </span>
-                                                                                <span className="text-[11px] truncate max-w-[90px]">
-                                                                                    {(emp.code ? `[${emp.code}] ` : '') + emp.full_name}
+                                                                                <span className="text-[10px] truncate max-w-[60px]">
+                                                                                    {emp.full_name}
                                                                                 </span>
                                                                             </div>
                                                                         );
                                                                     })}
                                                                 </div>
-                                                            ) : contract.nhanSuTen ? (
-                                                                <span className="flex items-center gap-1 text-slate-700">
-                                                                    {contract.nhanSuCode && <span className="text-slate-400">[{contract.nhanSuCode}]</span>}
-                                                                    {contract.nhanSuTen}
-                                                                </span>
+                                                ) : contract.nhanSuTen ? (
+                                                    <span className="flex items-center gap-1 text-slate-700">
+                                                        {contract.nhanSuTen}
+                                                    </span>
                                                             ) : (
                                                                 <span className="text-slate-400 italic">—</span>
                                                             )}
@@ -664,8 +664,9 @@ export function HopDong() {
                                                             })()}
                                                         </div>
                                                     </div>
-                                                </div>
-                                            ))}
+                                                    </div>
+                                                ))}
+                                            </div>
                                         </div>
                                     )}
                                 </div>

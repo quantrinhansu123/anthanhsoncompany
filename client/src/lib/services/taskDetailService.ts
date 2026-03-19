@@ -55,6 +55,64 @@ export interface TaskDetailRow {
 }
 
 export const taskDetailService = {
+  // Đồng bộ dữ liệu từ bảng `task` sang `cong_viec_chi_tiet` để trang "Quản lý công việc"
+  // hiển thị đúng các task được tạo/sửa từ các màn hình khác.
+  async upsertFromTask(
+    task: TaskRow,
+    opts?: { allowInsert?: boolean },
+  ): Promise<void> {
+    if (!task?.id) return;
+    const allowInsert = opts?.allowInsert ?? true;
+
+    const toDateOrNull = (v: unknown) => {
+      const s = (v ?? '').toString().trim();
+      return s === '' ? null : s;
+    };
+
+    const payload: any = {
+      ten_cong_viec: task.ten_task,
+      mo_ta: task.mo_ta ?? null,
+      nguoi_thuc_hien: task.nguoi_phu_trach ?? null,
+      trang_thai: task.trang_thai,
+      tien_do: task.tien_do ?? 0,
+      ghi_chu: task.ghi_chu ?? null,
+      ngay_bat_dau: toDateOrNull((task as any).ngay_bat_dau),
+      ngay_ket_thuc: toDateOrNull((task as any).ngay_ket_thuc),
+      // Bảng cong_viec_chi_tiet có thể dùng 1 trong 2 cặp cột này,
+      // nên set cả hai để UI ở QuanLyCongViec không bị rỗng.
+      han_hoan_thanh: toDateOrNull((task as any).ngay_hoan_thanh),
+      ngay_hoan_thanh: toDateOrNull((task as any).ngay_hoan_thanh),
+    };
+
+    // UPDATE trước để tránh "sinh task mới" khi đang edit.
+    const { data: existingRows, error: existingError } = await supabase
+      .from('cong_viec_chi_tiet')
+      .select('id')
+      .eq('task_id', task.id);
+
+    if (existingError) throw existingError;
+
+    if (existingRows && existingRows.length > 0) {
+      const { error: updateError } = await supabase
+        .from('cong_viec_chi_tiet')
+        .update(payload)
+        .eq('task_id', task.id);
+      if (updateError) throw updateError;
+      return;
+    }
+
+    if (!allowInsert) {
+      // Khi edit mà không tìm thấy bản ghi tương ứng, không insert để tránh tạo dòng mới.
+      return;
+    }
+
+    // Nếu không có bản ghi nào thì mới insert (trường hợp "create")
+    const { error: insertError } = await supabase
+      .from('cong_viec_chi_tiet')
+      .insert([{ task_id: task.id, ...payload }]);
+    if (insertError) throw insertError;
+  },
+
   mapToTaskRow(detail: TaskDetailRow & { [key: string]: any }): TaskRow {
     const ten_task =
       detail.ten_task ||
@@ -76,7 +134,9 @@ export const taskDetailService = {
     const ngay_ket_thuc =
       (detail as any).ngay_ket_thuc || null;
     const ngay_hoan_thanh =
-      (detail as any).ngay_hoan_thanh || null;
+      (detail as any).ngay_hoan_thanh ||
+      (detail as any).han_hoan_thanh ||
+      null;
     const nguoi_phu_trach =
       (detail as any).nguoi_phu_trach ||
       detail.nguoi_thuc_hien ||
@@ -151,11 +211,55 @@ export const taskDetailService = {
         throw error;
       }
 
-      const rows = (data || []).map((row: any) =>
-        this.mapToTaskRow(this.normalizeRow(row) as any),
+      const normalizedDetails = (data || []).map((row: any) =>
+        this.normalizeRow(row) as any,
       );
 
-      return rows;
+      // `cong_viec_chi_tiet` thiếu một số cột (vd: `uu_tien`, `hop_dong_id`) nên cần lấy bổ sung từ bảng `task`
+      // theo khóa ngoại `task_id`.
+      const taskIds = normalizedDetails
+        .map((d: any) => d.task_id)
+        .filter(Boolean);
+
+      let taskById: Record<string, any> = {};
+      if (taskIds.length > 0) {
+        const { data: tasksData, error: taskError } = await supabase
+          .from('task')
+          .select('id, uu_tien, hop_dong_id')
+          .in('id', taskIds);
+
+        if (taskError) throw taskError;
+
+        taskById = (tasksData || []).reduce(
+          (acc: Record<string, any>, t: any) => {
+            acc[String(t.id)] = t;
+            return acc;
+          },
+          {},
+        );
+      }
+
+      const mapped = normalizedDetails.map((detail: any) => {
+        const base = this.mapToTaskRow(detail as any);
+        const related = taskById[String(base.id)] || null;
+        if (related) {
+          base.uu_tien = related.uu_tien || base.uu_tien;
+          base.hop_dong_id = related.hop_dong_id || base.hop_dong_id;
+        }
+        return base;
+      });
+
+      // UI de-duplicate theo task id (vì DB có thể đã có record trùng).
+      const seen = new Set<string>();
+      const deduped: TaskRow[] = [];
+      for (const t of mapped) {
+        const key = String(t.id);
+        if (seen.has(key)) continue;
+        seen.add(key);
+        deduped.push(t);
+      }
+
+      return deduped;
     } catch (err) {
       console.error('[taskDetailService] Exception in getAllAsTasks:', err);
       throw err;

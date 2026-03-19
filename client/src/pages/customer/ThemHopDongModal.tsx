@@ -106,11 +106,13 @@ export function ThemHopDongModal({ isOpen, onClose, editData, onSuccess }: ThemH
                 tenGoiThau: editData.tenGoiThau || '',
                 loaiDichVu: editData.loaiDichVu || '',
                 ngayKyHD: editData.ngayKyHD ? (editData.ngayKyHD.includes('/') ? editData.ngayKyHD.split('/').reverse().join('-') : editData.ngayKyHD) : '',
-                giaTriHD: editData.giaTriHD ? editData.giaTriHD.toString() : '',
-                giaTriQT: editData.giaTriQT ? editData.giaTriQT.toString() : '',
+                // Keep "0" if value is 0 (avoid rendering empty string)
+                giaTriHD: editData.giaTriHD !== undefined && editData.giaTriHD !== null ? editData.giaTriHD.toString() : '',
+                giaTriQT: editData.giaTriQT !== undefined && editData.giaTriQT !== null ? editData.giaTriQT.toString() : '',
                 projectId: editData.duAnId || '',
-                nhanSuId: editData.nhanSuId || '',
-                nhanSuIds: editData.nhanSuIds || (editData.nhanSuId ? [editData.nhanSuId] : []),
+                nhanSuId: editData.nhanSuId ? String(editData.nhanSuId) : '',
+                // Normalize to string so checkbox includes works with `employees[].id` (always string)
+                nhanSuIds: (editData.nhanSuIds || (editData.nhanSuId ? [editData.nhanSuId] : [])).map(String),
             });
             setContractFiles(editData.files || []);
         } else {
@@ -128,6 +130,17 @@ export function ThemHopDongModal({ isOpen, onClose, editData, onSuccess }: ThemH
             setContractFiles([]);
         }
     }, [editData, isOpen]);
+
+    // Ensure the current `loaiDichVu` value exists in dropdown options (important for edit mode).
+    useEffect(() => {
+        const current = (formData.loaiDichVu || '').toString().trim();
+        if (!current) return;
+        setLoaiDichVuOptions((prev) => {
+            const exists = prev.some((o) => o.toLowerCase() === current.toLowerCase());
+            if (exists) return prev;
+            return [...prev, current].sort((a, b) => a.localeCompare(b, 'vi'));
+        });
+    }, [formData.loaiDichVu]);
 
     // Close dropdown when clicking outside
     useEffect(() => {
@@ -275,21 +288,24 @@ export function ThemHopDongModal({ isOpen, onClose, editData, onSuccess }: ThemH
                 </div>
 
                 <div className="p-6 overflow-y-auto space-y-4">
-                    {!editData && (
-                        <div>
-                            <label className="block text-sm font-medium text-slate-700 mb-1">Dự án</label>
-                            <select
-                                value={formData.projectId}
-                                onChange={(e) => setFormData({ ...formData, projectId: e.target.value })}
-                                className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-purple-500"
-                            >
-                                <option value="">-- Chọn dự án --</option>
-                                {projects.map(p => (
-                                    <option key={p.id} value={p.id}>{p.ten_du_an}</option>
-                                ))}
-                            </select>
-                        </div>
-                    )}
+                    <div>
+                        <label className="block text-sm font-medium text-slate-700 mb-1">
+                            Dự án {editData ? '(không sửa)' : ''}
+                        </label>
+                        <select
+                            value={formData.projectId}
+                            onChange={(e) => setFormData({ ...formData, projectId: e.target.value })}
+                            disabled={!!editData}
+                            className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-purple-500 bg-white disabled:bg-slate-50 disabled:text-slate-500"
+                        >
+                            <option value="">-- Chọn dự án --</option>
+                            {projects.map((p) => (
+                                <option key={p.id} value={p.id}>
+                                    {p.ten_du_an}
+                                </option>
+                            ))}
+                        </select>
+                    </div>
                     <div>
                         <label className="block text-sm font-medium text-slate-700 mb-1">Nhân sự phụ trách</label>
                         <div ref={nhanSuDropdownRef} className="relative">

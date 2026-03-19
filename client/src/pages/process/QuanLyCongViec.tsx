@@ -14,7 +14,7 @@ import {
   type BuocDanhGia,
   DEFAULT_BUOC_DANH_GIA,
 } from '../../lib/services/taskDetailService';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 
 type StatusTab = 'all' | 'doing' | 'done' | 'pending';
 
@@ -110,6 +110,8 @@ export function QuanLyCongViec() {
   const [activeTab, setActiveTab] = useState<StatusTab>('all');
   const [selected, setSelected] = useState<TaskRow | null>(null);
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  const taskIdFromUrl = searchParams.get('taskId');
   const [contracts, setContracts] = useState<
     Array<{ id: string; so_hop_dong: string; ten_goi_thau: string }>
   >([]);
@@ -240,8 +242,39 @@ export function QuanLyCongViec() {
     return list;
   }, [tasks, activeTab, search]);
 
+  // Nếu có truyền `taskId` qua URL, tự chọn đúng task để người dùng bấm từ nơi khác.
+  useEffect(() => {
+    if (!taskIdFromUrl) return;
+    // Đảm bảo task nằm trong filtered list.
+    setActiveTab('all');
+    setSearch('');
+
+    const found = tasks.find((t) => String(t.id) === String(taskIdFromUrl));
+    if (!found) return;
+
+    setSelected(found);
+    setDetailTabState('NOI_DUNG');
+
+    (async () => {
+      if (!detailByTask[found.id]) {
+        const detail = await taskDetailService.getOrCreateByTaskId(found.id);
+        if (detail) {
+          setDetailByTask((prev) => ({ ...prev, [found.id]: detail }));
+          setCommentsByTask((prev) => ({
+            ...prev,
+            [found.id]: (detail.binh_luan || []) as any,
+          }));
+        }
+      }
+    })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [taskIdFromUrl, tasks]);
+
   useEffect(() => {
     (async () => {
+      // Nếu đang deep-link theo `taskId`, không tự đổi selected theo filtered.
+      if (taskIdFromUrl) return;
+
       if (selected && !filtered.find((t) => t.id === selected.id)) {
         const next = filtered[0] || null;
         setSelected(next);
@@ -258,7 +291,7 @@ export function QuanLyCongViec() {
         }
       }
     })();
-  }, [filtered, selected, detailByTask]);
+  }, [filtered, selected, detailByTask, taskIdFromUrl]);
 
   // Load detail (buoc_danh_gia) when selected task changes for right panel
   useEffect(() => {
