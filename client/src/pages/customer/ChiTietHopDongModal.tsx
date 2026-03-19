@@ -1,8 +1,14 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
-import { X, Edit, Trash2, FileText, FolderOpen, ClipboardList, Plus, Maximize2, Link as LinkIcon, ExternalLink, FileCheck, Image as ImageIcon } from 'lucide-react';
+import { 
+    X, Edit, Trash2, FileText, FolderOpen, ClipboardList, Plus, Maximize2, 
+    Link as LinkIcon, ExternalLink, FileCheck, Image as ImageIcon,
+    CreditCard, User, Eye, Pencil
+} from 'lucide-react';
 import { contractService, ContractFile } from '../../lib/services/contractService';
 import { taskService, TaskRow } from '../../lib/services/taskService';
+import { taskDetailService } from '../../lib/services/taskDetailService';
 import { useHopDongModal } from '../../contexts/HopDongModalContext';
+import { useNavigate } from 'react-router-dom';
 
 interface Contract {
     id?: number;
@@ -48,10 +54,24 @@ export function ChiTietHopDongModal({ isOpen, onClose, contract }: ChiTietHopDon
         openNghiemThu,
         openThemHopDong
     } = useHopDongModal();
+    const navigate = useNavigate();
     
     const [activeTab, setActiveTab] = useState('info');
     const [tasks, setTasks] = useState<TaskRow[]>([]);
     const [loadingTasks, setLoadingTasks] = useState(false);
+    const [viewTask, setViewTask] = useState<TaskRow | null>(null);
+    const [editTask, setEditTask] = useState<TaskRow | null>(null);
+    const [editForm, setEditForm] = useState({
+        ten_task: '',
+        mo_ta: '',
+        trang_thai: 'Chưa bắt đầu',
+        uu_tien: 'Trung bình',
+        ngay_bat_dau: '',
+        ngay_ket_thuc: '',
+        nguoi_phu_trach: '',
+        tien_do: 0,
+        ghi_chu: '',
+    });
 
     const formatCurrency = (amount: number) => {
         return new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND' }).format(amount);
@@ -82,6 +102,113 @@ export function ChiTietHopDongModal({ isOpen, onClose, contract }: ChiTietHopDon
         return Math.round(total / tasks.length);
     }, [tasks]);
 
+    const formatDate = (v: string | null) => {
+        if (!v) return '';
+        const s = String(v).trim();
+        if (!s) return '';
+        return s.length >= 10 ? s.slice(0, 10) : s;
+    };
+
+    const formatDateRange = (start: string | null, end: string | null) => {
+        const a = formatDate(start);
+        const b = formatDate(end);
+        if (a && b) return `${a} - ${b}`;
+        if (a) return `Bắt đầu: ${a}`;
+        if (b) return `Kết thúc: ${b}`;
+        return '';
+    };
+
+    const shortText = (v: string | null | undefined, max = 90) => {
+        const s = (v ?? '').toString().trim();
+        if (!s) return '';
+        if (s.length <= max) return s;
+        return `${s.slice(0, max)}...`;
+    };
+
+    const getStatusBadge = (status: string) => {
+        const s = (status || '').trim();
+        const base = 'shrink-0 inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold border';
+
+        switch (s) {
+            case 'Hoàn thành':
+                return `${base} bg-emerald-50 text-emerald-700 border-emerald-200`;
+            case 'Đang thực hiện':
+                return `${base} bg-blue-50 text-blue-700 border-blue-200`;
+            case 'Tạm dừng':
+                return `${base} bg-amber-50 text-amber-700 border-amber-200`;
+            case 'Chưa bắt đầu':
+            default:
+                return `${base} bg-slate-50 text-slate-700 border-slate-200`;
+        }
+    };
+
+    const toDateOrNull = (v: string) => {
+        const s = (v ?? '').toString().trim();
+        return s === '' ? null : s;
+    };
+
+    useEffect(() => {
+        if (!editTask) return;
+        setEditForm({
+            ten_task: editTask.ten_task || '',
+            mo_ta: editTask.mo_ta || '',
+            trang_thai: editTask.trang_thai || 'Chưa bắt đầu',
+            uu_tien: editTask.uu_tien || 'Trung bình',
+            ngay_bat_dau: editTask.ngay_bat_dau || '',
+            ngay_ket_thuc: editTask.ngay_ket_thuc || '',
+            nguoi_phu_trach: editTask.nguoi_phu_trach || '',
+            tien_do: Number(editTask.tien_do) || 0,
+            ghi_chu: editTask.ghi_chu || '',
+        });
+    }, [editTask]);
+
+    const handleDeleteTask = async (task: TaskRow) => {
+        if (!window.confirm('Bạn có chắc chắn muốn xóa công việc này?')) return;
+        try {
+            await taskService.delete(task.id);
+            setViewTask(null);
+            setEditTask(null);
+            await loadTasks();
+        } catch (err: any) {
+            console.error('[ChiTietHopDongModal] Error deleting task:', err);
+            alert(err?.message || 'Lỗi khi xóa công việc');
+        }
+    };
+
+    const handleOpenQuanLyCongViec = (task: TaskRow) => {
+        onClose();
+        navigate(`/quy-trinh/quan-ly-cong-viec?taskId=${encodeURIComponent(String(task.id))}`);
+    };
+
+    const handleSaveTask = async () => {
+        if (!editTask) return;
+        if (!editForm.ten_task.trim()) {
+            alert('Vui lòng nhập tên công việc');
+            return;
+        }
+        try {
+            const updated = await taskService.update(editTask.id, {
+                ten_task: editForm.ten_task.trim(),
+                mo_ta: editForm.mo_ta ? editForm.mo_ta.trim() : null,
+                trang_thai: editForm.trang_thai,
+                uu_tien: editForm.uu_tien,
+                ngay_bat_dau: toDateOrNull(editForm.ngay_bat_dau),
+                ngay_ket_thuc: toDateOrNull(editForm.ngay_ket_thuc),
+                nguoi_phu_trach: editForm.nguoi_phu_trach ? editForm.nguoi_phu_trach.trim() : null,
+                tien_do: Number(editForm.tien_do) || 0,
+                ghi_chu: editForm.ghi_chu ? editForm.ghi_chu.trim() : null,
+            } as any);
+
+            await taskDetailService.upsertFromTask(updated as any, { allowInsert: false });
+
+            setEditTask(null);
+            await loadTasks();
+        } catch (err: any) {
+            console.error('[ChiTietHopDongModal] Error saving task:', err);
+            alert(err?.message || 'Lỗi khi lưu công việc');
+        }
+    };
+
     if (!isOpen || !contract) return null;
 
     return (
@@ -90,7 +217,7 @@ export function ChiTietHopDongModal({ isOpen, onClose, contract }: ChiTietHopDon
                 {/* Modal Header */}
                 <div className="px-6 py-4 flex justify-between items-center bg-white border-b border-slate-200">
                     <div>
-                        <h2 className="text-lg font-bold text-slate-800">Chi tiết hợp đồng</h2>
+                        <h2 className="text-base font-bold text-slate-800">Chi tiết hợp đồng</h2>
                         <p className="text-xs text-slate-500 mt-0.5">Số HĐ: {contract.soHopDong}</p>
                     </div>
                     <div className="flex items-center gap-2">
@@ -429,6 +556,202 @@ export function ChiTietHopDongModal({ isOpen, onClose, contract }: ChiTietHopDon
                     </button>
                 </div>
             </div>
+
+            {/* Task View Modal */}
+            {viewTask && (
+                <div className="fixed inset-0 z-[80] flex items-center justify-center bg-black/40 p-4">
+                    <div className="bg-white w-full max-w-2xl rounded-2xl shadow-xl overflow-hidden">
+                        <div className="px-4 py-3 border-b border-slate-200 flex justify-between items-center">
+                            <div>
+                                <h3 className="text-base font-bold text-slate-800 line-clamp-1">{viewTask.ten_task}</h3>
+                                <p className="text-xs text-slate-500 mt-0.5">Task • Mức ưu tiên: {viewTask.uu_tien}</p>
+                            </div>
+                            <button onClick={() => setViewTask(null)} className="p-1.5 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-lg">
+                                <X size={20} />
+                            </button>
+                        </div>
+
+                        <div className="p-4 space-y-2">
+                            <div className="flex items-center gap-2 flex-wrap">
+                                <span className={getStatusBadge(viewTask.trang_thai)}>{viewTask.trang_thai}</span>
+                                <span className="text-xs text-slate-600">Phụ trách: {viewTask.nguoi_phu_trach || '(Chưa rõ)'}</span>
+                            </div>
+
+                            {formatDateRange(viewTask.ngay_bat_dau, viewTask.ngay_ket_thuc) ? (
+                                <div className="text-xs text-slate-600">
+                                    {formatDateRange(viewTask.ngay_bat_dau, viewTask.ngay_ket_thuc)}
+                                </div>
+                            ) : null}
+
+                            {viewTask.mo_ta ? (
+                                <div className="text-sm text-slate-700 leading-snug pt-1">
+                                    {viewTask.mo_ta}
+                                </div>
+                            ) : (
+                                <div className="text-sm text-slate-500 italic pt-1">Không có mô tả</div>
+                            )}
+
+                            {viewTask.ghi_chu ? (
+                                <div className="text-sm text-slate-700 leading-snug pt-1">
+                                    <span className="font-medium text-slate-600">Ghi chú:</span> {viewTask.ghi_chu}
+                                </div>
+                            ) : null}
+                        </div>
+
+                        <div className="px-6 py-4 border-t border-slate-200 flex justify-end gap-2">
+                            <button onClick={() => setViewTask(null)} className="px-4 py-2 text-sm font-medium text-slate-600 hover:bg-slate-200 rounded-lg transition-colors">
+                                Đóng
+                            </button>
+                            <button
+                                onClick={() => {
+                                    setEditTask(viewTask);
+                                    setViewTask(null);
+                                }}
+                                className="px-4 py-2 text-sm font-bold text-white bg-amber-500 hover:bg-amber-600 rounded-lg shadow-md transition-colors"
+                            >
+                                Sửa
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* Task Edit Modal */}
+            {editTask && (
+                <div className="fixed inset-0 z-[85] flex items-center justify-center bg-black/40 p-4">
+                    <div className="bg-white rounded-2xl shadow-xl w-full max-w-2xl overflow-hidden">
+                        <div className="px-5 py-4 border-b border-slate-200 flex justify-between items-center">
+                            <h3 className="text-base font-bold text-slate-800">Sửa công việc</h3>
+                            <button
+                                onClick={() => setEditTask(null)}
+                                className="p-1.5 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-lg"
+                            >
+                                <X size={20} />
+                            </button>
+                        </div>
+
+                        <div className="p-5 space-y-4 max-h-[75vh] overflow-y-auto">
+                            <div>
+                                <label className="block text-sm font-medium text-slate-700 mb-1">Tên công việc *</label>
+                                <input
+                                    type="text"
+                                    className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm"
+                                    value={editForm.ten_task}
+                                    onChange={(e) => setEditForm((p) => ({ ...p, ten_task: e.target.value }))}
+                                />
+                            </div>
+
+                            <div>
+                                <label className="block text-sm font-medium text-slate-700 mb-1">Mô tả</label>
+                                <textarea
+                                    className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm"
+                                    rows={3}
+                                    value={editForm.mo_ta}
+                                    onChange={(e) => setEditForm((p) => ({ ...p, mo_ta: e.target.value }))}
+                                />
+                            </div>
+
+                            <div className="grid grid-cols-2 gap-4">
+                                <div>
+                                    <label className="block text-sm font-medium text-slate-700 mb-1">Trạng thái</label>
+                                    <select
+                                        className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm"
+                                        value={editForm.trang_thai}
+                                        onChange={(e) => setEditForm((p) => ({ ...p, trang_thai: e.target.value }))}
+                                    >
+                                        <option value="Chưa bắt đầu">Chưa bắt đầu</option>
+                                        <option value="Đang thực hiện">Đang thực hiện</option>
+                                        <option value="Hoàn thành">Hoàn thành</option>
+                                        <option value="Tạm dừng">Tạm dừng</option>
+                                    </select>
+                                </div>
+                                <div>
+                                    <label className="block text-sm font-medium text-slate-700 mb-1">Độ ưu tiên</label>
+                                    <select
+                                        className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm"
+                                        value={editForm.uu_tien}
+                                        onChange={(e) => setEditForm((p) => ({ ...p, uu_tien: e.target.value }))}
+                                    >
+                                        <option value="Thấp">Thấp</option>
+                                        <option value="Trung bình">Trung bình</option>
+                                        <option value="Cao">Cao</option>
+                                        <option value="Khẩn cấp">Khẩn cấp</option>
+                                    </select>
+                                </div>
+                            </div>
+
+                            <div className="grid grid-cols-2 gap-4">
+                                <div>
+                                    <label className="block text-sm font-medium text-slate-700 mb-1">Ngày bắt đầu</label>
+                                    <input
+                                        type="date"
+                                        className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm"
+                                        value={editForm.ngay_bat_dau}
+                                        onChange={(e) => setEditForm((p) => ({ ...p, ngay_bat_dau: e.target.value }))}
+                                    />
+                                </div>
+                                <div>
+                                    <label className="block text-sm font-medium text-slate-700 mb-1">Ngày kết thúc</label>
+                                    <input
+                                        type="date"
+                                        className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm"
+                                        value={editForm.ngay_ket_thuc}
+                                        onChange={(e) => setEditForm((p) => ({ ...p, ngay_ket_thuc: e.target.value }))}
+                                    />
+                                </div>
+                            </div>
+
+                            <div className="grid grid-cols-2 gap-4">
+                                <div>
+                                    <label className="block text-sm font-medium text-slate-700 mb-1">Người phụ trách</label>
+                                    <input
+                                        type="text"
+                                        className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm"
+                                        value={editForm.nguoi_phu_trach}
+                                        onChange={(e) => setEditForm((p) => ({ ...p, nguoi_phu_trach: e.target.value }))}
+                                    />
+                                </div>
+                                <div>
+                                    <label className="block text-sm font-medium text-slate-700 mb-1">Tiến độ (%)</label>
+                                    <input
+                                        type="number"
+                                        min="0"
+                                        max="100"
+                                        className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm"
+                                        value={editForm.tien_do}
+                                        onChange={(e) => setEditForm((p) => ({ ...p, tien_do: Number(e.target.value) }))}
+                                    />
+                                </div>
+                            </div>
+
+                            <div>
+                                <label className="block text-sm font-medium text-slate-700 mb-1">Ghi chú</label>
+                                <textarea
+                                    className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm"
+                                    rows={2}
+                                    value={editForm.ghi_chu}
+                                    onChange={(e) => setEditForm((p) => ({ ...p, ghi_chu: e.target.value }))}
+                                />
+                            </div>
+                        </div>
+
+                        <div className="px-6 py-4 bg-slate-50 border-t border-slate-200 flex justify-end gap-2">
+                            <button
+                                onClick={() => setEditTask(null)}
+                                className="px-4 py-2 text-sm font-medium text-slate-600 hover:bg-slate-200 rounded-lg transition-colors"
+                            >
+                                Hủy
+                            </button>
+                            <button
+                                onClick={handleSaveTask}
+                                className="px-4 py-2 text-sm font-bold text-white bg-purple-600 hover:bg-purple-700 rounded-lg shadow-md transition-colors"
+                            >
+                                Lưu
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
         </div>
     );
 }

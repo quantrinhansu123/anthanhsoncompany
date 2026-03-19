@@ -231,6 +231,8 @@ export function Layout() {
         editData={hopDongEditData}
         onSuccess={() => {
             console.log('Contract saved');
+            // Refresh list to reflect updated contract fields (including HR responsibility).
+            window.location.reload();
         }}
       />
 
@@ -261,7 +263,11 @@ export function Layout() {
       <ThemCongViecHopDongModal
         isOpen={isAddTaskOpen}
         onClose={closeAddTask}
-        onSuccess={(data) => console.log('Task added:', data)}
+        onSuccess={() => {
+          console.log('Task added');
+          // Refresh so the task list in ChiTietHopDongModal updates immediately
+          window.location.reload();
+        }}
       />
 
       <NghiemThuCongViecModal

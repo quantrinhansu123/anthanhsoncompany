@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { X, User, FileText, Link as LinkIcon, ExternalLink, Trash2, Plus, Info } from 'lucide-react';
+import { X, User, FileText, Link as LinkIcon, ExternalLink, Trash2, Plus, Info, ChevronDown } from 'lucide-react';
 import { contractService, ContractFile } from '../../lib/services/contractService';
 import { projectService } from '../../lib/services/projectService';
 import { employeeService } from '../../lib/services/employeeService';
@@ -43,7 +43,7 @@ const FILE_TYPES = [
 
 export function ThemHopDongModal({ isOpen, onClose, editData, onSuccess }: ThemHopDongModalProps) {
     const [projects, setProjects] = useState<Array<{ id: string; ten_du_an: string }>>([]);
-    const [employees, setEmployees] = useState<Array<{ id: string; full_name: string; code: string; anh_nhan_su?: string }>>([]);
+    const [employees, setEmployees] = useState<Array<{ id: string; full_name: string; code: string; anh_nhan_su?: string; position?: string }>>([]);
     const [loaiDichVuOptions, setLoaiDichVuOptions] = useState<string[]>([]);
     const [isSaving, setIsSaving] = useState(false);
     const [contractFiles, setContractFiles] = useState<ContractFile[]>([]);
@@ -79,7 +79,8 @@ export function ThemHopDongModal({ isOpen, onClose, editData, onSuccess }: ThemH
                     id: emp.id.toString(),
                     full_name: emp.full_name || emp.name || emp.hoTen || '',
                     code: emp.code || '',
-                    anh_nhan_su: emp.anh_nhan_su
+                    anh_nhan_su: emp.anh_nhan_su,
+                    position: (emp as any).position || 'Nhân viên'
                 })));
 
                 const uniqueLoaiDichVu = Array.from(
@@ -106,10 +107,10 @@ export function ThemHopDongModal({ isOpen, onClose, editData, onSuccess }: ThemH
                 tenGoiThau: editData.tenGoiThau || '',
                 loaiDichVu: editData.loaiDichVu || '',
                 ngayKyHD: editData.ngayKyHD ? (editData.ngayKyHD.includes('/') ? editData.ngayKyHD.split('/').reverse().join('-') : editData.ngayKyHD) : '',
-                giaTriHD: editData.giaTriHD ? editData.giaTriHD.toString() : '0',
-                giaTriQT: editData.giaTriQT ? editData.giaTriQT.toString() : '0',
+                giaTriHD: editData.giaTriHD !== undefined && editData.giaTriHD !== null ? editData.giaTriHD.toString() : '0',
+                giaTriQT: editData.giaTriQT !== undefined && editData.giaTriQT !== null ? editData.giaTriQT.toString() : '0',
                 projectId: editData.duAnId || '',
-                nhanSuIds: editData.nhanSuIds || (editData.nhanSuId ? [editData.nhanSuId] : []),
+                nhanSuIds: (editData.nhanSuIds || (editData.nhanSuId ? [editData.nhanSuId] : [])).map(String),
             });
             setContractFiles(editData.files || []);
         } else {
@@ -127,25 +128,9 @@ export function ThemHopDongModal({ isOpen, onClose, editData, onSuccess }: ThemH
         }
     }, [editData, isOpen]);
 
-    // Close dropdown when clicking outside
-    useEffect(() => {
-        if (!openNhanSuDropdown) return;
-        const onMouseDown = (e: MouseEvent) => {
-            const el = nhanSuDropdownRef.current;
-            if (!el) return;
-            if (e.target instanceof Node && !el.contains(e.target)) {
-                setOpenNhanSuDropdown(false);
-            }
-        };
-        document.addEventListener('mousedown', onMouseDown);
-        return () => document.removeEventListener('mousedown', onMouseDown);
-    }, [openNhanSuDropdown]);
-
-    const calculateFileStatus = (files: ContractFile[]): string => {
-        const uploadedTypes = new Set(files.filter(f => f.file_url && f.file_url.trim() !== '').map(f => f.file_type));
-        const missingFiles = FILE_TYPES.filter(type => !uploadedTypes.has(type));
-        return missingFiles.length === 0 ? 'Đầy đủ file' : `Thiếu: ${missingFiles.join(', ')}`;
-    };
+    const selectedEmployees = useCallback(() => {
+        return employees.filter(emp => formData.nhanSuIds.includes(emp.id));
+    }, [employees, formData.nhanSuIds]);
 
     const toggleNhanSu = (id: string) => {
         const sid = String(id);
@@ -164,6 +149,12 @@ export function ThemHopDongModal({ isOpen, onClose, editData, onSuccess }: ThemH
     const handlePriceChange = (field: 'giaTriHD' | 'giaTriQT', value: string) => {
         const rawValue = value.replace(/\D/g, '');
         setFormData(prev => ({ ...prev, [field]: rawValue }));
+    };
+
+    const calculateFileStatus = (files: ContractFile[]): string => {
+        const uploadedTypes = new Set(files.filter(f => f.file_url && f.file_url.trim() !== '').map(f => f.file_type));
+        const missingFiles = FILE_TYPES.filter(type => !uploadedTypes.has(type));
+        return missingFiles.length === 0 ? 'Đầy đủ file' : `Thiếu: ${missingFiles.join(', ')}`;
     };
 
     const addLoaiDichVuOption = () => {
@@ -189,7 +180,6 @@ export function ThemHopDongModal({ isOpen, onClose, editData, onSuccess }: ThemH
                 file_url: fileLink.trim(),
                 uploaded_at: new Date().toISOString()
             };
-            // Replace if exists, otherwise add
             setContractFiles(prev => {
                 const filtered = prev.filter(f => f.file_type !== selectedFileType);
                 return [...filtered, newFile];
@@ -211,12 +201,6 @@ export function ThemHopDongModal({ isOpen, onClose, editData, onSuccess }: ThemH
             alert('Vui lòng điền đầy đủ các thông tin bắt buộc (Số HĐ, Tên gói thầu, Dự án)');
             return;
         }
-
-        if (!formData.ngayKyHD) {
-            alert('Vui lòng chọn ngày ký HĐ trước khi lưu.');
-            return;
-        }
-
         setIsSaving(true);
         try {
             const giaTriHD = Number(formData.giaTriHD) || 0;
@@ -294,31 +278,21 @@ export function ThemHopDongModal({ isOpen, onClose, editData, onSuccess }: ThemH
                         </div>
                         
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                            <div>
+                            <div className="md:col-span-2">
                                 <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1">Dự án <span className="text-red-500">*</span></label>
                                 <select
                                     value={formData.projectId}
                                     onChange={(e) => setFormData({ ...formData, projectId: e.target.value })}
-                                    className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-purple-500/20 focus:border-purple-500 transition-all bg-white"
+                                    disabled={!!editData}
+                                    className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-purple-500/20 focus:border-purple-500 transition-all bg-white disabled:bg-slate-50 disabled:text-slate-500"
                                 >
                                     <option value="">-- Chọn dự án --</option>
-                                    {projects.map(p => (
+                                    {projects.map((p) => (
                                         <option key={p.id} value={p.id}>{p.ten_du_an}</option>
                                     ))}
                                 </select>
                             </div>
-                            <div>
-                                <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1">Ngày ký HĐ</label>
-                                <input 
-                                    type="date" 
-                                    value={formData.ngayKyHD} 
-                                    onChange={(e) => setFormData({ ...formData, ngayKyHD: e.target.value })} 
-                                    className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-purple-500/20 focus:border-purple-500 transition-all font-medium" 
-                                />
-                            </div>
-                        </div>
 
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                             <div>
                                 <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1">Số hợp đồng <span className="text-red-500">*</span></label>
                                 <input 
@@ -329,6 +303,27 @@ export function ThemHopDongModal({ isOpen, onClose, editData, onSuccess }: ThemH
                                     placeholder="Ví dụ: 123/2024/HD-ATS" 
                                 />
                             </div>
+
+                            <div>
+                                <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1">Ngày ký HĐ</label>
+                                <input 
+                                    type="date" 
+                                    value={formData.ngayKyHD} 
+                                    onChange={(e) => setFormData({ ...formData, ngayKyHD: e.target.value })} 
+                                    className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-purple-500/20 focus:border-purple-500 transition-all font-medium" 
+                                />
+                            </div>
+
+                            <div className="md:col-span-2">
+                                <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1">Tên gói thầu <span className="text-red-500">*</span></label>
+                                <textarea 
+                                    value={formData.tenGoiThau} 
+                                    onChange={(e) => setFormData({ ...formData, tenGoiThau: e.target.value })} 
+                                    className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-purple-500/20 focus:border-purple-500 transition-all min-h-[80px]" 
+                                    placeholder="Nhập tên gói thầu đầy đủ..."
+                                />
+                            </div>
+
                             <div>
                                 <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1">Loại dịch vụ</label>
                                 <div className="flex items-center gap-2">
@@ -344,27 +339,13 @@ export function ThemHopDongModal({ isOpen, onClose, editData, onSuccess }: ThemH
                                     </select>
                                     <button
                                         type="button"
-                                        onClick={() => {
-                                            setNewLoaiDichVuValue('');
-                                            setShowAddLoaiDichVuModal(true);
-                                        }}
+                                        onClick={() => setShowAddLoaiDichVuModal(true)}
                                         className="shrink-0 p-2 border border-slate-200 rounded-lg bg-slate-50 hover:bg-slate-100 text-blue-600 transition-colors"
-                                        title="Thêm loại dịch vụ mới"
                                     >
                                         <Plus size={16} />
                                     </button>
                                 </div>
                             </div>
-                        </div>
-
-                        <div>
-                            <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1">Tên gói thầu <span className="text-red-500">*</span></label>
-                            <textarea 
-                                value={formData.tenGoiThau} 
-                                onChange={(e) => setFormData({ ...formData, tenGoiThau: e.target.value })} 
-                                className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-purple-500/20 focus:border-purple-500 transition-all min-h-[80px]" 
-                                placeholder="Nhập tên gói thầu đầy đủ..."
-                            />
                         </div>
                     </div>
 

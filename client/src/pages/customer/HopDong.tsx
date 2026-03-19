@@ -252,7 +252,6 @@ export function HopDong() {
                     </div>
 
                     <div className="flex items-center gap-3">
-                        {/* Filter Project */}
                         <div className="relative">
                             <button
                                 onClick={() => setOpenFilterDropdown(openFilterDropdown === 'duan' ? null : 'duan')}
@@ -287,7 +286,6 @@ export function HopDong() {
                             )}
                         </div>
 
-                        {/* View Switcher */}
                         <div className="flex bg-slate-100 p-1.5 rounded-2xl ml-4">
                             <button
                                 onClick={() => setViewMode('table')}
@@ -355,7 +353,7 @@ export function HopDong() {
                                                                 const emp = employees.find(e => e.id === String(id));
                                                                 return (
                                                                     <div key={i} className="w-8 h-8 rounded-full border-2 border-white bg-slate-200 overflow-hidden" title={emp?.full_name}>
-                                                                        {emp?.anh_nhan_su ? <img src={emp.anh_nhan_su} className="w-full h-full object-cover" /> : <User size={14} className="m-auto mt-1.5 text-slate-400" />}
+                                                                        {emp?.anh_nhan_su ? <img src={emp.anh_nhan_su} className="w-full h-full object-cover" alt="" /> : <User size={14} className="m-auto mt-1.5 text-slate-400" />}
                                                                     </div>
                                                                 );
                                                             })}
@@ -382,9 +380,9 @@ export function HopDong() {
                                                     </td>
                                                     <td className="py-4 pr-8 text-center">
                                                         <div className="flex items-center justify-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
-                                                            <button onClick={() => openChiTietHopDong(c)} className="p-2 bg-indigo-50 text-indigo-600 rounded-xl hover:bg-indigo-600 hover:text-white transition-all shadow-sm"><Eye size={14} /></button>
-                                                            <button onClick={() => openThemHopDong(c)} className="p-2 bg-orange-50 text-orange-600 rounded-xl hover:bg-orange-600 hover:text-white transition-all shadow-sm"><Edit size={14} /></button>
-                                                            <button onClick={() => openDelete({ id: c.id, uuid: c.uuid, soHopDong: c.soHopDong })} className="p-2 bg-rose-50 text-rose-600 rounded-xl hover:bg-rose-600 hover:text-white transition-all shadow-sm"><Trash2 size={14} /></button>
+                                                            <button onClick={() => openChiTietHopDong(c)} className="p-2 bg-indigo-50 text-indigo-600 rounded-xl hover:bg-indigo-600 hover:text-white transition-all shadow-sm" title="Xem chi tiết"><Eye size={14} /></button>
+                                                            <button onClick={() => openThemHopDong(c)} className="p-2 bg-orange-50 text-orange-600 rounded-xl hover:bg-orange-600 hover:text-white transition-all shadow-sm" title="Sửa"><Edit size={14} /></button>
+                                                            <button onClick={() => openDelete({ id: c.id, uuid: c.uuid, soHopDong: c.soHopDong })} className="p-2 bg-rose-50 text-rose-600 rounded-xl hover:bg-rose-600 hover:text-white transition-all shadow-sm" title="Xóa"><Trash2 size={14} /></button>
                                                         </div>
                                                     </td>
                                                 </tr>
@@ -422,7 +420,7 @@ export function HopDong() {
                         <div className="flex-1 overflow-y-auto custom-scrollbar bg-slate-50/10 p-6">
                             {(() => {
                                 const selected = filteredItems.find(p => p.id === selectedFolderProjectId);
-                                if (!selected) return <div className="h-full flex items-center justify-center text-slate-400 font-bold">Chọn thư mục để xem nội dung</div>;
+                                if (!selected) return <div className="h-full flex items-center justify-center text-slate-400 font-bold uppercase tracking-widest text-xs">Chọn thư mục để xem nội dung</div>;
                                 return (
                                     <div className="space-y-4">
                                         <div className="flex items-center justify-between mb-8">
@@ -453,8 +451,8 @@ export function HopDong() {
                                                                 <h3 className="font-black text-slate-800 line-clamp-1">{c.tenGoiThau}</h3>
                                                             </div>
                                                             <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                                                                <button onClick={(e) => { e.stopPropagation(); openThemHopDong(c); }} className="p-2 bg-slate-50 text-slate-400 hover:text-orange-500 rounded-lg transition-colors"><Edit size={12} /></button>
-                                                                <button onClick={(e) => { e.stopPropagation(); openDelete({ id: c.id, uuid: c.uuid, soHopDong: c.soHopDong }); }} className="p-2 bg-slate-50 text-slate-400 hover:text-rose-500 rounded-lg transition-colors"><Trash2 size={12} /></button>
+                                                                <button onClick={(e) => { e.stopPropagation(); openThemHopDong(c); }} className="p-2 bg-slate-50 text-slate-400 hover:text-orange-500 rounded-lg transition-colors" title="Sửa"><Edit size={12} /></button>
+                                                                <button onClick={(e) => { e.stopPropagation(); openDelete({ id: c.id, uuid: c.uuid, soHopDong: c.soHopDong }); }} className="p-2 bg-slate-50 text-slate-400 hover:text-rose-500 rounded-lg transition-colors" title="Xóa"><Trash2 size={12} /></button>
                                                             </div>
                                                         </div>
                                                         

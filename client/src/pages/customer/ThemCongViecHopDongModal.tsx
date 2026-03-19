@@ -3,6 +3,7 @@ import { X, Plus, Trash2, Image as ImageIcon, CheckCircle, Info } from 'lucide-r
 import { taskService } from '../../lib/services/taskService';
 import { taskTemplateService, TaskTemplateRow } from '../../lib/services/taskTemplateService';
 import { employeeService } from '../../lib/services/employeeService';
+import { taskDetailService } from '../../lib/services/taskDetailService';
 import { useHopDongModal } from '../../contexts/HopDongModalContext';
 import { supabase } from '../../lib/supabase';
 
@@ -230,7 +231,10 @@ export function ThemCongViecHopDongModal({ isOpen, onClose, onSuccess }: ThemCon
     };
 
     const handleSave = async () => {
-        if (!selectedContract?.uuid) return;
+        if (!selectedContract?.uuid) {
+            alert('Không tìm thấy hợp đồng. Vui lòng mở từ trang chi tiết hợp đồng.');
+            return;
+        }
         if (!taskForm.ten_task.trim()) {
             alert('Vui lòng nhập tên công việc');
             return;
@@ -315,12 +319,16 @@ export function ThemCongViecHopDongModal({ isOpen, onClose, onSuccess }: ThemCon
                 anh_bang_chung: anhBangChungValue,
             };
 
-            await taskService.create(payload);
-            onSuccess();
+            const created = await taskService.create(payload as any);
+            // Đồng bộ sang bảng cong_viec_chi_tiet để bộ phận quản lý nhìn thấy
+            await taskDetailService.upsertFromTask(created as any, { allowInsert: true });
+
+            onSuccess(created);
             onClose();
-        } catch (error) {
+        } catch (error: any) {
             console.error('Error saving task:', error);
-            alert('Lỗi khi lưu công việc. Vui lòng thử lại.');
+            const message = error?.message || error?.error || 'Lỗi khi lưu công việc. Vui lòng thử lại.';
+            alert(message);
         } finally {
             setIsSaving(false);
         }
@@ -329,7 +337,7 @@ export function ThemCongViecHopDongModal({ isOpen, onClose, onSuccess }: ThemCon
     if (!isOpen) return null;
 
     return (
-        <div className="fixed inset-0 z-[80] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm shadow-2xl">
+        <div className="fixed inset-0 z-[80] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm shadow-2xl animate-in fade-in duration-200">
             <div className="bg-white rounded-2xl w-full max-w-4xl max-h-[90vh] overflow-hidden flex flex-col shadow-2xl animate-in zoom-in-95 duration-200">
                 {/* Header */}
                 <div className="px-6 py-4 border-b border-slate-100 flex justify-between items-center bg-white sticky top-0 z-10">
@@ -338,7 +346,7 @@ export function ThemCongViecHopDongModal({ isOpen, onClose, onSuccess }: ThemCon
                         <p className="text-sm text-slate-500 mt-0.5">Hợp đồng: <span className="font-medium text-purple-600">{selectedContract?.soHopDong}</span></p>
                     </div>
                     <button onClick={onClose} className="p-2 hover:bg-slate-100 rounded-full transition-colors">
-                        <X size={20} className="text-slate-500" />
+                        <X size={20} className="text-slate-400" />
                     </button>
                 </div>
 
@@ -484,7 +492,7 @@ export function ThemCongViecHopDongModal({ isOpen, onClose, onSuccess }: ThemCon
                     <div className="bg-white border border-slate-200 rounded-2xl p-5 shadow-sm">
                         <div className="flex items-center gap-2 mb-4">
                             <div className="p-2 bg-emerald-50 text-emerald-600 rounded-lg">
-                                <ImageIcon size={18} />
+                                <Info size={18} />
                             </div>
                             <h3 className="font-bold text-slate-800">Cấu hình chi phí</h3>
                         </div>
@@ -654,65 +662,40 @@ export function ThemCongViecHopDongModal({ isOpen, onClose, onSuccess }: ThemCon
                             <div className="p-2 bg-orange-50 text-orange-600 rounded-lg">
                                 <ImageIcon size={18} />
                             </div>
-                            <h3 className="font-bold text-slate-800">Ảnh kết quả / Báo cáo</h3>
+                            <h3 className="font-bold text-slate-800">Ảnh minh chứng chính</h3>
                         </div>
                         <input
                             type="file"
                             multiple
                             accept="image/*"
-                            className="w-full border border-slate-200 rounded-xl px-4 py-3 text-sm bg-slate-50 focus:outline-none file:mr-4 file:py-1.5 file:px-4 file:rounded-lg file:border-0 file:text-sm file:font-bold file:bg-orange-100 file:text-orange-700 hover:file:bg-orange-200 cursor-pointer transition-all"
-                            onChange={(e) => {
-                                const files = Array.from(e.target.files || []) as File[];
-                                setTaskForm(prev => ({ ...prev, images: files }));
-                            }}
-                        />
-                        {taskForm.images.length > 0 && (
-                            <div className="mt-3 flex flex-wrap gap-2">
-                                {taskForm.images.map((f, i) => (
-                                    <div key={i} className="flex items-center gap-2 px-3 py-1 bg-white border border-slate-200 rounded-full text-[11px] font-semibold text-slate-600 shadow-sm">
-                                        <ImageIcon size={12} className="text-orange-500" />
-                                        <span className="max-w-[120px] truncate">{f.name}</span>
-                                    </div>
-                                ))}
-                            </div>
-                        )}
-                    </div>
-                    
-                    <div>
-                        <label className="block text-sm font-semibold text-slate-700 mb-1.5">Ghi chú tổng quát</label>
-                        <textarea
-                            className="w-full border border-slate-200 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:ring-4 focus:ring-purple-500/10 focus:border-purple-500 transition-all bg-white"
-                            rows={3}
-                            placeholder="Nhập ghi chú bổ sung cho toàn bộ công việc..."
-                            value={taskForm.ghi_chu}
-                            onChange={e => setTaskForm({ ...taskForm, ghi_chu: e.target.value })}
+                            className="w-full text-sm file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-orange-50 file:text-orange-700 hover:file:bg-orange-100 cursor-pointer"
+                            onChange={(e) => setTaskForm(prev => ({ ...prev, images: Array.from(e.target.files || []) }))}
                         />
                     </div>
                 </div>
 
                 {/* Footer */}
-                <div className="px-6 py-4 bg-white border-t border-slate-100 flex justify-end items-center gap-3 sticky bottom-0">
+                <div className="px-6 py-4 border-t border-slate-100 flex justify-end gap-3 bg-white sticky bottom-0 z-10">
                     <button
                         onClick={onClose}
-                        disabled={isSaving}
-                        className="px-6 py-2.5 text-sm font-bold text-slate-500 hover:bg-slate-100 rounded-xl transition-all disabled:opacity-50"
+                        className="px-6 py-2.5 text-sm font-bold text-slate-600 hover:bg-slate-50 rounded-xl transition-all"
                     >
-                        Hủy bỏ
+                        Hủy
                     </button>
                     <button
                         onClick={handleSave}
                         disabled={isSaving}
-                        className="flex items-center gap-2 px-8 py-2.5 bg-gradient-to-r from-purple-600 to-indigo-600 text-white text-sm font-bold rounded-xl shadow-lg shadow-purple-200 hover:shadow-purple-300 hover:scale-[1.02] active:scale-[0.98] transition-all disabled:opacity-70 disabled:pointer-events-none"
+                        className="px-8 py-2.5 bg-gradient-to-r from-purple-600 to-indigo-600 text-white text-sm font-black rounded-xl shadow-lg shadow-purple-200 hover:shadow-purple-300 transition-all active:scale-[0.98] disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
                     >
                         {isSaving ? (
                             <>
-                                <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-                                Đang lưu...
+                                <div className="w-4 h-4 border-2 border-white/20 border-t-white rounded-full animate-spin" />
+                                ĐANG LƯU...
                             </>
                         ) : (
                             <>
-                                <Plus size={18} />
-                                Tạo công việc
+                                <CheckCircle size={18} />
+                                LƯU CÔNG VIỆC
                             </>
                         )}
                     </button>
