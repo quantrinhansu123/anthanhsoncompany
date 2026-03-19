@@ -22,8 +22,8 @@ import {
   Loader2
 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
-import { certificateService, type ProfessionalCertificate } from '@/lib/services/certificateService';
-import { employeeService } from '@/lib/services/employeeService';
+import { certificateService, type ProfessionalCertificate } from '../../lib/services/certificateService';
+import { employeeService } from '../../lib/services/employeeService';
 
 export function ChungChiHanhNghe() {
   const navigate = useNavigate();

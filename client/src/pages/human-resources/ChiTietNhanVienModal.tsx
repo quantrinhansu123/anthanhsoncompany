@@ -4,12 +4,12 @@ import {
   X, User, Mail, Phone, MapPin, CreditCard, Calendar as CalendarIcon, FileText, Users, Eye, Loader2
 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
-import { employeeService, type Employee } from '@/lib/services/employeeService';
-import { certificateService, type ProfessionalCertificate } from '@/lib/services/certificateService';
-import { dependentPersonService, type DependentPerson } from '@/lib/services/dependentPersonService';
-import { contractService, ContractRow } from '@/lib/services/contractService';
-import { thuChiService, ThuChiRow } from '@/lib/services/thuChiService';
-import { projectService } from '@/lib/services/projectService';
+import { employeeService, type Employee } from '../../lib/services/employeeService';
+import { certificateService, type ProfessionalCertificate } from '../../lib/services/certificateService';
+import { dependentPersonService, type DependentPerson } from '../../lib/services/dependentPersonService';
+import { contractService, ContractRow } from '../../lib/services/contractService';
+import { thuChiService, ThuChiRow } from '../../lib/services/thuChiService';
+import { projectService } from '../../lib/services/projectService';
 
 interface Props {
     isOpen: boolean;

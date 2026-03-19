@@ -24,14 +24,14 @@ import {
   Users
 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
-import { employeeService, type Employee } from '@/lib/services/employeeService';
-import { testNhanSuConnection } from '@/lib/utils/testDatabaseConnection';
-import { certificateService, type ProfessionalCertificate } from '@/lib/services/certificateService';
-import { dependentPersonService, type DependentPerson } from '@/lib/services/dependentPersonService';
-import { contractService, ContractRow } from '@/lib/services/contractService';
-import { thuChiService, ThuChiRow } from '@/lib/services/thuChiService';
-import { projectService } from '@/lib/services/projectService';
-import { useNhanSuModal } from '@/contexts/NhanSuModalContext';
+import { employeeService, type Employee } from '../lib/services/employeeService';
+import { testNhanSuConnection } from '../lib/utils/testDatabaseConnection';
+import { certificateService, type ProfessionalCertificate } from '../lib/services/certificateService';
+import { dependentPersonService, type DependentPerson } from '../lib/services/dependentPersonService';
+import { contractService, ContractRow } from '../lib/services/contractService';
+import { thuChiService, ThuChiRow } from '../lib/services/thuChiService';
+import { projectService } from '../lib/services/projectService';
+import { useNhanSuModal } from '../contexts/NhanSuModalContext';
 
 export function HumanResources() {
   const navigate = useNavigate();
@@ -168,8 +168,8 @@ export function HumanResources() {
   const endIndex = startIndex + itemsPerPage;
   const currentEmployees = filteredEmployees.slice(startIndex, endIndex);
 
-  const handleView = async (id: string | number) => {
-    openChiTietNhanVien(id);
+  const handleView = async (employee: Employee) => {
+    openChiTietNhanVien(employee);
   };
 
   const handleEdit = (id: string | number) => {
@@ -333,7 +333,7 @@ export function HumanResources() {
                       <td className="p-4">
                         <div className="flex items-center justify-center gap-2 transition-opacity">
                           <button
-                            onClick={() => handleView(employee.id)}
+                            onClick={() => handleView(employee)}
                             className="action-btn p-1.5 text-purple-600 bg-purple-50 border border-purple-100 rounded-md hover:bg-purple-100"
                             title="Xem"
                           >

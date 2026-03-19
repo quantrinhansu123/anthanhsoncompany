@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { Trash2, AlertCircle, X, CheckCircle2 } from 'lucide-react';
-import { thuChiService } from '@/lib/services/thuChiService';
+import { thuChiService } from '../../lib/services/thuChiService';
 
 interface Props {
     isOpen: boolean;

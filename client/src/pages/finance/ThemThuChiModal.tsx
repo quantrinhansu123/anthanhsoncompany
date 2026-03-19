@@ -1,8 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { X, Save, Plus, DollarSign, Calendar, User, FileText, Briefcase } from 'lucide-react';
-import { thuChiService } from '@/lib/services/thuChiService';
-import { projectService } from '@/lib/services/projectService';
-import { contractService } from '@/lib/services/contractService';
+import { thuChiService } from '../../lib/services/thuChiService';
+import { projectService } from '../../lib/services/projectService';
+import { contractService } from '../../lib/services/contractService';
 
 interface Props {
     isOpen: boolean;

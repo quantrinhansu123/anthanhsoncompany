@@ -23,9 +23,9 @@ import {
   Loader2
 } from 'lucide-react';
 import { useNavigate, useParams } from 'react-router-dom';
-import { employeeService } from '@/lib/services/employeeService';
-import { dependentService } from '@/lib/services/dependentService';
-import { certificateService } from '@/lib/services/certificateService';
+import { employeeService } from '../../lib/services/employeeService';
+import { dependentService } from '../../lib/services/dependentService';
+import { certificateService } from '../../lib/services/certificateService';
 
 interface Dependent {
   id: string;
