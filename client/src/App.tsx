@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import { HashRouter, Routes, Route } from 'react-router-dom';
+import { HashRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { Layout } from './components/Layout';
 import { Dashboard } from './pages/Dashboard';
 import { Marketing } from './pages/Marketing';
@@ -36,7 +36,6 @@ import { DanhSachVanDon } from './pages/logistics/DanhSachVanDon';
 import { DanhSachKhachHang } from './pages/customer/DanhSachKhachHang';
 import { DuAn } from './pages/customer/DuAn';
 import { HopDong } from './pages/customer/HopDong';
-import { Task } from './pages/process/Task';
 import { TaskList } from './pages/process/TaskList';
 import { QuanLyCongViec } from './pages/process/QuanLyCongViec';
 
@@ -76,7 +75,10 @@ export default function App() {
             <Route path="khach-hang/hop-dong" element={<HopDong />} />
             <Route path="quy-trinh" element={<Process />} />
             <Route path="quy-trinh/thu-vien-loi" element={<ThuVienLoi />} />
-            <Route path="quy-trinh/task" element={<Task />} />
+            <Route
+              path="quy-trinh/task"
+              element={<Navigate to="/quy-trinh/quan-ly-cong-viec" replace />}
+            />
             <Route path="quy-trinh/task-list" element={<TaskList />} />
             <Route path="quy-trinh/quan-ly-cong-viec" element={<QuanLyCongViec />} />
             <Route path="tro-ly-ai" element={<AIAssistant />} />

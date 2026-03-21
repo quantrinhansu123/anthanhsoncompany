@@ -39,14 +39,14 @@ export function Sidebar({ isOpen, toggleSidebar, isMobile = false }: SidebarProp
     >
       <div 
         className={cn(
-          "h-full bg-white border-r border-slate-200 transition-all duration-300 flex flex-col pointer-events-auto shadow-xl relative overflow-visible",
+          "h-full bg-slate-100 border-r-2 border-slate-300 transition-all duration-300 flex flex-col pointer-events-auto shadow-xl relative overflow-visible",
           isMobile 
             ? (isOpen ? "w-64 translate-x-0" : "w-0 -translate-x-full") 
             : (isOpen ? "w-64" : "w-20")
         )}
       >
         <div className={cn(
-          "h-24 md:h-28 border-b border-slate-100 transition-all duration-300 overflow-hidden shrink-0 flex items-center",
+          "h-24 md:h-28 border-b-2 border-slate-300 transition-all duration-300 overflow-hidden shrink-0 flex items-center bg-slate-200/60",
           (isOpen || isMobile) ? "px-4" : "px-0 justify-center"
         )}>
           <div className="flex items-center gap-3 overflow-hidden">
@@ -62,7 +62,7 @@ export function Sidebar({ isOpen, toggleSidebar, isMobile = false }: SidebarProp
               <h1 className="font-bold text-slate-800 text-xs leading-tight">
                 AN THANH SƠN
               </h1>
-              <p className="text-[10px] text-slate-500 whitespace-nowrap">Ứng dụng quản lý</p>
+              <p className="text-[10px] font-bold text-slate-700 whitespace-nowrap">Ứng dụng quản lý</p>
             </div>
           </div>
         </div>
@@ -84,8 +84,8 @@ export function Sidebar({ isOpen, toggleSidebar, isMobile = false }: SidebarProp
                 cn(
                   "flex items-center gap-3 px-3 py-2.5 rounded-lg transition-colors group relative",
                   isActive
-                    ? "bg-blue-50 text-blue-700 font-medium"
-                    : "text-slate-600 hover:bg-slate-50 hover:text-slate-900"
+                    ? "bg-blue-200 text-blue-950 font-semibold"
+                    : "text-slate-800 font-semibold hover:bg-slate-200 hover:text-slate-950"
                 )
               }
             >
@@ -115,22 +115,22 @@ export function Sidebar({ isOpen, toggleSidebar, isMobile = false }: SidebarProp
         </div>
 
         <div className={cn(
-          "border-t border-slate-100 py-3 transition-all duration-300 overflow-hidden shrink-0",
+          "border-t-2 border-slate-300 py-3 transition-all duration-300 overflow-hidden shrink-0 bg-slate-200/40",
           (isOpen || isMobile) ? "px-3" : "px-0 flex flex-col items-center"
         )}>
           <div className={cn(
             "flex items-center gap-3 rounded-lg px-2 py-2",
             !(isOpen || isMobile) && "justify-center"
           )}>
-            <div className="flex h-9 w-9 items-center justify-center rounded-full bg-blue-800 text-xs font-semibold text-white shrink-0">
+            <div className="flex h-9 w-9 items-center justify-center rounded-full bg-blue-800 text-xs font-bold text-white shrink-0">
               AD
             </div>
             {(isOpen || isMobile) && (
               <div className="flex min-w-0 flex-col">
-                <span className="truncate text-xs font-semibold text-slate-900">
+                <span className="truncate text-xs font-bold text-slate-900">
                   Admin
                 </span>
-                <span className="truncate text-[11px] text-slate-500">
+                <span className="truncate text-[11px] font-bold text-slate-700">
                   admin@company.com
                 </span>
               </div>
@@ -140,7 +140,7 @@ export function Sidebar({ isOpen, toggleSidebar, isMobile = false }: SidebarProp
           {(isOpen || isMobile) && (
             <button
               type="button"
-              className="mt-2 flex w-full items-center justify-center gap-2 rounded-md bg-red-100 py-2 text-xs font-semibold text-red-600"
+              className="mt-2 flex w-full items-center justify-center gap-2 rounded-md border border-red-400 bg-red-200 py-2 text-xs font-bold text-red-900 hover:bg-red-300"
             >
               <LogOut className="h-4 w-4" />
               <span>Thoát</span>

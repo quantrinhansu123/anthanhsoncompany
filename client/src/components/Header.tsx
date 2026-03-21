@@ -59,13 +59,13 @@ export function Header({ onMenuClick, isOpen = true, isMobile = false }: HeaderP
   }, []);
 
   return (
-    <header className="h-14 sm:h-16 bg-white border-b border-slate-200 flex items-center justify-between px-3 sm:px-4 md:px-6 sticky top-0 z-30">
+    <header className="h-14 sm:h-16 bg-slate-100 border-b-2 border-slate-300 shadow-sm flex items-center justify-between px-3 sm:px-4 md:px-6 sticky top-0 z-30">
       <div className="flex items-center gap-2 sm:gap-3 min-w-0 flex-1">
         {/* Mobile menu button */}
         {isMobile && onMenuClick && (
           <button
             onClick={onMenuClick}
-            className="p-2 -ml-2 rounded-lg hover:bg-slate-100 text-slate-600 transition-colors shrink-0"
+            className="p-2 -ml-2 rounded-lg hover:bg-slate-200 text-slate-700 transition-colors shrink-0"
             aria-label="Mở menu"
           >
             <Menu size={20} />
@@ -76,7 +76,7 @@ export function Header({ onMenuClick, isOpen = true, isMobile = false }: HeaderP
         {!isMobile && onMenuClick && (
           <button
             onClick={onMenuClick}
-            className="p-2 -ml-2 rounded-lg hover:bg-slate-100 text-slate-500 hover:text-blue-600 transition-colors shrink-0"
+            className="p-2 -ml-2 rounded-lg hover:bg-slate-200 text-slate-600 hover:text-blue-800 transition-colors shrink-0"
             title={isOpen ? "Thu nhỏ menu" : "Mở rộng menu"}
           >
             {isOpen ? <PanelLeftClose size={20} /> : <PanelLeftOpen size={20} />}
@@ -84,7 +84,7 @@ export function Header({ onMenuClick, isOpen = true, isMobile = false }: HeaderP
         )}
 
         {/* Breadcrumb - responsive */}
-        <div className="flex items-center gap-1 sm:gap-2 text-xs sm:text-sm overflow-x-auto whitespace-nowrap hide-scrollbar min-w-0 flex-1">
+        <div className="flex items-center gap-1 sm:gap-2 text-xs sm:text-sm font-bold overflow-x-auto whitespace-nowrap hide-scrollbar min-w-0 flex-1">
           {pathnames.length > 0 && (
             <Link to="/" className="text-slate-400 hover:text-blue-600 transition-colors border border-slate-200 p-1 rounded bg-slate-50 flex items-center justify-center shrink-0">
               <Home size={12} className="sm:w-[14px] sm:h-[14px]" />
@@ -103,7 +103,7 @@ export function Header({ onMenuClick, isOpen = true, isMobile = false }: HeaderP
                     {displayName}
                   </span>
                 ) : (
-                  <Link to={`/${pathnames.slice(0, index + 1).join('/')}`} className="text-slate-600 hover:text-blue-600 transition-colors bg-slate-50 border border-slate-200 px-1.5 sm:px-2 py-0.5 rounded-md text-xs font-medium shrink-0">
+                  <Link to={`/${pathnames.slice(0, index + 1).join('/')}`} className="text-slate-700 hover:text-blue-700 transition-colors bg-slate-50 border border-slate-200 px-1.5 sm:px-2 py-0.5 rounded-md text-xs font-bold shrink-0">
                     {displayName}
                   </Link>
                 )}
@@ -115,14 +115,14 @@ export function Header({ onMenuClick, isOpen = true, isMobile = false }: HeaderP
 
       <div className="flex items-center gap-2 sm:gap-4 md:gap-6 shrink-0">
         {/* Time/Date - hidden on very small screens, compact on mobile */}
-        <div className="hidden sm:flex items-center gap-2 md:gap-4 text-xs md:text-sm text-slate-600 bg-slate-50 px-2 md:px-4 py-1 md:py-1.5 rounded-full border border-slate-100">
+        <div className="hidden sm:flex items-center gap-2 md:gap-4 text-xs md:text-sm font-bold text-slate-800 bg-slate-50 px-2 md:px-4 py-1 md:py-1.5 rounded-full border border-slate-200">
           <div className="flex items-center gap-1 md:gap-2 border-r border-slate-200 pr-2 md:pr-4">
             <Clock size={14} className="md:w-4 md:h-4 text-red-500 shrink-0" />
-            <span className="font-medium whitespace-nowrap">{format(currentTime, 'HH:mm:ss')}</span>
+            <span className="font-bold whitespace-nowrap">{format(currentTime, 'HH:mm:ss')}</span>
           </div>
           <div className="hidden md:flex items-center gap-2">
             <Calendar size={16} className="text-red-500" />
-            <span className="capitalize whitespace-nowrap">{format(currentTime, 'EEEE, dd/MM/yyyy', { locale: vi })}</span>
+            <span className="capitalize whitespace-nowrap font-extrabold">{format(currentTime, 'EEEE, dd/MM/yyyy', { locale: vi })}</span>
           </div>
         </div>
 

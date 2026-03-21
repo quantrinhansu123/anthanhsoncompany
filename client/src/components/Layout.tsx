@@ -102,7 +102,7 @@ export function Layout() {
   }, []);
 
   return (
-    <div className="min-h-screen bg-slate-50 font-sans text-slate-900">
+    <div className="min-h-screen bg-slate-200 font-sans text-slate-900">
       <Sidebar 
         isOpen={sidebarOpen} 
         toggleSidebar={() => setSidebarOpen(!sidebarOpen)}

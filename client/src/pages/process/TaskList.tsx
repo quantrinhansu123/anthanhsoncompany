@@ -1,11 +1,34 @@
-import React, { useEffect, useMemo, useState } from 'react';
-import { Plus, Search, Edit, Trash2, X, FolderKanban, FileText, ChevronDown, ChevronRight, FolderOpen, Eye } from 'lucide-react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
+import {
+  Plus,
+  Search,
+  Edit,
+  Trash2,
+  X,
+  FolderKanban,
+  FileText,
+  ChevronDown,
+  ChevronRight,
+  FolderOpen,
+  Eye,
+  GripVertical,
+} from 'lucide-react';
 import {
   taskTemplateService,
   type TaskTemplateRow,
   type TaskTemplateStandard,
   type TaskTemplateStep,
 } from '../../lib/services/taskTemplateService';
+
+function reorderCacBuoc<T>(list: T[], from: number, to: number): T[] {
+  if (from === to || from < 0 || to < 0 || from >= list.length || to >= list.length) {
+    return list;
+  }
+  const next = [...list];
+  const [item] = next.splice(from, 1);
+  next.splice(to, 0, item);
+  return next;
+}
 
 function Toast({
   message,
@@ -67,6 +90,7 @@ export function TaskList() {
     tieu_chuan: [{ noi_dung: '', diem: 0 }],
     cac_buoc: [{ hanh_dong: '', ghi_chu: '' }],
   });
+  const cacBuocDragFrom = useRef<number | null>(null);
 
   useEffect(() => {
     (async () => {
@@ -534,8 +558,12 @@ export function TaskList() {
                 </div>
               </div>
               <div>
-                <p className="text-xs font-bold text-slate-500 uppercase mb-2">
+                <p className="text-xs font-bold text-slate-500 uppercase mb-0.5">
                   Các bước ({(viewingTask.cac_buoc || []).length})
+                </p>
+                <p className="text-[11px] text-slate-500 mb-2 leading-snug">
+                  Thứ tự hiển thị đúng như đã lưu trong mẫu. Khi <span className="font-bold text-slate-600">Sửa</span> mẫu,
+                  các bước có thể kéo để thay đổi thứ tự.
                 </p>
                 <div className="space-y-1.5">
                   {(viewingTask.cac_buoc || []).length ? (
@@ -720,10 +748,15 @@ export function TaskList() {
 
                 {/* Các bước */}
                 <div className="md:col-span-2">
-                  <div className="flex items-center justify-between mb-1.5">
-                    <label className="block text-xs font-bold text-slate-500 uppercase">
-                      Các bước (hành động + ghi chú)
-                    </label>
+                  <div className="flex items-start justify-between gap-2 mb-1.5">
+                    <div className="min-w-0">
+                      <label className="block text-xs font-bold text-slate-500 uppercase">
+                        Các bước ({(formData.cac_buoc || []).length}) — hành động + ghi chú
+                      </label>
+                      <p className="text-[11px] text-slate-500 mt-0.5 leading-snug">
+                        Các bước có thể kéo (ô ⋮⋮) để thay đổi thứ tự.
+                      </p>
+                    </div>
                     <button
                       type="button"
                       onClick={() =>
@@ -735,7 +768,7 @@ export function TaskList() {
                           ],
                         }))
                       }
-                      className="text-xs font-bold text-blue-600 hover:underline"
+                      className="text-xs font-bold text-blue-600 hover:underline shrink-0"
                     >
                       + Thêm bước
                     </button>
@@ -743,12 +776,47 @@ export function TaskList() {
                   <div className="space-y-2">
                     {(formData.cac_buoc || []).map((step, idx) => (
                       <div
-                        key={idx}
-                        className="grid grid-cols-1 md:grid-cols-12 gap-2"
+                        key={`cac-buoc-${idx}`}
+                        onDragOver={(e) => {
+                          e.preventDefault();
+                          e.dataTransfer.dropEffect = 'move';
+                        }}
+                        onDrop={(e) => {
+                          e.preventDefault();
+                          const from = cacBuocDragFrom.current;
+                          cacBuocDragFrom.current = null;
+                          if (from == null || from === idx) return;
+                          setFormData((prev) => {
+                            const list = prev.cac_buoc || [];
+                            return {
+                              ...prev,
+                              cac_buoc: reorderCacBuoc(list, from, idx),
+                            };
+                          });
+                        }}
+                        className="grid grid-cols-1 md:grid-cols-12 gap-2 rounded-xl border border-slate-200 bg-slate-50/80 p-2 md:p-2"
                       >
+                        <div
+                          role="button"
+                          tabIndex={0}
+                          draggable
+                          onDragStart={(e) => {
+                            cacBuocDragFrom.current = idx;
+                            e.dataTransfer.effectAllowed = 'move';
+                            e.dataTransfer.setData('text/plain', String(idx));
+                          }}
+                          onDragEnd={() => {
+                            cacBuocDragFrom.current = null;
+                          }}
+                          className="md:col-span-1 flex items-start justify-center pt-2 text-slate-400 hover:text-slate-600 cursor-grab active:cursor-grabbing touch-none select-none rounded-lg hover:bg-slate-200/80"
+                          title="Kéo để đổi thứ tự"
+                          aria-label="Kéo để đổi thứ tự bước"
+                        >
+                          <GripVertical size={18} aria-hidden />
+                        </div>
                         <input
                           type="text"
-                          className="md:col-span-7 w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
+                          className="md:col-span-6 w-full px-3 py-2 bg-white border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
                           value={step.hanh_dong || ''}
                           onChange={(e) => {
                             const next = [...(formData.cac_buoc || [])];
@@ -762,7 +830,7 @@ export function TaskList() {
                         />
                         <textarea
                           rows={3}
-                          className="md:col-span-4 w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 resize-y"
+                          className="md:col-span-4 w-full px-3 py-2 bg-white border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 resize-y"
                           value={step.ghi_chu || ''}
                           onChange={(e) => {
                             const next = [...(formData.cac_buoc || [])];
@@ -788,7 +856,7 @@ export function TaskList() {
                                   : [{ hanh_dong: '', ghi_chu: '' }],
                             });
                           }}
-                          className="md:col-span-1 inline-flex items-center justify-center rounded-lg border border-red-200 text-red-600 hover:bg-red-50"
+                          className="md:col-span-1 inline-flex items-center justify-center rounded-lg border border-red-200 text-red-600 hover:bg-red-50 self-start"
                           title="Xóa bước"
                         >
                           <Trash2 size={14} />

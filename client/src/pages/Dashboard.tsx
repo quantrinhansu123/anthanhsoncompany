@@ -83,13 +83,6 @@ const modules = [
     color: 'bg-teal-600',
     path: '/quy-trinh',
   },
-  {
-    title: 'Quy trình & Task',
-    description: 'Quản lý quy trình, mỗi quy trình có thể gán nhiều task.',
-    icon: ClipboardList,
-    color: 'bg-sky-600',
-    path: '/quy-trinh/task',
-  },
 ];
 
 const allGroups = [
@@ -131,7 +124,6 @@ const allGroups = [
     color: 'bg-teal-600',
     items: [
       { title: 'Thư viện lỗi', description: 'Quản lý thư viện lỗi, phân loại, xử lý và giải pháp.', icon: BookOpen, color: 'text-blue-600', bgColor: 'bg-blue-50', path: '/quy-trinh/thu-vien-loi' },
-      { title: 'Quy trình & Task', description: 'Quản lý theo quy trình, mỗi quy trình có nhiều task.', icon: ClipboardList, color: 'text-sky-600', bgColor: 'bg-sky-50', path: '/quy-trinh/task' },
       { title: 'Danh sách Task', description: 'Xem danh sách task theo quy trình (folder view).', icon: ClipboardList, color: 'text-orange-600', bgColor: 'bg-orange-50', path: '/quy-trinh/task-list' },
     ],
   },
@@ -296,18 +288,32 @@ export function Dashboard() {
   ];
 
   return (
-    <div className="space-y-6">
-      <div className="flex flex-col gap-1.5">
-        <h2 className="text-xl md:text-2xl font-extrabold text-slate-900 flex items-center gap-2 flex-wrap tracking-tight">
-          {getGreeting()}, <span className="text-[var(--primary)]">Người dùng Demo</span> 👋
-        </h2>
-        <p className="text-sm md:text-[15px] font-medium text-slate-700">
-          Tổng quan hoạt động của công ty
-        </p>
+    <div className="animate-in fade-in slide-in-from-bottom-4 duration-500 pb-3 h-[calc(100vh-96px)] min-h-0 flex flex-col gap-4">
+      <div className="flex flex-col sm:flex-row sm:items-end sm:justify-between gap-2 shrink-0">
+        <div>
+          <h1 className="text-2xl font-extrabold text-slate-900 uppercase tracking-tight">
+            Trang chủ
+          </h1>
+          <p className="text-xs sm:text-sm text-slate-600 mt-0.5 font-medium">
+            Tổng quan hoạt động và điều hướng nhanh
+          </p>
+        </div>
       </div>
 
+      <div className="flex-1 min-h-0 bg-white border-2 border-slate-400 rounded-xl shadow-lg flex flex-col overflow-hidden">
+        <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain p-4 md:p-5 space-y-6 [scrollbar-gutter:stable]">
+          <div className="flex flex-col gap-1.5">
+            <h2 className="text-lg md:text-xl font-extrabold text-slate-900 flex items-center gap-2 flex-wrap tracking-tight">
+              {getGreeting()}, <span className="text-[var(--primary)]">Người dùng Demo</span>{' '}
+              👋
+            </h2>
+            <p className="text-sm md:text-[15px] font-medium text-slate-700">
+              Tổng quan hoạt động của công ty
+            </p>
+          </div>
+
       {/* Tabs */}
-      <div className="bg-white p-1 rounded-lg inline-flex border border-slate-200 shadow-sm overflow-x-auto max-w-full">
+      <div className="bg-slate-100/90 p-1 rounded-lg inline-flex border-2 border-slate-300 shadow-sm overflow-x-auto max-w-full">
         <button
           onClick={() => setActiveTab('tong-quan')}
           className={`px-4 py-1.5 text-sm font-medium rounded-md transition-colors ${
@@ -617,9 +623,9 @@ export function Dashboard() {
         <div className="space-y-6 md:space-y-8">
           {allGroups.map((group) => (
             <div key={group.title} className="space-y-3 md:space-y-4">
-              <div className="flex items-center gap-3 pb-2 border-b border-slate-200">
+              <div className="flex items-center gap-3 pb-2 border-b-2 border-slate-300">
                 <div
-                  className={`${group.color} w-10 h-10 md:w-12 md:h-12 rounded-lg flex items-center justify-center text-white shadow-sm`}
+                  className={`${group.color} w-10 h-10 md:w-12 md:h-12 rounded-lg flex items-center justify-center text-white shadow-sm border border-black/10`}
                 >
                   <group.icon size={20} className="md:w-6 md:h-6" />
                 </div>
@@ -632,7 +638,7 @@ export function Dashboard() {
                   <Link
                     key={item.title}
                     to={item.path || '#'}
-                    className="bg-white p-3 md:p-4 rounded-lg border border-slate-200 shadow-sm hover:shadow-md transition-all duration-300 group flex flex-col items-center gap-2 md:gap-3 min-w-[100px] md:min-w-[140px] text-center card-hover"
+                    className="bg-slate-50 p-3 md:p-4 rounded-xl border-2 border-slate-300 shadow-sm hover:shadow-md transition-all duration-300 group flex flex-col items-center gap-2 md:gap-3 min-w-[100px] md:min-w-[140px] text-center card-hover"
                   >
                     <div
                       className={`${item.bgColor} ${item.color} w-16 h-16 md:w-20 md:h-20 rounded-lg flex items-center justify-center`}
@@ -649,6 +655,8 @@ export function Dashboard() {
           ))}
         </div>
       )}
+        </div>
+      </div>
     </div>
   );
 }

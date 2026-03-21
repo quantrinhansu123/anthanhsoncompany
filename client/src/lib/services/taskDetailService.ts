@@ -1,5 +1,72 @@
 import { supabase } from '../supabase';
-import type { CongViecTenTaskJsonb, TaskRow } from './taskService';
+import type {
+  CongViecTenTaskJsonb,
+  QuyTrinhLamViecItem,
+  QuyTrinhTieuChuanDong,
+  TaskRow,
+} from './taskService';
+
+/** Trạng thái bước quy trình suy ra từ checklist: đủ tiêu chuẩn Đạt → Đạt; có Không đạt → Không đạt. */
+function deriveTrangThaiForQuyTrinhItem(item: QuyTrinhLamViecItem): string {
+  const lines = (item.tieu_chuan ?? []).filter((t) => String(t?.noi_dung ?? '').trim());
+  if (lines.length === 0) return (item.trang_thai || '').trim();
+  const sts = lines.map(
+    (t) => (String(t.trang_thai ?? '').trim() || 'Chưa đánh giá'),
+  );
+  if (sts.some((s) => s === 'Không đạt')) return 'Không đạt';
+  if (sts.every((s) => s === 'Đạt')) return 'Đạt';
+  return 'Chưa đánh giá';
+}
+
+function syncQuyTrinhItemsTrangThai(items: QuyTrinhLamViecItem[]): QuyTrinhLamViecItem[] {
+  return items.map((it) => ({
+    ...it,
+    trang_thai: deriveTrangThaiForQuyTrinhItem(it),
+  }));
+}
+
+/** Tiến độ = số bước có trạng thái Đạt / tổng bước (sau khi đồng bộ từ checklist). */
+function computeTienDoFromSyncedQuyTrinhItems(items: QuyTrinhLamViecItem[]): number {
+  if (!items.length) return 0;
+  const done = items.filter((it) => (it.trang_thai || '').trim() === 'Đạt').length;
+  return Math.round((done / items.length) * 100);
+}
+
+/** Tiến độ 100% → luôn gán trạng thái Đã xong (theo nghiệp vụ Quản lý công việc). */
+function trangThaiSauKhiCoTienDo(tienDo: number, trangThaiGiu: string): string {
+  return Number(tienDo) >= 100 ? 'Đã xong' : trangThaiGiu;
+}
+
+function parseQuyTrinhItemsRaw(raw: unknown): QuyTrinhLamViecItem[] {
+  if (!Array.isArray(raw)) return [];
+  return raw
+    .filter((x) => x && typeof x === 'object')
+    .map((x) => {
+      const o = x as Record<string, unknown>;
+      const tieuRaw = o.tieu_chuan;
+      const tieu_chuan = Array.isArray(tieuRaw)
+        ? tieuRaw.map((t) => {
+            const r = t as Record<string, unknown>;
+            const tt = String(r?.trang_thai ?? '').trim();
+            return {
+              id: typeof r?.id === 'string' && r.id ? r.id : undefined,
+              noi_dung: String(r?.noi_dung ?? ''),
+              diem: Number(r?.diem) || 0,
+              trang_thai: tt || 'Chưa đánh giá',
+            };
+          })
+        : undefined;
+      return {
+        id: typeof o.id === 'string' && o.id ? o.id : crypto.randomUUID(),
+        ten_task: String(o.ten_task ?? ''),
+        noi_dung_tieu_chuan: String(o.noi_dung_tieu_chuan ?? ''),
+        trang_thai: String(o.trang_thai ?? ''),
+        ghi_chu: String(o.ghi_chu ?? ''),
+        template_id: o.template_id != null ? String(o.template_id) : null,
+        tieu_chuan,
+      };
+    });
+}
 
 export function parseCongViecTenTaskColumn(
   raw: unknown,
@@ -10,6 +77,7 @@ export function parseCongViecTenTaskColumn(
     noi_dung_tieu_chuan: '',
     trang_thai: '',
     ghi_chu: '',
+    quy_trinh_items: [],
   });
   if (raw == null || raw === '') return base();
   if (typeof raw === 'string') {
@@ -21,6 +89,7 @@ export function parseCongViecTenTaskColumn(
           noi_dung_tieu_chuan: String(o.noi_dung_tieu_chuan ?? ''),
           trang_thai: String(o.trang_thai ?? ''),
           ghi_chu: String(o.ghi_chu ?? ''),
+          quy_trinh_items: parseQuyTrinhItemsRaw(o.quy_trinh_items),
         };
       }
     } catch {
@@ -35,6 +104,7 @@ export function parseCongViecTenTaskColumn(
       noi_dung_tieu_chuan: String(o.noi_dung_tieu_chuan ?? ''),
       trang_thai: String(o.trang_thai ?? ''),
       ghi_chu: String(o.ghi_chu ?? ''),
+      quy_trinh_items: parseQuyTrinhItemsRaw(o.quy_trinh_items),
     };
   }
   return base();
@@ -51,6 +121,7 @@ export function buildCongViecTenTaskJsonb(input: {
     noi_dung_tieu_chuan: (input.noi_dung_tieu_chuan || '').trim(),
     trang_thai: (input.trang_thai || '').trim(),
     ghi_chu: (input.ghi_chu || '').trim(),
+    quy_trinh_items: [],
   };
 }
 
@@ -89,9 +160,48 @@ export const DEFAULT_BUOC_DANH_GIA: BuocDanhGia[] = [
   { id: 'hoan_tat', ten: 'Hoàn tất & lưu hồ sơ', trang_thai: 'cho', nguoi_duyet: null, ngay_gio: null, ghi_chu: null },
 ];
 
+/** Một dòng ghi nhận lỗi (cột jsonb `cong_viec_chi_tiet.loi_ghi_nhan`) */
+export interface LoiGhiNhanItem {
+  id: string;
+  thu_vien_loi_id: string;
+  chuyen_nganh: string;
+  bo_mon: string;
+  canh_bao_loi: string;
+  hang_muc_kiem_tra: string;
+  noi_dung_kiem_tra: string;
+  nguoi_vi_pham_id: string;
+  nguoi_vi_pham_ten: string;
+  ghi_chu: string;
+  /** ISO datetime */
+  ngay_gio: string;
+}
+
+export function parseLoiGhiNhanColumn(raw: unknown): LoiGhiNhanItem[] {
+  if (!Array.isArray(raw)) return [];
+  return raw
+    .filter((x) => x && typeof x === 'object')
+    .map((x) => {
+      const o = x as Record<string, unknown>;
+      return {
+        id: typeof o.id === 'string' && o.id ? o.id : crypto.randomUUID(),
+        thu_vien_loi_id: String(o.thu_vien_loi_id ?? ''),
+        chuyen_nganh: String(o.chuyen_nganh ?? ''),
+        bo_mon: String(o.bo_mon ?? ''),
+        canh_bao_loi: String(o.canh_bao_loi ?? ''),
+        hang_muc_kiem_tra: String(o.hang_muc_kiem_tra ?? ''),
+        noi_dung_kiem_tra: String(o.noi_dung_kiem_tra ?? ''),
+        nguoi_vi_pham_id: String(o.nguoi_vi_pham_id ?? ''),
+        nguoi_vi_pham_ten: String(o.nguoi_vi_pham_ten ?? ''),
+        ghi_chu: String(o.ghi_chu ?? ''),
+        ngay_gio: String(o.ngay_gio ?? new Date().toISOString()),
+      };
+    });
+}
+
 export interface TaskDetailRow {
   id: string;
-  task_id: string;
+  task_id?: string | null;
+  hop_dong_id?: string | null;
   /** jsonb từ DB — có thể object hoặc (legacy) bỏ trống */
   ten_task?: unknown;
   ten_cong_viec: string;
@@ -105,9 +215,53 @@ export interface TaskDetailRow {
   binh_luan?: TaskDetailComment[];
   lich_su?: TaskDetailHistory[];
   buoc_danh_gia?: BuocDanhGia[];
+  /** jsonb — ghi nhận lỗi từ thư viện lỗi + người vi phạm */
+  loi_ghi_nhan?: LoiGhiNhanItem[];
   created_at?: string;
   updated_at?: string;
   ten_task_detail?: CongViecTenTaskJsonb;
+}
+
+function coerceLichSuArray(raw: unknown): TaskDetailHistory[] {
+  if (!Array.isArray(raw)) return [];
+  return raw
+    .filter((x) => x && typeof x === 'object')
+    .map((x) => {
+      const o = x as Record<string, unknown>;
+      const gc = o.ghi_chu;
+      return {
+        ten: String(o.ten ?? ''),
+        time: String(o.time ?? ''),
+        hanh_vi: String(o.hanh_vi ?? ''),
+        ghi_chu:
+          gc != null && String(gc).trim() !== '' ? String(gc).trim() : null,
+      };
+    });
+}
+
+function appendLichSuEntry(
+  existing: unknown,
+  entry: {
+    ten?: string;
+    hanh_vi: string;
+    ghi_chu?: string | null;
+    time?: string;
+  },
+): TaskDetailHistory[] {
+  const prev = coerceLichSuArray(existing);
+  const note =
+    entry.ghi_chu != null && String(entry.ghi_chu).trim() !== ''
+      ? String(entry.ghi_chu).trim()
+      : null;
+  return [
+    ...prev,
+    {
+      ten: (entry.ten || 'Hệ thống').trim() || 'Hệ thống',
+      time: entry.time || new Date().toISOString(),
+      hanh_vi: entry.hanh_vi,
+      ghi_chu: note,
+    },
+  ];
 }
 
 export const taskDetailService = {
@@ -125,7 +279,7 @@ export const taskDetailService = {
       return s === '' ? null : s;
     };
 
-    const tenTaskJsonb = buildCongViecTenTaskJsonb({
+    const tenTaskJsonbBase = buildCongViecTenTaskJsonb({
       ten_task: task.ten_task || '',
       noi_dung_tieu_chuan: (task as any).noi_dung_tieu_chuan,
       trang_thai: (task as any).trang_thai_tieu_chuan,
@@ -134,8 +288,9 @@ export const taskDetailService = {
 
     const payload: any = {
       ten_cong_viec: task.ten_task,
-      ten_task: tenTaskJsonb,
+      ten_task: tenTaskJsonbBase,
       mo_ta: task.mo_ta ?? null,
+      hop_dong_id: task.hop_dong_id?.trim() || null,
       nguoi_thuc_hien: task.nguoi_phu_trach ?? null,
       trang_thai: task.trang_thai,
       tien_do: task.tien_do ?? 0,
@@ -157,6 +312,22 @@ export const taskDetailService = {
     if (existingError) throw existingError;
 
     if (existingRows && existingRows.length > 0) {
+      const { data: existingTen, error: tenErr } = await supabase
+        .from('cong_viec_chi_tiet')
+        .select('ten_task')
+        .eq('task_id', task.id)
+        .limit(1)
+        .maybeSingle();
+      if (tenErr) throw tenErr;
+      const preserved = parseCongViecTenTaskColumn(
+        existingTen?.ten_task,
+        task.ten_task || '',
+      );
+      payload.ten_task = {
+        ...tenTaskJsonbBase,
+        quy_trinh_items: preserved.quy_trinh_items ?? [],
+      };
+
       const { error: updateError } = await supabase
         .from('cong_viec_chi_tiet')
         .update(payload)
@@ -362,12 +533,13 @@ export const taskDetailService = {
         ghi_chu: payload.ghi_chu_tieu_chuan ?? undefined,
       });
 
+    const tienDoInsert = Number(payload.tien_do ?? 0);
     const insertData: any = {
       ten_cong_viec: tenTaskJsonb.ten_task || payload.ten_task,
       ten_task: tenTaskJsonb,
       mo_ta: payload.mo_ta,
-      trang_thai: payload.trang_thai,
-      tien_do: payload.tien_do ?? 0,
+      trang_thai: trangThaiSauKhiCoTienDo(tienDoInsert, payload.trang_thai),
+      tien_do: tienDoInsert,
       ghi_chu: payload.ghi_chu || null,
       nguoi_thuc_hien: payload.nguoi_phu_trach || null,
       // Lưu cả các cột ngày mới để UI đọc lại đúng
@@ -377,6 +549,11 @@ export const taskDetailService = {
       // Giữ han_hoan_thanh cho tương thích ngược (coi như hạn hoàn thành = ngày kết thúc)
       han_hoan_thanh: payload.ngay_ket_thuc || null,
       hop_dong_id: payload.hop_dong_id || null,
+      lich_su: appendLichSuEntry([], {
+        ten: 'Công việc',
+        hanh_vi: 'Tạo công việc mới',
+        ghi_chu: payload.ten_task?.trim() || null,
+      }),
     };
 
     const { data, error } = await supabase
@@ -392,6 +569,110 @@ export const taskDetailService = {
 
     const detail = this.normalizeRow(data);
     return this.mapToTaskRow(detail as any);
+  },
+
+  /** Cập nhật bản ghi `cong_viec_chi_tiet` (theo id hoặc task_id UI), giữ `quy_trinh_items` trong jsonb. Đồng bộ bảng `task` nếu có `task_id`. */
+  async updateFromForm(
+    lookupId: string,
+    payload: {
+      ten_task: string;
+      mo_ta: string | null;
+      trang_thai: string;
+      uu_tien: string;
+      ngay_bat_dau?: string | null;
+      ngay_ket_thuc?: string | null;
+      ngay_hoan_thanh?: string | null;
+      nguoi_phu_trach?: string | null;
+      tien_do: number;
+      ghi_chu?: string | null;
+      hop_dong_id?: string | null;
+      ten_task_jsonb?: CongViecTenTaskJsonb | null;
+      noi_dung_tieu_chuan?: string | null;
+      trang_thai_tieu_chuan?: string | null;
+      ghi_chu_tieu_chuan?: string | null;
+    },
+  ): Promise<TaskRow> {
+    const detail = await this.findDetailByIdOrTaskId(lookupId);
+    if (!detail) {
+      throw new Error('Không tìm thấy công việc để cập nhật.');
+    }
+
+    const currentTen = parseCongViecTenTaskColumn(
+      detail.ten_task,
+      detail.ten_cong_viec || '',
+    );
+    const tenTaskJsonb: CongViecTenTaskJsonb =
+      payload.ten_task_jsonb ||
+      ({
+        ...currentTen,
+        ten_task: payload.ten_task.trim(),
+        noi_dung_tieu_chuan:
+          payload.noi_dung_tieu_chuan !== undefined
+            ? String(payload.noi_dung_tieu_chuan ?? '').trim()
+            : currentTen.noi_dung_tieu_chuan,
+        trang_thai:
+          payload.trang_thai_tieu_chuan !== undefined
+            ? String(payload.trang_thai_tieu_chuan ?? '').trim() || 'Chưa đánh giá'
+            : currentTen.trang_thai,
+        ghi_chu:
+          payload.ghi_chu_tieu_chuan !== undefined
+            ? String(payload.ghi_chu_tieu_chuan ?? '').trim()
+            : currentTen.ghi_chu,
+        quy_trinh_items: currentTen.quy_trinh_items ?? [],
+      } as CongViecTenTaskJsonb);
+
+    const tienDoUp = Number(payload.tien_do ?? 0);
+    const updateRow: Record<string, unknown> = {
+      ten_cong_viec: tenTaskJsonb.ten_task || payload.ten_task.trim(),
+      ten_task: tenTaskJsonb,
+      mo_ta: payload.mo_ta,
+      trang_thai: trangThaiSauKhiCoTienDo(tienDoUp, payload.trang_thai),
+      tien_do: tienDoUp,
+      ghi_chu: payload.ghi_chu || null,
+      nguoi_thuc_hien: payload.nguoi_phu_trach || null,
+      ngay_bat_dau: payload.ngay_bat_dau || null,
+      ngay_ket_thuc: payload.ngay_ket_thuc || null,
+      ngay_hoan_thanh: payload.ngay_hoan_thanh || null,
+      han_hoan_thanh: payload.ngay_ket_thuc || null,
+      hop_dong_id: payload.hop_dong_id?.toString().trim() || null,
+    };
+
+    const { data, error } = await supabase
+      .from('cong_viec_chi_tiet')
+      .update(updateRow)
+      .eq('id', detail.id)
+      .select('*')
+      .single();
+
+    if (error) {
+      console.error('[taskDetailService] updateFromForm:', error);
+      throw error;
+    }
+
+    const taskFk = detail.task_id?.toString().trim();
+    if (taskFk) {
+      const { error: taskErr } = await supabase
+        .from('task')
+        .update({
+          ten_task: payload.ten_task.trim(),
+          mo_ta: payload.mo_ta ?? null,
+          trang_thai: trangThaiSauKhiCoTienDo(tienDoUp, payload.trang_thai),
+          uu_tien: payload.uu_tien,
+          ngay_bat_dau: payload.ngay_bat_dau || null,
+          ngay_ket_thuc: payload.ngay_ket_thuc || null,
+          ngay_hoan_thanh: payload.ngay_hoan_thanh || null,
+          nguoi_phu_trach: payload.nguoi_phu_trach || null,
+          tien_do: tienDoUp,
+          ghi_chu: payload.ghi_chu || null,
+          hop_dong_id: payload.hop_dong_id?.toString().trim() || null,
+        })
+        .eq('id', taskFk);
+      if (taskErr) {
+        console.error('[taskDetailService] updateFromForm sync task:', taskErr);
+      }
+    }
+
+    return this.mapToTaskRow(this.normalizeRow(data) as any);
   },
 
   // Lấy (hoặc tạo mới) bản ghi chi tiết cho 1 task.
@@ -450,6 +731,550 @@ export const taskDetailService = {
     }
   },
 
+  /** Tìm bản ghi chi tiết theo `cong_viec_chi_tiet.id` hoặc `task_id` — không insert. */
+  async findDetailByIdOrTaskId(lookupId: string): Promise<TaskDetailRow | null> {
+    const { data: byId, error: e1 } = await supabase
+      .from('cong_viec_chi_tiet')
+      .select('*')
+      .eq('id', lookupId)
+      .maybeSingle();
+    if (!e1 && byId) return this.normalizeRow(byId);
+    const { data: byTask, error: e2 } = await supabase
+      .from('cong_viec_chi_tiet')
+      .select('*')
+      .eq('task_id', lookupId)
+      .maybeSingle();
+    if (!e2 && byTask) return this.normalizeRow(byTask);
+    return null;
+  },
+
+  /**
+   * Đổi trạng thái công việc từ màn Quản lý (vd. Duyệt → Đang thực hiện).
+   * Luôn cập nhật `cong_viec_chi_tiet`; đồng bộ `task` khi có `task_id`.
+   * `lookupId` phải là id hiển thị trên UI (`task_id` hoặc `cong_viec_chi_tiet.id`).
+   */
+  async setTrangThaiFromQuanLy(lookupId: string, trang_thai: string): Promise<TaskRow> {
+    const detail = await this.findDetailByIdOrTaskId(lookupId);
+    if (!detail) {
+      throw new Error('Không tìm thấy công việc.');
+    }
+    const next = String(trang_thai || '').trim();
+    if (!next) {
+      throw new Error('Trạng thái không hợp lệ.');
+    }
+    const lichSuNext = appendLichSuEntry(detail.lich_su, {
+      ten: 'Trạng thái',
+      hanh_vi: `Chuyển sang: ${next}`,
+      ghi_chu: null,
+    });
+    const { data, error } = await supabase
+      .from('cong_viec_chi_tiet')
+      .update({
+        trang_thai: next,
+        lich_su: lichSuNext,
+      })
+      .eq('id', detail.id)
+      .select('*')
+      .single();
+
+    if (error) {
+      console.error('[taskDetailService] setTrangThaiFromQuanLy cong_viec_chi_tiet:', error);
+      throw error;
+    }
+
+    const normalized = this.normalizeRow(data);
+    const taskFk = detail.task_id?.toString().trim();
+    if (taskFk) {
+      const { error: taskErr } = await supabase
+        .from('task')
+        .update({
+          trang_thai: next,
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', taskFk);
+      if (taskErr) {
+        console.error('[taskDetailService] setTrangThaiFromQuanLy task:', taskErr);
+      }
+    }
+
+    return this.mapToTaskRow(normalized as any);
+  },
+
+  /**
+   * Lưu jsonb `ten_task`: đồng bộ `trang_thai` từng bước từ checklist con (nếu có),
+   * cập nhật `tien_do` = (bước Đạt / tổng bước) × 100, đồng bộ `task.tien_do` khi có `task_id`.
+   */
+  async saveTenTaskJsonbWithQuyTrinhProgress(
+    detail: TaskDetailRow,
+    nextTenTaskBase: CongViecTenTaskJsonb,
+    extraRowPatch: Record<string, unknown> = {},
+  ): Promise<TaskDetailRow> {
+    const items = syncQuyTrinhItemsTrangThai(nextTenTaskBase.quy_trinh_items ?? []);
+    const tenFinal: CongViecTenTaskJsonb = {
+      ...nextTenTaskBase,
+      quy_trinh_items: items,
+    };
+    const tienDo = computeTienDoFromSyncedQuyTrinhItems(items);
+    const rowPatch: Record<string, unknown> = {
+      ...extraRowPatch,
+      ten_task: tenFinal,
+      tien_do: tienDo,
+    };
+    if (tienDo >= 100) {
+      rowPatch.trang_thai = 'Đã xong';
+    }
+    const { data, error } = await supabase
+      .from('cong_viec_chi_tiet')
+      .update(rowPatch)
+      .eq('id', detail.id)
+      .select('*')
+      .single();
+
+    if (error) {
+      console.error('[taskDetailService] saveTenTaskJsonbWithQuyTrinhProgress:', error);
+      throw error;
+    }
+
+    const taskFk = detail.task_id?.toString().trim();
+    if (taskFk) {
+      const taskSync: Record<string, unknown> = { tien_do: tienDo };
+      if (tienDo >= 100) taskSync.trang_thai = 'Đã xong';
+      const { error: taskErr } = await supabase
+        .from('task')
+        .update(taskSync)
+        .eq('id', taskFk);
+      if (taskErr) {
+        console.error('[taskDetailService] sync task.tien_do:', taskErr);
+      }
+    }
+
+    return this.normalizeRow(data);
+  },
+
+  /**
+   * Thêm các bước vào `ten_task.quy_trinh_items` của bản ghi đã có.
+   * Không tạo dòng `cong_viec_chi_tiet` / `ten_cong_viec` mới.
+   */
+  async appendQuyTrinhItems(
+    lookupId: string,
+    items: Array<{
+      ten_task: string;
+      noi_dung_tieu_chuan: string;
+      trang_thai: string;
+      ghi_chu: string;
+      tieu_chuan?: { noi_dung: string; diem: number }[];
+      template_id?: string | null;
+    }>,
+  ): Promise<TaskDetailRow> {
+    const detail = await this.findDetailByIdOrTaskId(lookupId);
+    if (!detail) {
+      throw new Error('Không tìm thấy bản ghi công việc để cập nhật quy trình.');
+    }
+    const current = parseCongViecTenTaskColumn(
+      detail.ten_task,
+      detail.ten_cong_viec || '',
+    );
+    const existing = current.quy_trinh_items ?? [];
+    const toAdd: QuyTrinhLamViecItem[] = items.map((it) => ({
+      id: crypto.randomUUID(),
+      ten_task: it.ten_task.trim(),
+      noi_dung_tieu_chuan: it.noi_dung_tieu_chuan.trim(),
+      trang_thai: it.trang_thai.trim(),
+      ghi_chu: it.ghi_chu.trim(),
+      tieu_chuan:
+        it.tieu_chuan && it.tieu_chuan.length > 0
+          ? it.tieu_chuan.map((t) => ({
+              id: crypto.randomUUID(),
+              noi_dung: (t.noi_dung || '').trim(),
+              diem: Number(t.diem) || 0,
+              trang_thai: 'Chưa đánh giá',
+            }))
+          : undefined,
+      template_id: it.template_id ?? null,
+    }));
+    const nextTenTask: CongViecTenTaskJsonb = {
+      ...current,
+      quy_trinh_items: [...existing, ...toAdd],
+    };
+    const tenNames = toAdd.map((x) => x.ten_task.trim()).filter(Boolean);
+    const lichSuNext = appendLichSuEntry(detail.lich_su, {
+      ten: 'Quy trình',
+      hanh_vi:
+        toAdd.length === 1
+          ? `Thêm bước quy trình: ${tenNames[0] || '(không tên)'}`
+          : `Thêm ${toAdd.length} bước vào quy trình`,
+      ghi_chu: tenNames.length ? tenNames.join(' · ') : null,
+    });
+    return this.saveTenTaskJsonbWithQuyTrinhProgress(detail, nextTenTask, {
+      lich_su: lichSuNext,
+    });
+  },
+
+  /** Cập nhật một phần tử trong `ten_task.quy_trinh_items` (có thể thay `tieu_chuan` / checklist con). */
+  async updateQuyTrinhItem(
+    lookupId: string,
+    itemId: string,
+    patch: {
+      ten_task?: string;
+      noi_dung_tieu_chuan?: string;
+      trang_thai?: string;
+      ghi_chu?: string;
+      /** Nếu có — thay toàn bộ checklist con; mảng rỗng = xóa checklist */
+      tieu_chuan?: QuyTrinhTieuChuanDong[];
+    },
+  ): Promise<TaskDetailRow> {
+    const detail = await this.findDetailByIdOrTaskId(lookupId);
+    if (!detail) {
+      throw new Error('Không tìm thấy bản ghi công việc để cập nhật quy trình.');
+    }
+    const current = parseCongViecTenTaskColumn(
+      detail.ten_task,
+      detail.ten_cong_viec || '',
+    );
+    const list = [...(current.quy_trinh_items ?? [])];
+    const idx = list.findIndex((x) => x.id === itemId);
+    if (idx === -1) {
+      throw new Error('Không tìm thấy bước quy trình.');
+    }
+    const prev = list[idx];
+    let nextTieuChuan: QuyTrinhTieuChuanDong[] | undefined = prev.tieu_chuan;
+    if (patch.tieu_chuan !== undefined) {
+      const raw = patch.tieu_chuan.filter((t) => String(t?.noi_dung ?? '').trim());
+      nextTieuChuan =
+        raw.length > 0
+          ? raw.map((t) => {
+              const tt = String(t.trang_thai ?? '').trim() || 'Chưa đánh giá';
+              return {
+                id:
+                  typeof t.id === 'string' && t.id
+                    ? t.id
+                    : crypto.randomUUID(),
+                noi_dung: String(t.noi_dung ?? '').trim(),
+                diem: Number(t.diem) || 0,
+                trang_thai: tt,
+              };
+            })
+          : undefined;
+    }
+    list[idx] = {
+      ...prev,
+      ten_task: patch.ten_task !== undefined ? patch.ten_task.trim() : prev.ten_task,
+      noi_dung_tieu_chuan:
+        patch.noi_dung_tieu_chuan !== undefined
+          ? patch.noi_dung_tieu_chuan.trim()
+          : prev.noi_dung_tieu_chuan,
+      trang_thai:
+        patch.trang_thai !== undefined ? patch.trang_thai.trim() : prev.trang_thai,
+      ghi_chu: patch.ghi_chu !== undefined ? patch.ghi_chu.trim() : prev.ghi_chu,
+      tieu_chuan: nextTieuChuan,
+    };
+    const nextTenTask: CongViecTenTaskJsonb = {
+      ...current,
+      quy_trinh_items: list,
+    };
+    return this.saveTenTaskJsonbWithQuyTrinhProgress(detail, nextTenTask);
+  },
+
+  /** Cập nhật trạng thái một dòng checklist trong `quy_trinh_items` (theo chỉ số, tương thích dữ liệu cũ không có `id`). */
+  async updateQuyTrinhChecklistLine(
+    lookupId: string,
+    quyTrinhItemId: string,
+    lineIndex: number,
+    trangThai: string,
+  ): Promise<TaskDetailRow> {
+    const detail = await this.findDetailByIdOrTaskId(lookupId);
+    if (!detail) {
+      throw new Error('Không tìm thấy bản ghi công việc để cập nhật quy trình.');
+    }
+    const current = parseCongViecTenTaskColumn(
+      detail.ten_task,
+      detail.ten_cong_viec || '',
+    );
+    const list = [...(current.quy_trinh_items ?? [])];
+    const idx = list.findIndex((x) => x.id === quyTrinhItemId);
+    if (idx === -1) {
+      throw new Error('Không tìm thấy bước quy trình.');
+    }
+    const tieuRaw = [...(list[idx].tieu_chuan || [])];
+    if (lineIndex < 0 || lineIndex >= tieuRaw.length) {
+      throw new Error('Không tìm thấy dòng checklist.');
+    }
+    const row = tieuRaw[lineIndex];
+    tieuRaw[lineIndex] = {
+      ...row,
+      id: row.id || crypto.randomUUID(),
+      trang_thai: (trangThai || 'Chưa đánh giá').trim() || 'Chưa đánh giá',
+    };
+    list[idx] = { ...list[idx], tieu_chuan: tieuRaw };
+    const nextTenTask: CongViecTenTaskJsonb = {
+      ...current,
+      quy_trinh_items: list,
+    };
+    return this.saveTenTaskJsonbWithQuyTrinhProgress(detail, nextTenTask);
+  },
+
+  /** Xóa một phần tử khỏi `ten_task.quy_trinh_items`. */
+  async removeQuyTrinhItem(lookupId: string, itemId: string): Promise<TaskDetailRow> {
+    const detail = await this.findDetailByIdOrTaskId(lookupId);
+    if (!detail) {
+      throw new Error('Không tìm thấy bản ghi công việc để cập nhật quy trình.');
+    }
+    const current = parseCongViecTenTaskColumn(
+      detail.ten_task,
+      detail.ten_cong_viec || '',
+    );
+    const before = current.quy_trinh_items ?? [];
+    const list = before.filter((x) => x.id !== itemId);
+    if (list.length === before.length) {
+      throw new Error('Không tìm thấy bước quy trình.');
+    }
+    const nextTenTask: CongViecTenTaskJsonb = {
+      ...current,
+      quy_trinh_items: list,
+    };
+    return this.saveTenTaskJsonbWithQuyTrinhProgress(detail, nextTenTask);
+  },
+
+  /** Đổi chỗ hai bước liền kề trong `ten_task.quy_trinh_items` (lên / xuống). */
+  async moveQuyTrinhItem(
+    lookupId: string,
+    itemId: string,
+    direction: 'up' | 'down',
+  ): Promise<TaskDetailRow> {
+    const detail = await this.findDetailByIdOrTaskId(lookupId);
+    if (!detail) {
+      throw new Error('Không tìm thấy bản ghi công việc để cập nhật quy trình.');
+    }
+    const current = parseCongViecTenTaskColumn(
+      detail.ten_task,
+      detail.ten_cong_viec || '',
+    );
+    const list = [...(current.quy_trinh_items ?? [])];
+    const idx = list.findIndex((x) => x.id === itemId);
+    if (idx === -1) {
+      throw new Error('Không tìm thấy bước quy trình.');
+    }
+    const j = direction === 'up' ? idx - 1 : idx + 1;
+    if (j < 0 || j >= list.length) {
+      return detail;
+    }
+    const tmp = list[idx];
+    list[idx] = list[j];
+    list[j] = tmp;
+    const nextTenTask: CongViecTenTaskJsonb = {
+      ...current,
+      quy_trinh_items: list,
+    };
+    return this.saveTenTaskJsonbWithQuyTrinhProgress(detail, nextTenTask);
+  },
+
+  /** Đặt lại toàn bộ thứ tự `quy_trinh_items` theo danh sách id (kéo-thả). */
+  async setQuyTrinhItemsOrder(
+    lookupId: string,
+    orderedItemIds: string[],
+  ): Promise<TaskDetailRow> {
+    const detail = await this.findDetailByIdOrTaskId(lookupId);
+    if (!detail) {
+      throw new Error('Không tìm thấy bản ghi công việc để cập nhật quy trình.');
+    }
+    const current = parseCongViecTenTaskColumn(
+      detail.ten_task,
+      detail.ten_cong_viec || '',
+    );
+    const list = [...(current.quy_trinh_items ?? [])];
+    if (orderedItemIds.length !== list.length) {
+      throw new Error('Danh sách bước không khớp.');
+    }
+    const byId = new Map(list.map((x) => [x.id, x]));
+    const seen = new Set<string>();
+    const reordered: QuyTrinhLamViecItem[] = [];
+    for (const id of orderedItemIds) {
+      const row = byId.get(id);
+      if (!row || seen.has(id)) {
+        throw new Error('Thứ tự bước không hợp lệ.');
+      }
+      seen.add(id);
+      reordered.push(row);
+    }
+    if (seen.size !== list.length) {
+      throw new Error('Thiếu bước trong thứ tự mới.');
+    }
+    const nextTenTask: CongViecTenTaskJsonb = {
+      ...current,
+      quy_trinh_items: reordered,
+    };
+    return this.saveTenTaskJsonbWithQuyTrinhProgress(detail, nextTenTask);
+  },
+
+  /**
+   * Gán / đổi `hop_dong_id` cho công việc (bản ghi `cong_viec_chi_tiet`).
+   * Nếu có `task_id`, đồng bộ luôn bảng `task` để lọc theo hợp đồng khớp.
+   */
+  async updateHopDongByTaskLookup(
+    lookupId: string,
+    hop_dong_id: string | null,
+  ): Promise<TaskDetailRow> {
+    const detail = await this.findDetailByIdOrTaskId(lookupId);
+    if (!detail) {
+      throw new Error('Không tìm thấy công việc.');
+    }
+    const hop = hop_dong_id?.trim() || null;
+
+    const { data, error } = await supabase
+      .from('cong_viec_chi_tiet')
+      .update({ hop_dong_id: hop })
+      .eq('id', detail.id)
+      .select('*')
+      .single();
+
+    if (error) {
+      console.error('[taskDetailService] updateHopDongByTaskLookup:', error);
+      throw error;
+    }
+
+    const taskId = detail.task_id?.toString().trim();
+    if (taskId) {
+      const { error: taskErr } = await supabase
+        .from('task')
+        .update({ hop_dong_id: hop })
+        .eq('id', taskId);
+      if (taskErr) {
+        console.error('[taskDetailService] sync task.hop_dong_id:', taskErr);
+      }
+    }
+
+    return this.normalizeRow(data);
+  },
+
+  /** Thêm một dòng vào jsonb `loi_ghi_nhan` (snapshot từ thư viện lỗi + nhân sự). */
+  async appendLoiGhiNhan(
+    lookupId: string,
+    input: {
+      thu_vien_loi_id: string;
+      chuyen_nganh: string;
+      bo_mon: string;
+      canh_bao_loi: string;
+      hang_muc_kiem_tra: string;
+      noi_dung_kiem_tra: string;
+      nguoi_vi_pham_id: string;
+      nguoi_vi_pham_ten: string;
+      ghi_chu: string;
+    },
+  ): Promise<TaskDetailRow> {
+    const detail = await this.findDetailByIdOrTaskId(lookupId);
+    if (!detail) {
+      throw new Error('Không tìm thấy công việc.');
+    }
+    const existing = parseLoiGhiNhanColumn((detail as any).loi_ghi_nhan);
+    const row: LoiGhiNhanItem = {
+      id: crypto.randomUUID(),
+      thu_vien_loi_id: input.thu_vien_loi_id.trim(),
+      chuyen_nganh: input.chuyen_nganh.trim(),
+      bo_mon: input.bo_mon.trim(),
+      canh_bao_loi: input.canh_bao_loi.trim(),
+      hang_muc_kiem_tra: input.hang_muc_kiem_tra.trim(),
+      noi_dung_kiem_tra: input.noi_dung_kiem_tra.trim(),
+      nguoi_vi_pham_id: input.nguoi_vi_pham_id.trim(),
+      nguoi_vi_pham_ten: input.nguoi_vi_pham_ten.trim(),
+      ghi_chu: input.ghi_chu.trim(),
+      ngay_gio: new Date().toISOString(),
+    };
+    const next = [...existing, row];
+    const { data, error } = await supabase
+      .from('cong_viec_chi_tiet')
+      .update({ loi_ghi_nhan: next })
+      .eq('id', detail.id)
+      .select('*')
+      .single();
+
+    if (error) {
+      console.error('[taskDetailService] appendLoiGhiNhan:', error);
+      throw error;
+    }
+
+    return this.normalizeRow(data);
+  },
+
+  /** Một lần bấm — thêm nhiều dòng (cùng thư viện lỗi + ghi chú), mỗi người vi phạm một dòng. */
+  async appendLoiGhiNhanMany(
+    lookupId: string,
+    payload: {
+      thu_vien_loi_id: string;
+      chuyen_nganh: string;
+      bo_mon: string;
+      canh_bao_loi: string;
+      hang_muc_kiem_tra: string;
+      noi_dung_kiem_tra: string;
+      ghi_chu: string;
+    },
+    violators: { id: string; ten: string }[],
+  ): Promise<TaskDetailRow> {
+    if (!violators.length) {
+      throw new Error('Chọn ít nhất một người vi phạm.');
+    }
+    const detail = await this.findDetailByIdOrTaskId(lookupId);
+    if (!detail) {
+      throw new Error('Không tìm thấy công việc.');
+    }
+    const existing = parseLoiGhiNhanColumn((detail as any).loi_ghi_nhan);
+    const base = {
+      thu_vien_loi_id: payload.thu_vien_loi_id.trim(),
+      chuyen_nganh: payload.chuyen_nganh.trim(),
+      bo_mon: payload.bo_mon.trim(),
+      canh_bao_loi: payload.canh_bao_loi.trim(),
+      hang_muc_kiem_tra: payload.hang_muc_kiem_tra.trim(),
+      noi_dung_kiem_tra: payload.noi_dung_kiem_tra.trim(),
+      ghi_chu: payload.ghi_chu.trim(),
+    };
+    const now = new Date().toISOString();
+    const newRows: LoiGhiNhanItem[] = violators.map((v) => ({
+      id: crypto.randomUUID(),
+      ...base,
+      nguoi_vi_pham_id: v.id.trim(),
+      nguoi_vi_pham_ten: v.ten.trim(),
+      ngay_gio: now,
+    }));
+    const next = [...existing, ...newRows];
+    const { data, error } = await supabase
+      .from('cong_viec_chi_tiet')
+      .update({ loi_ghi_nhan: next })
+      .eq('id', detail.id)
+      .select('*')
+      .single();
+
+    if (error) {
+      console.error('[taskDetailService] appendLoiGhiNhanMany:', error);
+      throw error;
+    }
+
+    return this.normalizeRow(data);
+  },
+
+  async removeLoiGhiNhan(lookupId: string, itemId: string): Promise<TaskDetailRow> {
+    const detail = await this.findDetailByIdOrTaskId(lookupId);
+    if (!detail) {
+      throw new Error('Không tìm thấy công việc.');
+    }
+    const existing = parseLoiGhiNhanColumn((detail as any).loi_ghi_nhan);
+    const next = existing.filter((x) => x.id !== itemId);
+    if (next.length === existing.length) {
+      throw new Error('Không tìm thấy bản ghi lỗi.');
+    }
+    const { data, error } = await supabase
+      .from('cong_viec_chi_tiet')
+      .update({ loi_ghi_nhan: next })
+      .eq('id', detail.id)
+      .select('*')
+      .single();
+
+    if (error) {
+      console.error('[taskDetailService] removeLoiGhiNhan:', error);
+      throw error;
+    }
+
+    return this.normalizeRow(data);
+  },
+
   // Xóa công việc theo "task id" logic (task_id hoặc id)
   async deleteByTaskId(taskId: string): Promise<void> {
     const { error } = await supabase
@@ -476,21 +1301,46 @@ export const taskDetailService = {
     return {
       ...row,
       ten_task_detail,
+      loi_ghi_nhan: parseLoiGhiNhanColumn(row.loi_ghi_nhan),
       tai_lieu: (row.tai_lieu || []) as TaskDetailDocument[],
       binh_luan: (row.binh_luan || []) as TaskDetailComment[],
-      lich_su: (row.lich_su || []) as TaskDetailHistory[],
+      lich_su: coerceLichSuArray(row.lich_su),
       buoc_danh_gia,
     };
   },
 
-  // Cập nhật các bước đánh giá (phê duyệt) cho công việc chi tiết
+  // Cập nhật các bước đánh giá (phê duyệt) cho công việc chi tiết; tuỳ chọn ghi thêm dòng `lich_su`.
   async updateBuocDanhGia(
     detailId: string,
     buocDanhGia: BuocDanhGia[],
+    historyEntry?: {
+      ten?: string;
+      hanh_vi: string;
+      ghi_chu?: string | null;
+    },
   ): Promise<TaskDetailRow> {
+    const payload: Record<string, unknown> = { buoc_danh_gia: buocDanhGia };
+
+    if (historyEntry?.hanh_vi) {
+      const { data: cur, error: fetchErr } = await supabase
+        .from('cong_viec_chi_tiet')
+        .select('lich_su')
+        .eq('id', detailId)
+        .single();
+      if (fetchErr) {
+        console.error('[taskDetailService] updateBuocDanhGia fetch lich_su:', fetchErr);
+        throw fetchErr;
+      }
+      payload.lich_su = appendLichSuEntry(cur?.lich_su, {
+        ten: historyEntry.ten || 'Phê duyệt',
+        hanh_vi: historyEntry.hanh_vi,
+        ghi_chu: historyEntry.ghi_chu ?? null,
+      });
+    }
+
     const { data, error } = await supabase
       .from('cong_viec_chi_tiet')
-      .update({ buoc_danh_gia: buocDanhGia })
+      .update(payload)
       .eq('id', detailId)
       .select('*')
       .single();

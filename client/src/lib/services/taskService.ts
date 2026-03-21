@@ -1,5 +1,26 @@
 import { api } from '../api';
 
+/** Một dòng checklist trong bước quy trình (lưu trong jsonb) */
+export interface QuyTrinhTieuChuanDong {
+  id?: string;
+  noi_dung: string;
+  diem: number;
+  /** Chưa đánh giá | Đạt | Không đạt */
+  trang_thai?: string;
+}
+
+/** Một dòng trong quy trình — chỉ lưu trong jsonb `ten_task`, không tạo `ten_cong_viec` mới */
+export interface QuyTrinhLamViecItem {
+  id: string;
+  ten_task: string;
+  noi_dung_tieu_chuan: string;
+  /** Đạt | Không đạt | Chưa đánh giá | '' */
+  trang_thai: string;
+  ghi_chu: string;
+  tieu_chuan?: QuyTrinhTieuChuanDong[];
+  template_id?: string | null;
+}
+
 /** Dữ liệu lưu cột jsonb `cong_viec_chi_tiet.ten_task` */
 export interface CongViecTenTaskJsonb {
   ten_task: string;
@@ -7,6 +28,8 @@ export interface CongViecTenTaskJsonb {
   /** Đạt | Không đạt | Chưa đánh giá | '' */
   trang_thai: string;
   ghi_chu: string;
+  /** Các bước quy trình (chỉ jsonb, không insert bảng) */
+  quy_trinh_items?: QuyTrinhLamViecItem[];
 }
 
 export interface TaskRow {
