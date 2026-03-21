@@ -1,15 +1,21 @@
-import { GoogleGenerativeAI } from '@google/generative-ai';
-import dotenv from 'dotenv';
+import { GoogleGenerativeAI, type GenerativeModel } from '@google/generative-ai';
 
-dotenv.config();
+let model: GenerativeModel | null | undefined;
 
-const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || '');
-const model = genAI.getGenerativeModel({ model: 'gemini-1.5-flash' });
+function getModel(): GenerativeModel | null {
+  const key = process.env.GEMINI_API_KEY;
+  if (!key) return null;
+  if (model === undefined) {
+    const genAI = new GoogleGenerativeAI(key);
+    model = genAI.getGenerativeModel({ model: 'gemini-1.5-flash' });
+  }
+  return model;
+}
 
 export const aiService = {
   async generateResponse(userInput: string) {
-    if (!process.env.GEMINI_API_KEY) {
-      // Fallback if no API key
+    const m = getModel();
+    if (!m) {
       return this.generateMockResponse(userInput);
     }
 
@@ -19,7 +25,7 @@ export const aiService = {
       Hãy trả lời thân thiện, chuyên nghiệp và ngắn gọn.
       Câu hỏi của người dùng: "${userInput}"`;
 
-      const result = await model.generateContent(prompt);
+      const result = await m.generateContent(prompt);
       const response = await result.response;
       return response.text();
     } catch (error) {
@@ -33,5 +39,5 @@ export const aiService = {
     if (lowerInput.includes('chào')) return 'Xin chào! Tôi có thể giúp gì cho bạn?';
     if (lowerInput.includes('lương')) return 'Dữ liệu lương hiện chưa được đồng bộ hoàn toàn. Bạn vui lòng kiểm tra lại sau.';
     return `Tôi đã nhận được câu hỏi: "${userInput}". Tôi đang được bảo trì phần trí tuệ nhân tạo, vui lòng quay lại sau!`;
-  }
+  },
 };

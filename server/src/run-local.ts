@@ -6,7 +6,4 @@ app.listen(port, () => {
   console.log(`Server is running at http://localhost:${port}`);
 });
 
-// Diagnostic interval to keep process alive (local dev only)
-setInterval(() => {
-  // console.log('Keep alive check...');
-}, 60000);
+setInterval(() => {}, 60000);
