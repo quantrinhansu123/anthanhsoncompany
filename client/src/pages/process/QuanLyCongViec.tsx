@@ -153,7 +153,18 @@ export function QuanLyCongViec() {
   >({});
   const [detailByTask, setDetailByTask] = useState<Record<string, TaskDetailRow>>({});
   const [showEmployeeDropdown, setShowEmployeeDropdown] = useState(false);
-  const [workflowTaskIds, setWorkflowTaskIds] = useState<string[]>([]);
+  /** Mỗi công việc (bên trái) có danh sách id task mẫu gắn vào quy trình riêng */
+  const [workflowByParentId, setWorkflowByParentId] = useState<Record<string, string[]>>(
+    {},
+  );
+  const workflowTaskIdsForSelected = useMemo(() => {
+    if (!selected?.id) return [];
+    return workflowByParentId[selected.id] ?? [];
+  }, [selected?.id, workflowByParentId]);
+
+  useEffect(() => {
+    if (!selected) setShowAddTaskDropdown(false);
+  }, [selected]);
   const [templateByTaskId, setTemplateByTaskId] = useState<Record<string, TaskTemplateRow>>({});
   const [showAddTaskDropdown, setShowAddTaskDropdown] = useState(false);
   const [addTaskCheckboxIds, setAddTaskCheckboxIds] = useState<string[]>([]);
@@ -934,13 +945,25 @@ export function QuanLyCongViec() {
         {/* Quy trình làm việc (phải) */}
         <div className="lg:col-span-3 bg-white border border-slate-200 rounded-xl shadow-sm flex flex-col min-h-0">
           <div className="px-4 py-3 border-b border-slate-100 flex items-center justify-between gap-2 flex-wrap">
-            <h3 className="text-xs font-semibold text-slate-800 uppercase tracking-wide">
-              Quy trình làm việc
-            </h3>
-            <div className="relative">
+            <div className="min-w-0 flex-1">
+              <h3 className="text-xs font-semibold text-slate-800 uppercase tracking-wide">
+                Quy trình làm việc
+              </h3>
+              {selected ? (
+                <p className="text-[10px] text-slate-500 truncate mt-0.5" title={selected.ten_task}>
+                  Theo công việc: <span className="font-medium text-slate-600">{selected.ten_task}</span>
+                </p>
+              ) : (
+                <p className="text-[10px] text-amber-700 mt-0.5">Chọn công việc bên trái trước</p>
+              )}
+            </div>
+            <div className="relative shrink-0">
               <button
                 type="button"
+                title={!selected ? 'Chọn một công việc ở danh sách bên trái' : undefined}
+                disabled={!selected}
                 onClick={() => {
+                  if (!selected) return;
                   setShowAddTaskDropdown((prev) => {
                     const next = !prev;
                     if (next) {
@@ -954,7 +977,7 @@ export function QuanLyCongViec() {
                   });
                   if (!showAddTaskDropdown) setAddTaskCheckboxIds([]);
                 }}
-                className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border border-blue-200 bg-blue-50 text-blue-700 text-[11px] font-semibold hover:bg-blue-100"
+                className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border border-blue-200 bg-blue-50 text-blue-700 text-[11px] font-semibold hover:bg-blue-100 disabled:opacity-45 disabled:cursor-not-allowed disabled:hover:bg-blue-50"
               >
                 <Plus className="w-3.5 h-3.5" />
                 Thêm task
@@ -968,7 +991,8 @@ export function QuanLyCongViec() {
                   />
                   <div className="absolute right-0 top-full mt-1 z-20 w-[22rem] max-h-[min(32rem,85vh)] overflow-hidden rounded-xl border border-slate-200 bg-white shadow-lg flex flex-col">
                     <div className="px-3 py-2 border-b border-slate-100 text-[11px] font-semibold text-slate-600">
-                      Chọn task đưa vào quy trình (tickbox)
+                      Gắn vào:{' '}
+                      <span className="text-slate-800">{selected?.ten_task || '—'}</span>
                     </div>
                     <div className="overflow-y-auto py-1 flex-1 min-h-0">
                       {templateItems.length === 0 ? (
@@ -1067,6 +1091,11 @@ export function QuanLyCongViec() {
                         disabled={addTaskCheckboxIds.length === 0 || addTaskSaving}
                         onClick={async () => {
                           if (addTaskCheckboxIds.length === 0) return;
+                          const parentId = selected?.id;
+                          if (!parentId) {
+                            alert('Vui lòng chọn một công việc ở danh sách bên trái.');
+                            return;
+                          }
                           setAddTaskSaving(true);
                           try {
                             const created: { task: TaskRow; template: TaskTemplateRow }[] = [];
@@ -1103,10 +1132,13 @@ export function QuanLyCongViec() {
                             if (created.length > 0) {
                               const newTasks = created.map((c) => c.task);
                               setTasks((prev) => [...newTasks, ...prev]);
-                              setWorkflowTaskIds((prev) => [
+                              setWorkflowByParentId((prev) => ({
                                 ...prev,
-                                ...newTasks.map((t) => t.id),
-                              ]);
+                                [parentId]: [
+                                  ...(prev[parentId] || []),
+                                  ...newTasks.map((t) => t.id),
+                                ],
+                              }));
                               setTemplateByTaskId((prev) => {
                                 const next = { ...prev };
                                 created.forEach(({ task, template }) => {
@@ -1114,7 +1146,6 @@ export function QuanLyCongViec() {
                                 });
                                 return next;
                               });
-                              setSelected(newTasks[0]);
                               setShowAddTaskDropdown(false);
                               setAddTaskCheckboxIds([]);
                             }
@@ -1135,10 +1166,15 @@ export function QuanLyCongViec() {
             </div>
           </div>
           <div className="p-4 space-y-4 text-xs overflow-y-auto flex-1">
-            {/* Các nhóm task trong quy trình: tên group + checkbox tiêu chuẩn */}
-            {workflowTaskIds.length > 0 ? (
-              <div className="space-y-4">
-                {workflowTaskIds.map((taskId) => {
+            {!selected ? (
+              <p className="text-xs text-slate-500">
+                Chọn một công việc ở danh sách bên trái để xem quy trình làm việc gắn với công việc đó.
+              </p>
+            ) : (
+              <>
+                {workflowTaskIdsForSelected.length > 0 ? (
+                  <div className="space-y-4">
+                    {workflowTaskIdsForSelected.map((taskId) => {
                   const task = tasks.find((t) => t.id === taskId);
                   const template = templateByTaskId[taskId];
                   const statusMap = standardStatusByTask[taskId] || {};
@@ -1229,16 +1265,25 @@ export function QuanLyCongViec() {
                     </div>
                   );
                 })}
+                  </div>
+                ) : (
+                  <p className="text-xs text-slate-500">
+                    Chưa có task mẫu nào trong quy trình của công việc này. Bấm &quot;Thêm task&quot; để
+                    chọn từ danh sách mẫu — chỉ áp dụng cho công việc đang chọn.
+                  </p>
+                )}
 
-                {/* Bước đánh giá (phê duyệt / từ chối) cho công việc đang chọn */}
-                {selected && (
-                  <>
-                    <div className="border-t border-slate-200 pt-3 mt-3">
-                      <p className="text-[11px] font-semibold text-slate-600 uppercase tracking-wide mb-2">
-                        Bước đánh giá — {selected.ten_task}
-                      </p>
-                    </div>
-                    {(() => {
+                <div
+                  className={
+                    workflowTaskIdsForSelected.length > 0
+                      ? 'border-t border-slate-200 pt-3 mt-3 space-y-3'
+                      : 'pt-1 space-y-3'
+                  }
+                >
+                  <p className="text-[11px] font-semibold text-slate-600 uppercase tracking-wide">
+                    Bước đánh giá — {selected.ten_task}
+                  </p>
+                  {(() => {
                       const detail = detailByTask[selected.id];
                       const steps = detail?.buoc_danh_gia ?? DEFAULT_BUOC_DANH_GIA;
                       const currentIndex = steps.findIndex((s) => s.trang_thai === 'cho');
@@ -1307,13 +1352,8 @@ export function QuanLyCongViec() {
                         );
                       });
                     })()}
-                  </>
-                )}
-              </div>
-            ) : (
-              <p className="text-xs text-slate-500">
-                Dùng nút &quot;Thêm task&quot; để chọn template từ Danh sách Task và đưa vào quy trình. Mỗi task sẽ hiện dưới dạng nhóm, bên dưới là checkbox các tiêu chuẩn.
-              </p>
+                </div>
+              </>
             )}
           </div>
         </div>
