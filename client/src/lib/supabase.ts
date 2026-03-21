@@ -1,16 +1,12 @@
 import { createClient } from '@supabase/supabase-js';
 
-const supabaseUrl =
-  import.meta.env.VITE_SUPABASE_URL || 'https://owftpuxwujdaruqnyjlq.supabase.co';
-const supabaseAnonKey =
-  import.meta.env.VITE_SUPABASE_ANON_KEY ||
-  'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im93ZnRwdXh3dWpkYXJ1cW55amxxIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzM1OTI2NDUsImV4cCI6MjA4OTE2ODY0NX0.dHxwd6NpJvm6TIRUgbjqtuOuVE2KrshNAVB3DgUC5yg';
+const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
+const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
 
-if (!supabaseUrl || !supabaseAnonKey) {
+if (!supabaseUrl?.trim() || !supabaseAnonKey?.trim()) {
   throw new Error(
-    'Missing Supabase env vars: VITE_SUPABASE_URL and/or VITE_SUPABASE_ANON_KEY'
+    'Missing Supabase: set VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY in client/.env (see .env.example). Use Project URL from Supabase Dashboard → Settings → API.'
   );
 }
 
-// Create a single supabase client for interacting with your database
 export const supabase = createClient(supabaseUrl, supabaseAnonKey);
