@@ -5,8 +5,15 @@ import path from 'path';
 import {defineConfig, loadEnv} from 'vite';
 
 export default defineConfig(({mode}) => {
-  const env = loadEnv(mode, '.', '');
+  // Supabase lives in ../server/.env; default Vite only reads client/.env
+  const serverEnvDir = path.resolve(__dirname, '../server');
+  const clientEnvDir = path.resolve(__dirname, '.');
+  const env = {
+    ...loadEnv(mode, serverEnvDir, ''),
+    ...loadEnv(mode, clientEnvDir, ''),
+  };
   return {
+    envDir: serverEnvDir,
     plugins: [tailwindcss(), react()],
     define: {
       'process.env.GEMINI_API_KEY': JSON.stringify(env.GEMINI_API_KEY),
