@@ -181,6 +181,8 @@ export function QuanLyCongViec() {
     trang_thai_tieu_chuan: '',
     ghi_chu_tieu_chuan: '',
   });
+  const [addCustomTaskTen, setAddCustomTaskTen] = useState('');
+  const [addCustomTaskMoTa, setAddCustomTaskMoTa] = useState('');
   const [approveModal, setApproveModal] = useState<{
     open: boolean;
     detailId: string;
@@ -972,6 +974,8 @@ export function QuanLyCongViec() {
                         trang_thai_tieu_chuan: '',
                         ghi_chu_tieu_chuan: '',
                       });
+                      setAddCustomTaskTen('');
+                      setAddCustomTaskMoTa('');
                     }
                     return next;
                   });
@@ -994,10 +998,149 @@ export function QuanLyCongViec() {
                       Gắn vào:{' '}
                       <span className="text-slate-800">{selected?.ten_task || '—'}</span>
                     </div>
+                    <div className="px-3 py-2 border-b border-slate-100 space-y-2 bg-emerald-50/50">
+                      <p className="text-[10px] font-bold text-emerald-800 uppercase tracking-wide">
+                        Task mới (tự nhập)
+                      </p>
+                      <input
+                        type="text"
+                        value={addCustomTaskTen}
+                        onChange={(e) => setAddCustomTaskTen(e.target.value)}
+                        placeholder="Tên task *"
+                        className="w-full rounded-lg border border-emerald-200 px-2 py-1.5 text-[11px] bg-white"
+                      />
+                      <textarea
+                        rows={2}
+                        value={addCustomTaskMoTa}
+                        onChange={(e) => setAddCustomTaskMoTa(e.target.value)}
+                        placeholder="Mô tả (tuỳ chọn)"
+                        className="w-full rounded-lg border border-emerald-200 px-2 py-1.5 text-[11px] bg-white resize-none"
+                      />
+                      <div className="rounded-lg border border-emerald-200/80 bg-white p-2 space-y-2">
+                        <p className="text-[9px] font-semibold text-slate-600 uppercase">
+                          Tiêu chuẩn (jsonb ten_task)
+                        </p>
+                        <textarea
+                          rows={2}
+                          value={addTaskTieuForm.noi_dung_tieu_chuan}
+                          onChange={(e) =>
+                            setAddTaskTieuForm((p) => ({
+                              ...p,
+                              noi_dung_tieu_chuan: e.target.value,
+                            }))
+                          }
+                          className="w-full rounded border border-slate-200 px-2 py-1 text-[11px]"
+                          placeholder="Nội dung (tuỳ chọn, để trống = dùng mô tả)"
+                        />
+                        <select
+                          value={addTaskTieuForm.trang_thai_tieu_chuan}
+                          onChange={(e) =>
+                            setAddTaskTieuForm((p) => ({
+                              ...p,
+                              trang_thai_tieu_chuan: e.target.value,
+                            }))
+                          }
+                          className="w-full rounded border border-slate-200 px-2 py-1 text-[11px]"
+                        >
+                          <option value="">Chưa đánh giá</option>
+                          <option value="Đạt">Đạt</option>
+                          <option value="Không đạt">Không đạt</option>
+                        </select>
+                        <textarea
+                          rows={2}
+                          value={addTaskTieuForm.ghi_chu_tieu_chuan}
+                          onChange={(e) =>
+                            setAddTaskTieuForm((p) => ({
+                              ...p,
+                              ghi_chu_tieu_chuan: e.target.value,
+                            }))
+                          }
+                          className="w-full rounded border border-slate-200 px-2 py-1 text-[11px]"
+                          placeholder="Ghi chú (jsonb)"
+                        />
+                      </div>
+                      <button
+                        type="button"
+                        disabled={addTaskSaving || !addCustomTaskTen.trim()}
+                        onClick={async () => {
+                          const parentId = selected?.id;
+                          if (!parentId) {
+                            alert('Vui lòng chọn một công việc ở danh sách bên trái.');
+                            return;
+                          }
+                          const ten = addCustomTaskTen.trim();
+                          if (!ten) return;
+                          setAddTaskSaving(true);
+                          try {
+                            const trangThaiTc =
+                              addTaskTieuForm.trang_thai_tieu_chuan.trim() ||
+                              'Chưa đánh giá';
+                            const noiDung =
+                              addTaskTieuForm.noi_dung_tieu_chuan.trim() ||
+                              addCustomTaskMoTa.trim() ||
+                              '';
+                            const newTask = await taskDetailService.createFromForm({
+                              ten_task: ten,
+                              mo_ta: addCustomTaskMoTa.trim() || null,
+                              trang_thai: 'Chưa bắt đầu',
+                              uu_tien: 'Trung bình',
+                              tien_do: 0,
+                              ghi_chu: null,
+                              hop_dong_id: '',
+                              noi_dung_tieu_chuan: noiDung,
+                              trang_thai_tieu_chuan: trangThaiTc,
+                              ghi_chu_tieu_chuan:
+                                addTaskTieuForm.ghi_chu_tieu_chuan.trim() || null,
+                            });
+                            const syntheticTpl: TaskTemplateRow = {
+                              id: `custom-${newTask.id}`,
+                              loai_cv: '',
+                              cv: '',
+                              task: ten,
+                              mo_ta: addCustomTaskMoTa.trim() || null,
+                              tieu_chuan: [],
+                              cac_buoc: [],
+                            };
+                            setTasks((prev) => [newTask, ...prev]);
+                            setWorkflowByParentId((prev) => ({
+                              ...prev,
+                              [parentId]: [...(prev[parentId] || []), newTask.id],
+                            }));
+                            setTemplateByTaskId((prev) => ({
+                              ...prev,
+                              [newTask.id]: syntheticTpl,
+                            }));
+                            setAddCustomTaskTen('');
+                            setAddCustomTaskMoTa('');
+                            setShowAddTaskDropdown(false);
+                          } catch (err) {
+                            console.error('[QuanLyCongViec] Error creating custom task:', err);
+                            alert('Không thể tạo task. Kiểm tra kết nối hoặc quyền Supabase.');
+                          } finally {
+                            setAddTaskSaving(false);
+                          }
+                        }}
+                        className="w-full py-1.5 rounded-lg bg-emerald-600 text-white text-[11px] font-semibold hover:bg-emerald-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                      >
+                        {addTaskSaving ? 'Đang tạo...' : 'Thêm task tùy chỉnh'}
+                      </button>
+                    </div>
+                    <div className="px-3 py-2 border-b border-slate-100 space-y-2 bg-slate-50/80">
+                      <p className="text-[10px] font-semibold text-slate-600 uppercase tracking-wide">
+                        Khi chọn mẫu — tiêu chuẩn jsonb (đã nhập ở trên vẫn dùng được)
+                      </p>
+                      <p className="text-[9px] text-slate-500 leading-snug">
+                        Tick mẫu bên dưới rồi bấm &quot;Thêm vào quy trình&quot;. Nội dung / trạng thái / ghi chú
+                        jsonb lấy từ ô trong phần Task mới (tự nhập) phía trên.
+                      </p>
+                    </div>
+                    <div className="px-3 py-1.5 bg-slate-100/80 text-[10px] font-semibold text-slate-500 uppercase">
+                      Hoặc chọn từ mẫu
+                    </div>
                     <div className="overflow-y-auto py-1 flex-1 min-h-0">
                       {templateItems.length === 0 ? (
                         <p className="px-3 py-2 text-[11px] text-slate-400">
-                          Chưa có task nào.
+                          Chưa có mẫu — dùng phần &quot;Task mới&quot; phía trên.
                         </p>
                       ) : (
                         templateItems.map((tpl) => {
@@ -1026,64 +1169,6 @@ export function QuanLyCongViec() {
                           );
                         })
                       )}
-                    </div>
-                    <div className="px-3 py-2 border-t border-slate-100 space-y-2 bg-slate-50/80">
-                      <p className="text-[10px] font-semibold text-slate-600 uppercase tracking-wide">
-                        Tiêu chuẩn (cột jsonb ten_task)
-                      </p>
-                      <div>
-                        <label className="block text-[10px] font-medium text-slate-500 mb-0.5">
-                          Nội dung tiêu chuẩn (để trống = lấy từ mẫu)
-                        </label>
-                        <textarea
-                          rows={2}
-                          value={addTaskTieuForm.noi_dung_tieu_chuan}
-                          onChange={(e) =>
-                            setAddTaskTieuForm((p) => ({
-                              ...p,
-                              noi_dung_tieu_chuan: e.target.value,
-                            }))
-                          }
-                          className="w-full rounded-lg border border-slate-200 px-2 py-1 text-[11px] bg-white"
-                          placeholder="Ghi đè hoặc để trống dùng tiêu chuẩn mẫu"
-                        />
-                      </div>
-                      <div>
-                        <label className="block text-[10px] font-medium text-slate-500 mb-0.5">
-                          Trạng thái
-                        </label>
-                        <select
-                          value={addTaskTieuForm.trang_thai_tieu_chuan}
-                          onChange={(e) =>
-                            setAddTaskTieuForm((p) => ({
-                              ...p,
-                              trang_thai_tieu_chuan: e.target.value,
-                            }))
-                          }
-                          className="w-full rounded-lg border border-slate-200 px-2 py-1 text-[11px] bg-white"
-                        >
-                          <option value="">Chưa đánh giá</option>
-                          <option value="Đạt">Đạt</option>
-                          <option value="Không đạt">Không đạt</option>
-                        </select>
-                      </div>
-                      <div>
-                        <label className="block text-[10px] font-medium text-slate-500 mb-0.5">
-                          Ghi chú
-                        </label>
-                        <textarea
-                          rows={2}
-                          value={addTaskTieuForm.ghi_chu_tieu_chuan}
-                          onChange={(e) =>
-                            setAddTaskTieuForm((p) => ({
-                              ...p,
-                              ghi_chu_tieu_chuan: e.target.value,
-                            }))
-                          }
-                          className="w-full rounded-lg border border-slate-200 px-2 py-1 text-[11px] bg-white"
-                          placeholder="Ghi chú (jsonb)"
-                        />
-                      </div>
                     </div>
                     <div className="px-3 py-2 border-t border-slate-100">
                       <button
