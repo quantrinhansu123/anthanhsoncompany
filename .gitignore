@@ -4,6 +4,12 @@
 # Build artifacts
 **/dist/
 **/build/
+
+# Vercel api/ must stay .ts only — tsc output here conflicts with Vercel (api/index.js vs api/index.ts)
+server/api/*.js
+server/api/*.js.map
+server/api/*.d.ts
+server/api/*.d.ts.map
 **/coverage/
 
 # Environment files
