@@ -1,5 +1,58 @@
 import { supabase } from '../supabase';
-import type { TaskRow } from './taskService';
+import type { CongViecTenTaskJsonb, TaskRow } from './taskService';
+
+export function parseCongViecTenTaskColumn(
+  raw: unknown,
+  fallbackTenCongViec: string,
+): CongViecTenTaskJsonb {
+  const base = (): CongViecTenTaskJsonb => ({
+    ten_task: (fallbackTenCongViec || '').trim(),
+    noi_dung_tieu_chuan: '',
+    trang_thai: '',
+    ghi_chu: '',
+  });
+  if (raw == null || raw === '') return base();
+  if (typeof raw === 'string') {
+    try {
+      const o = JSON.parse(raw) as Record<string, unknown>;
+      if (o && typeof o === 'object') {
+        return {
+          ten_task: String(o.ten_task ?? fallbackTenCongViec ?? ''),
+          noi_dung_tieu_chuan: String(o.noi_dung_tieu_chuan ?? ''),
+          trang_thai: String(o.trang_thai ?? ''),
+          ghi_chu: String(o.ghi_chu ?? ''),
+        };
+      }
+    } catch {
+      return { ...base(), ten_task: raw.trim() || base().ten_task };
+    }
+    return base();
+  }
+  if (typeof raw === 'object') {
+    const o = raw as Record<string, unknown>;
+    return {
+      ten_task: String(o.ten_task ?? fallbackTenCongViec ?? ''),
+      noi_dung_tieu_chuan: String(o.noi_dung_tieu_chuan ?? ''),
+      trang_thai: String(o.trang_thai ?? ''),
+      ghi_chu: String(o.ghi_chu ?? ''),
+    };
+  }
+  return base();
+}
+
+export function buildCongViecTenTaskJsonb(input: {
+  ten_task: string;
+  noi_dung_tieu_chuan?: string;
+  trang_thai?: string;
+  ghi_chu?: string;
+}): CongViecTenTaskJsonb {
+  return {
+    ten_task: (input.ten_task || '').trim(),
+    noi_dung_tieu_chuan: (input.noi_dung_tieu_chuan || '').trim(),
+    trang_thai: (input.trang_thai || '').trim(),
+    ghi_chu: (input.ghi_chu || '').trim(),
+  };
+}
 
 export interface TaskDetailDocument {
   ten: string;
@@ -39,6 +92,8 @@ export const DEFAULT_BUOC_DANH_GIA: BuocDanhGia[] = [
 export interface TaskDetailRow {
   id: string;
   task_id: string;
+  /** jsonb từ DB — có thể object hoặc (legacy) bỏ trống */
+  ten_task?: unknown;
   ten_cong_viec: string;
   mo_ta: string | null;
   nguoi_thuc_hien: string | null;
@@ -52,6 +107,7 @@ export interface TaskDetailRow {
   buoc_danh_gia?: BuocDanhGia[];
   created_at?: string;
   updated_at?: string;
+  ten_task_detail?: CongViecTenTaskJsonb;
 }
 
 export const taskDetailService = {
@@ -69,8 +125,16 @@ export const taskDetailService = {
       return s === '' ? null : s;
     };
 
+    const tenTaskJsonb = buildCongViecTenTaskJsonb({
+      ten_task: task.ten_task || '',
+      noi_dung_tieu_chuan: (task as any).noi_dung_tieu_chuan,
+      trang_thai: (task as any).trang_thai_tieu_chuan,
+      ghi_chu: (task as any).ghi_chu_tieu_chuan,
+    });
+
     const payload: any = {
       ten_cong_viec: task.ten_task,
+      ten_task: tenTaskJsonb,
       mo_ta: task.mo_ta ?? null,
       nguoi_thuc_hien: task.nguoi_phu_trach ?? null,
       trang_thai: task.trang_thai,
@@ -114,8 +178,11 @@ export const taskDetailService = {
   },
 
   mapToTaskRow(detail: TaskDetailRow & { [key: string]: any }): TaskRow {
+    const tenPayload =
+      detail.ten_task_detail ||
+      parseCongViecTenTaskColumn(detail.ten_task, detail.ten_cong_viec || '');
     const ten_task =
-      detail.ten_task ||
+      tenPayload.ten_task ||
       detail.ten_cong_viec ||
       '';
     const mo_ta =
@@ -175,6 +242,7 @@ export const taskDetailService = {
       anh_bang_chung: null,
       created_at: detail.created_at,
       updated_at: detail.updated_at,
+      ten_task_detail: tenPayload,
     };
   },
 
@@ -279,9 +347,24 @@ export const taskDetailService = {
     tien_do: number;
     ghi_chu?: string | null;
     hop_dong_id?: string | null;
+    /** jsonb `ten_task` — nếu không gửi sẽ tự ghép từ các field phẳng bên dưới */
+    ten_task_jsonb?: CongViecTenTaskJsonb | null;
+    noi_dung_tieu_chuan?: string | null;
+    trang_thai_tieu_chuan?: string | null;
+    ghi_chu_tieu_chuan?: string | null;
   }): Promise<TaskRow> {
+    const tenTaskJsonb: CongViecTenTaskJsonb =
+      payload.ten_task_jsonb ||
+      buildCongViecTenTaskJsonb({
+        ten_task: payload.ten_task,
+        noi_dung_tieu_chuan: payload.noi_dung_tieu_chuan ?? undefined,
+        trang_thai: payload.trang_thai_tieu_chuan ?? undefined,
+        ghi_chu: payload.ghi_chu_tieu_chuan ?? undefined,
+      });
+
     const insertData: any = {
-      ten_cong_viec: payload.ten_task,
+      ten_cong_viec: tenTaskJsonb.ten_task || payload.ten_task,
+      ten_task: tenTaskJsonb,
       mo_ta: payload.mo_ta,
       trang_thai: payload.trang_thai,
       tien_do: payload.tien_do ?? 0,
@@ -346,6 +429,7 @@ export const taskDetailService = {
           {
             task_id: taskId,
             ten_cong_viec: '',
+            ten_task: buildCongViecTenTaskJsonb({ ten_task: '' }),
             tai_lieu: [],
             binh_luan: [],
             lich_su: [],
@@ -385,8 +469,13 @@ export const taskDetailService = {
       Array.isArray(buocRaw) && buocRaw.length > 0
         ? (buocRaw as BuocDanhGia[])
         : [...DEFAULT_BUOC_DANH_GIA];
+    const ten_task_detail = parseCongViecTenTaskColumn(
+      row.ten_task,
+      row.ten_cong_viec || '',
+    );
     return {
       ...row,
+      ten_task_detail,
       tai_lieu: (row.tai_lieu || []) as TaskDetailDocument[],
       binh_luan: (row.binh_luan || []) as TaskDetailComment[],
       lich_su: (row.lich_su || []) as TaskDetailHistory[],

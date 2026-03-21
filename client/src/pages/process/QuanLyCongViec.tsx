@@ -158,6 +158,18 @@ export function QuanLyCongViec() {
   const [showAddTaskDropdown, setShowAddTaskDropdown] = useState(false);
   const [addTaskCheckboxIds, setAddTaskCheckboxIds] = useState<string[]>([]);
   const [addTaskSaving, setAddTaskSaving] = useState(false);
+  /** Tiêu chuẩn lưu jsonb `ten_task` khi Thêm mới / Lưu modal */
+  const [tieuChuanForm, setTieuChuanForm] = useState({
+    noi_dung_tieu_chuan: '',
+    trang_thai_tieu_chuan: '' as string,
+    ghi_chu_tieu_chuan: '',
+  });
+  /** Tiêu chuẩn khi Thêm task từ mẫu (Quy trình làm việc) */
+  const [addTaskTieuForm, setAddTaskTieuForm] = useState({
+    noi_dung_tieu_chuan: '',
+    trang_thai_tieu_chuan: '',
+    ghi_chu_tieu_chuan: '',
+  });
   const [approveModal, setApproveModal] = useState<{
     open: boolean;
     detailId: string;
@@ -397,6 +409,12 @@ export function QuanLyCongViec() {
               nguoi_phu_trach: '',
               tien_do: 0,
               ghi_chu: '',
+              link_tai_lieu: '',
+            });
+            setTieuChuanForm({
+              noi_dung_tieu_chuan: '',
+              trang_thai_tieu_chuan: '',
+              ghi_chu_tieu_chuan: '',
             });
             setSelectedEmployeeIds([]);
             setIsModalOpen(true);
@@ -551,6 +569,13 @@ export function QuanLyCongViec() {
                               nguoi_phu_trach: task.nguoi_phu_trach || '',
                               tien_do: task.tien_do ?? 0,
                               ghi_chu: task.ghi_chu || '',
+                              link_tai_lieu: task.link_tai_lieu || '',
+                            });
+                            const d = task.ten_task_detail;
+                            setTieuChuanForm({
+                              noi_dung_tieu_chuan: d?.noi_dung_tieu_chuan || '',
+                              trang_thai_tieu_chuan: d?.trang_thai || '',
+                              ghi_chu_tieu_chuan: d?.ghi_chu || '',
                             });
                             setIsModalOpen(true);
                           }}
@@ -916,7 +941,17 @@ export function QuanLyCongViec() {
               <button
                 type="button"
                 onClick={() => {
-                  setShowAddTaskDropdown((prev) => !prev);
+                  setShowAddTaskDropdown((prev) => {
+                    const next = !prev;
+                    if (next) {
+                      setAddTaskTieuForm({
+                        noi_dung_tieu_chuan: '',
+                        trang_thai_tieu_chuan: '',
+                        ghi_chu_tieu_chuan: '',
+                      });
+                    }
+                    return next;
+                  });
                   if (!showAddTaskDropdown) setAddTaskCheckboxIds([]);
                 }}
                 className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg border border-blue-200 bg-blue-50 text-blue-700 text-[11px] font-semibold hover:bg-blue-100"
@@ -931,11 +966,11 @@ export function QuanLyCongViec() {
                     aria-hidden
                     onClick={() => setShowAddTaskDropdown(false)}
                   />
-                  <div className="absolute right-0 top-full mt-1 z-20 w-72 max-h-64 overflow-hidden rounded-xl border border-slate-200 bg-white shadow-lg flex flex-col">
+                  <div className="absolute right-0 top-full mt-1 z-20 w-[22rem] max-h-[min(32rem,85vh)] overflow-hidden rounded-xl border border-slate-200 bg-white shadow-lg flex flex-col">
                     <div className="px-3 py-2 border-b border-slate-100 text-[11px] font-semibold text-slate-600">
                       Chọn task đưa vào quy trình (tickbox)
                     </div>
-                    <div className="overflow-y-auto py-1">
+                    <div className="overflow-y-auto py-1 flex-1 min-h-0">
                       {templateItems.length === 0 ? (
                         <p className="px-3 py-2 text-[11px] text-slate-400">
                           Chưa có task nào.
@@ -968,6 +1003,64 @@ export function QuanLyCongViec() {
                         })
                       )}
                     </div>
+                    <div className="px-3 py-2 border-t border-slate-100 space-y-2 bg-slate-50/80">
+                      <p className="text-[10px] font-semibold text-slate-600 uppercase tracking-wide">
+                        Tiêu chuẩn (cột jsonb ten_task)
+                      </p>
+                      <div>
+                        <label className="block text-[10px] font-medium text-slate-500 mb-0.5">
+                          Nội dung tiêu chuẩn (để trống = lấy từ mẫu)
+                        </label>
+                        <textarea
+                          rows={2}
+                          value={addTaskTieuForm.noi_dung_tieu_chuan}
+                          onChange={(e) =>
+                            setAddTaskTieuForm((p) => ({
+                              ...p,
+                              noi_dung_tieu_chuan: e.target.value,
+                            }))
+                          }
+                          className="w-full rounded-lg border border-slate-200 px-2 py-1 text-[11px] bg-white"
+                          placeholder="Ghi đè hoặc để trống dùng tiêu chuẩn mẫu"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-[10px] font-medium text-slate-500 mb-0.5">
+                          Trạng thái
+                        </label>
+                        <select
+                          value={addTaskTieuForm.trang_thai_tieu_chuan}
+                          onChange={(e) =>
+                            setAddTaskTieuForm((p) => ({
+                              ...p,
+                              trang_thai_tieu_chuan: e.target.value,
+                            }))
+                          }
+                          className="w-full rounded-lg border border-slate-200 px-2 py-1 text-[11px] bg-white"
+                        >
+                          <option value="">Chưa đánh giá</option>
+                          <option value="Đạt">Đạt</option>
+                          <option value="Không đạt">Không đạt</option>
+                        </select>
+                      </div>
+                      <div>
+                        <label className="block text-[10px] font-medium text-slate-500 mb-0.5">
+                          Ghi chú
+                        </label>
+                        <textarea
+                          rows={2}
+                          value={addTaskTieuForm.ghi_chu_tieu_chuan}
+                          onChange={(e) =>
+                            setAddTaskTieuForm((p) => ({
+                              ...p,
+                              ghi_chu_tieu_chuan: e.target.value,
+                            }))
+                          }
+                          className="w-full rounded-lg border border-slate-200 px-2 py-1 text-[11px] bg-white"
+                          placeholder="Ghi chú (jsonb)"
+                        />
+                      </div>
+                    </div>
                     <div className="px-3 py-2 border-t border-slate-100">
                       <button
                         type="button"
@@ -976,18 +1069,34 @@ export function QuanLyCongViec() {
                           if (addTaskCheckboxIds.length === 0) return;
                           setAddTaskSaving(true);
                           try {
-                            const created: TaskRow[] = [];
+                            const created: { task: TaskRow; template: TaskTemplateRow }[] = [];
                             for (const tplId of addTaskCheckboxIds) {
                               const tpl = templateItems.find((t) => t.id === tplId);
                               if (!tpl) continue;
+                              const tenName = tpl.task || tpl.cv || 'Công việc mới';
+                              const autoNoiDung = (tpl.tieu_chuan || [])
+                                .map((t) => t.noi_dung)
+                                .filter(Boolean)
+                                .join('\n');
+                              const noiDung =
+                                addTaskTieuForm.noi_dung_tieu_chuan.trim() ||
+                                autoNoiDung ||
+                                (tpl.mo_ta || '');
+                              const trangThaiTc =
+                                addTaskTieuForm.trang_thai_tieu_chuan.trim() ||
+                                'Chưa đánh giá';
                               const newTask = await taskDetailService.createFromForm({
-                                ten_task: tpl.task || tpl.cv || 'Công việc mới',
+                                ten_task: tenName,
                                 mo_ta: tpl.mo_ta ?? null,
                                 trang_thai: 'Chưa bắt đầu',
                                 uu_tien: 'Trung bình',
                                 tien_do: 0,
                                 ghi_chu: null,
                                 hop_dong_id: '',
+                                noi_dung_tieu_chuan: noiDung,
+                                trang_thai_tieu_chuan: trangThaiTc,
+                                ghi_chu_tieu_chuan:
+                                  addTaskTieuForm.ghi_chu_tieu_chuan.trim() || null,
                               });
                               created.push({ task: newTask, template: tpl });
                             }
@@ -1047,10 +1156,24 @@ export function QuanLyCongViec() {
                       key={taskId}
                       className="rounded-xl border border-slate-200 bg-slate-50/50 overflow-hidden"
                     >
-                      <div className="px-3 py-2 bg-slate-100 border-b border-slate-200">
+                      <div className="px-3 py-2 bg-slate-100 border-b border-slate-200 space-y-1">
                         <p className="font-semibold text-slate-800 truncate">
                           {task?.ten_task || taskId.slice(0, 8)}
                         </p>
+                        {task?.ten_task_detail?.trang_thai ? (
+                          <p className="text-[10px] text-slate-600">
+                            Trạng thái tiêu chuẩn:{' '}
+                            <span className="font-semibold">{task.ten_task_detail.trang_thai}</span>
+                            {task.ten_task_detail.ghi_chu ? (
+                              <span className="text-slate-500"> · {task.ten_task_detail.ghi_chu}</span>
+                            ) : null}
+                          </p>
+                        ) : null}
+                        {task?.ten_task_detail?.noi_dung_tieu_chuan ? (
+                          <p className="text-[10px] text-slate-500 line-clamp-2 whitespace-pre-wrap">
+                            {task.ten_task_detail.noi_dung_tieu_chuan}
+                          </p>
+                        ) : null}
                       </div>
                       <div className="px-3 py-2 space-y-1.5">
                         {template?.tieu_chuan?.length ? (
@@ -1394,6 +1517,67 @@ export function QuanLyCongViec() {
                 />
               </div>
 
+              <div className="rounded-xl border border-slate-200 bg-slate-50/60 p-3 space-y-3">
+                <p className="text-[10px] font-bold text-slate-600 uppercase tracking-wide">
+                  Tiêu chuẩn (cột jsonb ten_task)
+                </p>
+                <div>
+                  <label className="block text-[11px] font-semibold text-slate-600 mb-1">
+                    Nội dung tiêu chuẩn
+                  </label>
+                  <textarea
+                    rows={3}
+                    value={tieuChuanForm.noi_dung_tieu_chuan}
+                    onChange={(e) =>
+                      setTieuChuanForm((p) => ({
+                        ...p,
+                        noi_dung_tieu_chuan: e.target.value,
+                      }))
+                    }
+                    className="w-full rounded-lg border border-slate-200 px-3 py-1.5 text-xs bg-white focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
+                    placeholder="Mô tả tiêu chuẩn cần đạt..."
+                  />
+                </div>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-[11px] font-semibold text-slate-600 mb-1">
+                      Trạng thái
+                    </label>
+                    <select
+                      value={tieuChuanForm.trang_thai_tieu_chuan}
+                      onChange={(e) =>
+                        setTieuChuanForm((p) => ({
+                          ...p,
+                          trang_thai_tieu_chuan: e.target.value,
+                        }))
+                      }
+                      className="w-full rounded-lg border border-slate-200 px-3 py-1.5 text-xs bg-white focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
+                    >
+                      <option value="">Chưa đánh giá</option>
+                      <option value="Đạt">Đạt</option>
+                      <option value="Không đạt">Không đạt</option>
+                    </select>
+                  </div>
+                  <div className="md:col-span-1">
+                    <label className="block text-[11px] font-semibold text-slate-600 mb-1">
+                      Ghi chú (tiêu chuẩn)
+                    </label>
+                    <textarea
+                      rows={2}
+                      value={tieuChuanForm.ghi_chu_tieu_chuan}
+                      onChange={(e) =>
+                        setTieuChuanForm((p) => ({
+                          ...p,
+                          ghi_chu_tieu_chuan: e.target.value,
+                        }))
+                      }
+                      className="w-full rounded-lg border border-slate-200 px-3 py-1.5 text-xs bg-white focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
+                      placeholder="Ghi chú lưu trong jsonb ten_task"
+                    />
+                  </div>
+                </div>
+              </div>
+
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                 <div>
                   <label className="block text-[11px] font-semibold text-slate-600 mb-1">
@@ -1510,6 +1694,10 @@ export function QuanLyCongViec() {
                       tien_do: formData.tien_do ?? 0,
                       ghi_chu: formData.ghi_chu || null,
                       hop_dong_id: formData.hop_dong_id || null,
+                      noi_dung_tieu_chuan: tieuChuanForm.noi_dung_tieu_chuan || null,
+                      trang_thai_tieu_chuan:
+                        tieuChuanForm.trang_thai_tieu_chuan.trim() || 'Chưa đánh giá',
+                      ghi_chu_tieu_chuan: tieuChuanForm.ghi_chu_tieu_chuan || null,
                     };
                     const created = await taskDetailService.createFromForm(payload);
                     const data = await taskDetailService.getAllAsTasks();

@@ -1,5 +1,14 @@
 import { api } from '../api';
 
+/** Dữ liệu lưu cột jsonb `cong_viec_chi_tiet.ten_task` */
+export interface CongViecTenTaskJsonb {
+  ten_task: string;
+  noi_dung_tieu_chuan: string;
+  /** Đạt | Không đạt | Chưa đánh giá | '' */
+  trang_thai: string;
+  ghi_chu: string;
+}
+
 export interface TaskRow {
   id: string;
   hop_dong_id: string;
@@ -17,6 +26,8 @@ export interface TaskRow {
   anh_bang_chung?: string | null;
   created_at?: string;
   updated_at?: string;
+  /** Parse từ jsonb `ten_task` (nếu có) */
+  ten_task_detail?: CongViecTenTaskJsonb | null;
 }
 
 export const taskService = {
