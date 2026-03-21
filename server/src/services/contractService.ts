@@ -1,9 +1,9 @@
-import { supabase } from '../config/supabase';
+import { getSupabase } from '../config/supabase';
 
 export const contractService = {
   async getAll() {
     // We can use Supabase joins on the server
-    const { data, error } = await supabase
+    const { data, error } = await getSupabase()
       .from('hop_dong')
       .select(`
         *,
@@ -42,7 +42,7 @@ export const contractService = {
       insertPayload.nhan_su_id = insertPayload.nhan_su_id ?? insertPayload.nhan_su_ids[0] ?? null;
     }
 
-    const { data, error } = await supabase
+    const { data, error } = await getSupabase()
       .from('hop_dong')
       .insert([insertPayload])
       .select(`
@@ -72,7 +72,7 @@ export const contractService = {
     }
 
     // Try update with id
-    let { data, error } = await supabase
+    let { data, error } = await getSupabase()
       .from('hop_dong')
       .update(updatePayload)
       .eq('id', id)
@@ -80,7 +80,7 @@ export const contractService = {
     
     // Fallback to contract_id if not found
     if (!data || data.length === 0) {
-      const result = await supabase
+      const result = await getSupabase()
         .from('hop_dong')
         .update(updatePayload)
         .eq('contract_id', id)
@@ -102,13 +102,13 @@ export const contractService = {
   },
 
   async delete(id: string) {
-    let { error } = await supabase
+    let { error } = await getSupabase()
       .from('hop_dong')
       .delete()
       .eq('id', id);
     
     if (error) {
-      const result = await supabase
+      const result = await getSupabase()
         .from('hop_dong')
         .delete()
         .eq('contract_id', id);

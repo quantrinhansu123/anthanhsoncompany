@@ -1,8 +1,8 @@
-import { supabase } from '../config/supabase';
+import { getSupabase } from '../config/supabase';
 
 export const projectService = {
   async getAll() {
-    const { data, error } = await supabase
+    const { data, error } = await getSupabase()
       .from('du_an')
       .select(`
         *,
@@ -37,7 +37,7 @@ export const projectService = {
   },
 
   async getById(id: string) {
-    const { data, error } = await supabase
+    const { data, error } = await getSupabase()
       .from('du_an')
       .select(`
         *,
@@ -52,7 +52,7 @@ export const projectService = {
   },
 
   async create(payload: any) {
-    const { data, error } = await supabase
+    const { data, error } = await getSupabase()
       .from('du_an')
       .insert([payload])
       .select();
@@ -62,7 +62,7 @@ export const projectService = {
   },
 
   async update(id: string, payload: any) {
-    const { data, error } = await supabase
+    const { data, error } = await getSupabase()
       .from('du_an')
       .update(payload)
       .eq('id', id)
@@ -73,7 +73,7 @@ export const projectService = {
   },
 
   async delete(id: string) {
-    const { error } = await supabase
+    const { error } = await getSupabase()
       .from('du_an')
       .delete()
       .eq('id', id);

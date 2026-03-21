@@ -1,4 +1,4 @@
-import { supabase } from '../config/supabase';
+import { getSupabase } from '../config/supabase';
 
 export interface Employee {
   id: string | number;
@@ -13,7 +13,7 @@ export interface Employee {
 
 export const employeeService = {
   async getAll() {
-    const { data, error, count } = await supabase
+    const { data, error, count } = await getSupabase()
       .from('nhan_su')
       .select('*', { count: 'exact' })
       .order('created_at', { ascending: false });
@@ -23,7 +23,7 @@ export const employeeService = {
   },
 
   async getById(id: string | number) {
-    const { data, error } = await supabase
+    const { data, error } = await getSupabase()
       .from('nhan_su')
       .select('*')
       .eq('id', id.toString())
@@ -34,7 +34,7 @@ export const employeeService = {
   },
 
   async search(searchTerm: string) {
-    const { data, error } = await supabase
+    const { data, error } = await getSupabase()
       .from('nhan_su')
       .select('*')
       .or(`name.ilike.%${searchTerm}%,code.ilike.%${searchTerm}%,email.ilike.%${searchTerm}%,department.ilike.%${searchTerm}%`)
@@ -45,7 +45,7 @@ export const employeeService = {
   },
 
   async create(employee: Partial<Employee>) {
-    const { data, error } = await supabase
+    const { data, error } = await getSupabase()
       .from('nhan_su')
       .insert([employee])
       .select();
@@ -55,7 +55,7 @@ export const employeeService = {
   },
 
   async update(id: string | number, employee: Partial<Employee>) {
-    const { data, error } = await supabase
+    const { data, error } = await getSupabase()
       .from('nhan_su')
       .update(employee)
       .eq('id', id.toString())
@@ -66,7 +66,7 @@ export const employeeService = {
   },
 
   async delete(id: string | number) {
-    const { error } = await supabase
+    const { error } = await getSupabase()
       .from('nhan_su')
       .delete()
       .eq('id', id.toString());

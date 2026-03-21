@@ -1,8 +1,8 @@
-import { supabase } from '../config/supabase';
+import { getSupabase } from '../config/supabase';
 
 export const taskService = {
   async getAll() {
-    const { data, error } = await supabase
+    const { data, error } = await getSupabase()
       .from('task')
       .select('*')
       .order('created_at', { ascending: false });
@@ -12,7 +12,7 @@ export const taskService = {
   },
 
   async getByHopDongId(hopDongId: string) {
-    const { data, error } = await supabase
+    const { data, error } = await getSupabase()
       .from('task')
       .select('*')
       .eq('hop_dong_id', hopDongId)
@@ -23,7 +23,7 @@ export const taskService = {
   },
 
   async create(payload: any) {
-    const { data, error } = await supabase
+    const { data, error } = await getSupabase()
       .from('task')
       .insert([payload])
       .select();
@@ -33,7 +33,7 @@ export const taskService = {
   },
 
   async update(id: string, payload: any) {
-    const { data, error } = await supabase
+    const { data, error } = await getSupabase()
       .from('task')
       .update({
         ...payload,
@@ -47,7 +47,7 @@ export const taskService = {
   },
 
   async delete(id: string) {
-    const { error } = await supabase
+    const { error } = await getSupabase()
       .from('task')
       .delete()
       .eq('id', id);
