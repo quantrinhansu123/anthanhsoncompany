@@ -110,7 +110,7 @@ export function Profile() {
                         <div className="w-full space-y-3.5 mt-2">
                             <div className="flex items-center gap-3 text-sm text-slate-600">
                                 <Mail size={16} className="text-slate-400" />
-                                <span>Upcare</span>
+                                <span>AN THANH SƠN</span>
                             </div>
                             <div className="flex items-center gap-3 text-sm text-slate-600">
                                 <Phone size={16} className="text-slate-400" />
@@ -189,7 +189,7 @@ export function Profile() {
 
                     <CardSection title="Thông tin liên hệ" icon={PhoneCall}>
                         <div className="grid grid-cols-1 md:grid-cols-3 gap-y-6 gap-x-8">
-                            <InfoField label="Email công việc" value="Upcare" icon={Mail} />
+                            <InfoField label="Email công việc" value="AN THANH SƠN" icon={Mail} />
                             <InfoField label="Email cá nhân" icon={Mail} />
                             <InfoField label="Điện thoại" value="0900000000" icon={Phone} />
 

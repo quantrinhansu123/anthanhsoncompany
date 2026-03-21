@@ -59,7 +59,9 @@ export function Sidebar({ isOpen, toggleSidebar, isMobile = false }: SidebarProp
               )}
             />
             <div className={cn("transition-opacity duration-300", (isOpen || isMobile) ? "opacity-100" : "opacity-0 w-0")}>
-              <h1 className="font-bold text-slate-800 text-sm whitespace-nowrap">upcare</h1>
+              <h1 className="font-bold text-slate-800 text-xs leading-tight">
+                AN THANH SƠN
+              </h1>
               <p className="text-[10px] text-slate-500 whitespace-nowrap">Ứng dụng quản lý</p>
             </div>
           </div>
