@@ -1,6 +1,8 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { X, User, FileText, Link as LinkIcon, ExternalLink, Trash2, Plus, Info, ChevronDown } from 'lucide-react';
 import { contractService, ContractFile } from '../../lib/services/contractService';
+import type { NguongChiNhanSuLoai } from '../../lib/nguongChiNhanSu';
+import { normalizeNguongLoai, tienQuyDoiNguongChiNhanSu } from '../../lib/nguongChiNhanSu';
 import { projectService } from '../../lib/services/projectService';
 import { employeeService } from '../../lib/services/employeeService';
 import { thuChiService } from '../../lib/services/thuChiService';
@@ -18,6 +20,8 @@ interface Contract {
     loaiDichVu: string;
     giaTriHD: number;
     giaTriQT: number;
+    nguongChiNhanSu?: number;
+    nguongChiNhanSuLoai?: NguongChiNhanSuLoai;
     daThu: number;
     conPhaiThu: number;
     ngayUpdate: string;
@@ -68,6 +72,8 @@ export function ThemHopDongModal({ isOpen, onClose, editData, onSuccess }: ThemH
         ngayKyHD: '',
         giaTriHD: '0',
         giaTriQT: '0',
+        nguongChiNhanSuLoai: 'tien' as NguongChiNhanSuLoai,
+        nguongChiNhanSu: '0',
         projectId: '',
         nhanSuIds: [] as string[],
     });
@@ -115,6 +121,17 @@ export function ThemHopDongModal({ isOpen, onClose, editData, onSuccess }: ThemH
                 ngayKyHD: editData.ngayKyHD ? (editData.ngayKyHD.includes('/') ? editData.ngayKyHD.split('/').reverse().join('-') : editData.ngayKyHD) : '',
                 giaTriHD: editData.giaTriHD !== undefined && editData.giaTriHD !== null ? editData.giaTriHD.toString() : '0',
                 giaTriQT: editData.giaTriQT !== undefined && editData.giaTriQT !== null ? editData.giaTriQT.toString() : '0',
+                ...(() => {
+                    const loai = normalizeNguongLoai(editData.nguongChiNhanSuLoai as string);
+                    const raw = editData.nguongChiNhanSu;
+                    const s =
+                        raw === undefined || raw === null
+                            ? '0'
+                            : loai === 'phan_tram'
+                              ? String(raw).replace('.', ',')
+                              : raw.toString();
+                    return { nguongChiNhanSuLoai: loai, nguongChiNhanSu: s };
+                })(),
                 projectId: editData.duAnId || '',
                 nhanSuIds: (editData.nhanSuIds || (editData.nhanSuId ? [editData.nhanSuId] : [])).map(String),
             });
@@ -127,6 +144,8 @@ export function ThemHopDongModal({ isOpen, onClose, editData, onSuccess }: ThemH
                 ngayKyHD: new Date().toISOString().split('T')[0],
                 giaTriHD: '0',
                 giaTriQT: '0',
+                nguongChiNhanSuLoai: 'tien',
+                nguongChiNhanSu: '0',
                 projectId: '',
                 nhanSuIds: [],
             });
@@ -152,9 +171,17 @@ export function ThemHopDongModal({ isOpen, onClose, editData, onSuccess }: ThemH
         return number.toLocaleString('vi-VN');
     };
 
-    const handlePriceChange = (field: 'giaTriHD' | 'giaTriQT', value: string) => {
-        const rawValue = value.replace(/\D/g, '');
-        setFormData(prev => ({ ...prev, [field]: rawValue }));
+    const handlePriceChange = (field: 'giaTriHD' | 'giaTriQT' | 'nguongChiNhanSu', value: string) => {
+        setFormData((prev) => {
+            if (field === 'nguongChiNhanSu' && prev.nguongChiNhanSuLoai === 'phan_tram') {
+                let v = value.replace(/[^\d,.-]/g, '').replace(',', '.');
+                const parts = v.split('.');
+                if (parts.length > 2) v = parts[0] + '.' + parts.slice(1).join('');
+                return { ...prev, nguongChiNhanSu: v };
+            }
+            const rawValue = value.replace(/\D/g, '');
+            return { ...prev, [field]: rawValue };
+        });
     };
 
     const calculateFileStatus = (files: ContractFile[]): string => {
@@ -211,6 +238,11 @@ export function ThemHopDongModal({ isOpen, onClose, editData, onSuccess }: ThemH
         try {
             const giaTriHD = Number(formData.giaTriHD) || 0;
             const giaTriQT = Number(formData.giaTriQT) || 0;
+            const loaiNguong = formData.nguongChiNhanSuLoai;
+            const nguongChiNhanSu =
+                loaiNguong === 'phan_tram'
+                    ? parseFloat(String(formData.nguongChiNhanSu).replace(',', '.')) || 0
+                    : Number(formData.nguongChiNhanSu) || 0;
             const fileStatus = calculateFileStatus(contractFiles);
 
             const payload = {
@@ -224,6 +256,8 @@ export function ThemHopDongModal({ isOpen, onClose, editData, onSuccess }: ThemH
                 ngay_ky_hd: formData.ngayKyHD || null,
                 gia_tri_hd: giaTriHD,
                 gia_tri_qt: giaTriQT,
+                nguong_chi_nhan_su: nguongChiNhanSu,
+                nguong_chi_nhan_su_loai: loaiNguong,
                 file_status: fileStatus,
                 files: contractFiles,
                 ngay_update: new Date().toISOString().slice(0, 10),
@@ -433,6 +467,65 @@ export function ThemHopDongModal({ isOpen, onClose, editData, onSuccess }: ThemH
                                         placeholder="0"
                                     />
                                     <span className="absolute right-3 top-1/2 -translate-y-1/2 text-[10px] font-bold text-slate-400">VNĐ</span>
+                                </div>
+                            </div>
+                            <div className="md:col-span-2 space-y-2">
+                                <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1">Ngưỡng chi nhân sự</label>
+                                <div className="flex flex-wrap items-center gap-2">
+                                    <select
+                                        value={formData.nguongChiNhanSuLoai}
+                                        onChange={(e) =>
+                                            setFormData((prev) => ({
+                                                ...prev,
+                                                nguongChiNhanSuLoai: e.target.value as NguongChiNhanSuLoai,
+                                                nguongChiNhanSu: '0',
+                                            }))
+                                        }
+                                        className="border border-slate-200 rounded-lg px-2 py-2 text-xs font-bold text-slate-700 bg-white shrink-0"
+                                    >
+                                        <option value="tien">Theo tiền (VNĐ)</option>
+                                        <option value="phan_tram">Theo % trên QT</option>
+                                    </select>
+                                    {formData.nguongChiNhanSuLoai === 'tien' ? (
+                                        <div className="relative flex-1 min-w-[120px]">
+                                            <input
+                                                type="text"
+                                                value={formatCurrency(formData.nguongChiNhanSu)}
+                                                onChange={(e) => handlePriceChange('nguongChiNhanSu', e.target.value)}
+                                                className="w-full border border-slate-200 rounded-lg pl-3 pr-10 py-2 text-sm font-bold text-violet-700 bg-white"
+                                                placeholder="0"
+                                            />
+                                            <span className="absolute right-3 top-1/2 -translate-y-1/2 text-[10px] font-bold text-slate-400">VNĐ</span>
+                                        </div>
+                                    ) : (
+                                        <div className="relative flex-1 min-w-[120px]">
+                                            <input
+                                                type="text"
+                                                inputMode="decimal"
+                                                value={formData.nguongChiNhanSu}
+                                                onChange={(e) => handlePriceChange('nguongChiNhanSu', e.target.value)}
+                                                className="w-full border border-slate-200 rounded-lg pl-3 pr-12 py-2 text-sm font-bold text-violet-700 bg-white"
+                                                placeholder="0"
+                                            />
+                                            <span className="absolute right-3 top-1/2 -translate-y-1/2 text-[10px] font-bold text-slate-400">% QT</span>
+                                        </div>
+                                    )}
+                                </div>
+                                <p className="text-[10px] text-slate-500">
+                                    {formData.nguongChiNhanSuLoai === 'phan_tram'
+                                        ? 'Phần trăm nhân với Giá trị quyết toán; dưới đây là quy đổi ra tiền.'
+                                        : 'Nhập số tiền hạn mức chi phí nhân sự theo hợp đồng.'}
+                                </p>
+                                <div className="rounded-lg border border-violet-100 bg-violet-50/80 px-3 py-2 text-xs font-bold text-violet-900">
+                                    <span className="text-violet-600 font-semibold">Tương đương tiền: </span>
+                                    {tienQuyDoiNguongChiNhanSu(
+                                        formData.nguongChiNhanSuLoai,
+                                        Number(formData.giaTriQT) || 0,
+                                        formData.nguongChiNhanSuLoai === 'phan_tram'
+                                            ? parseFloat(String(formData.nguongChiNhanSu).replace(',', '.')) || 0
+                                            : Number(formData.nguongChiNhanSu) || 0,
+                                    ).toLocaleString('vi-VN')}{' '}
+                                    đ
                                 </div>
                             </div>
                         </div>

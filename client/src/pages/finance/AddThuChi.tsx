@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import {
     X,
@@ -10,10 +10,20 @@ import {
     Info,
     AlertCircle
 } from 'lucide-react';
+import {
+    normalizeNguongLoai,
+    tienQuyDoiNguongChiNhanSu,
+    type NguongChiNhanSuLoai,
+} from '../../lib/nguongChiNhanSu';
 import { thuChiService, ThuChiRow } from '../../lib/services/thuChiService';
 import { projectService } from '../../lib/services/projectService';
 import { contractService } from '../../lib/services/contractService';
 import { employeeService } from '../../lib/services/employeeService';
+import type { ContractRow } from '../../lib/services/contractService';
+import { tenLuuNguoiNhan, resolveNguoiNhanId, type NhanSuOption } from '../../lib/formatNhanSu';
+import { NhanSuTenAnhPicker } from '../../components/NhanSuTenAnhPicker';
+
+type HangMucChi = 'chi_du_an' | 'chi_nhan_su';
 
 interface ToastProps {
     message: string;
@@ -62,14 +72,67 @@ export function AddThuChi() {
         ngayTienVe: new Date().toISOString().split('T')[0],
         soTien: 0,
         noiDung: '',
-        nguoiNhan: 'Ngân hàng / Đối tác',
+        /** Người nộp/nhận — chọn từ nhân sự */
+        nguoiNhanId: '',
+        hangMucChi: 'chi_du_an' as HangMucChi,
         file: null as File | null,
         imageUrl: '' as string | null // URL ảnh chứng từ (link)
     });
     const [projects, setProjects] = useState<Array<{ id: string; ten_du_an: string }>>([]);
-    const [contracts, setContracts] = useState<Array<{ id: string; so_hop_dong: string | null; du_an_id: string | null }>>([]);
-    const [employees, setEmployees] = useState<Array<{ id: string; full_name: string; code: string }>>([]);
+    const [contracts, setContracts] = useState<ContractRow[]>([]);
+    const [existingNhanSuChiTotal, setExistingNhanSuChiTotal] = useState(0);
+    const [employees, setEmployees] = useState<NhanSuOption[]>([]);
     const [loading, setLoading] = useState(false);
+
+    const selectedContract = useMemo(
+        () => contracts.find((c) => c.id === formData.hopDongId),
+        [contracts, formData.hopDongId],
+    );
+
+    const nguongTien = useMemo(() => {
+        if (!selectedContract) return 0;
+        const loai = normalizeNguongLoai(selectedContract.nguong_chi_nhan_su_loai) as NguongChiNhanSuLoai;
+        const raw = Number(selectedContract.nguong_chi_nhan_su ?? 0);
+        return tienQuyDoiNguongChiNhanSu(loai, Number(selectedContract.gia_tri_qt) || 0, raw);
+    }, [selectedContract]);
+
+    useEffect(() => {
+        if (formData.loaiPhieu !== 'Phiếu chi' || !formData.hopDongId) {
+            setExistingNhanSuChiTotal(0);
+            return;
+        }
+        let cancelled = false;
+        (async () => {
+            try {
+                const all = await thuChiService.getAll();
+                if (cancelled) return;
+                let sum = all
+                    .filter(
+                        (r) =>
+                            (r.hop_dong_id || '') === formData.hopDongId &&
+                            r.loai_phieu === 'Phiếu chi' &&
+                            r.hang_muc_chi === 'chi_nhan_su',
+                    )
+                    .reduce((s, r) => s + (Number(r.so_tien) || 0), 0);
+                if (isEditMode && id) {
+                    const cur = all.find((r) => r.id === id);
+                    if (
+                        cur &&
+                        (cur.hop_dong_id || '') === formData.hopDongId &&
+                        cur.hang_muc_chi === 'chi_nhan_su'
+                    ) {
+                        sum -= Number(cur.so_tien) || 0;
+                    }
+                }
+                setExistingNhanSuChiTotal(sum);
+            } catch {
+                if (!cancelled) setExistingNhanSuChiTotal(0);
+            }
+        })();
+        return () => {
+            cancelled = true;
+        };
+    }, [formData.loaiPhieu, formData.hopDongId, isEditMode, id]);
 
     // Load projects, contracts and employees
     useEffect(() => {
@@ -78,14 +141,17 @@ export function AddThuChi() {
             setProjects(projectList.map(p => ({ id: p.id, ten_du_an: p.ten_du_an })));
             
             const contractList = await contractService.getAll();
-            setContracts(contractList.map(c => ({ id: c.id, so_hop_dong: c.so_hop_dong, du_an_id: c.du_an_id || null })));
+            setContracts(contractList);
             
             const employeeList = await employeeService.getAll();
-            setEmployees(employeeList.map(emp => ({
-                id: emp.id.toString(),
-                full_name: emp.full_name || emp.name || emp.hoTen || '',
-                code: emp.code || ''
-            })));
+            setEmployees(
+                employeeList.map((emp) => ({
+                    id: emp.id.toString(),
+                    full_name: emp.full_name || emp.name || emp.hoTen || '',
+                    code: emp.code || '',
+                    anh_nhan_su: emp.anh_nhan_su || null,
+                })),
+            );
         })();
     }, []);
 
@@ -99,7 +165,17 @@ export function AddThuChi() {
     const loadData = async (itemId: string) => {
         try {
             setLoading(true);
-            const item = await thuChiService.getById(itemId);
+            const [item, employeeList] = await Promise.all([
+                thuChiService.getById(itemId),
+                employeeService.getAll(),
+            ]);
+            const emps: NhanSuOption[] = employeeList.map((emp) => ({
+                id: emp.id.toString(),
+                full_name: emp.full_name || emp.name || emp.hoTen || '',
+                code: emp.code || '',
+                anh_nhan_su: emp.anh_nhan_su || null,
+            }));
+            setEmployees(emps);
             if (item) {
                 setFormData({
                     duAnId: item.du_an_id || '',
@@ -110,9 +186,10 @@ export function AddThuChi() {
                     ngayTienVe: item.ngay || new Date().toISOString().split('T')[0],
                     soTien: item.so_tien,
                     noiDung: item.noi_dung || '',
-                    nguoiNhan: item.nguoi_nhan || 'Ngân hàng / Đối tác',
+                    nguoiNhanId: resolveNguoiNhanId(item.nguoi_nhan, emps),
+                    hangMucChi: item.hang_muc_chi === 'chi_nhan_su' ? 'chi_nhan_su' : 'chi_du_an',
                     file: null,
-                    imageUrl: item.anh_url || null
+                    imageUrl: item.anh_url || null,
                 });
             }
         } catch (err: any) {
@@ -146,6 +223,11 @@ export function AddThuChi() {
             // Lấy URL ảnh chứng từ (chỉ lưu link, không upload)
             const imageUrl = formData.imageUrl?.trim() || null;
 
+            const nguoiNhanEmp = formData.nguoiNhanId
+                ? employees.find((e) => e.id === formData.nguoiNhanId)
+                : null;
+            const nguoiNhanStr = nguoiNhanEmp ? tenLuuNguoiNhan(nguoiNhanEmp) : null;
+
             const payload: Partial<ThuChiRow> = {
                 du_an_id: formData.duAnId || null,
                 hop_dong_id: formData.hopDongId || null,
@@ -156,7 +238,8 @@ export function AddThuChi() {
                 ngay: formData.ngayTienVe,
                 noi_dung: formData.noiDung || null,
                 tinh_trang_phieu: formData.tinhTrangPhieu || null,
-                nguoi_nhan: formData.nguoiNhan || null,
+                nguoi_nhan: nguoiNhanStr,
+                hang_muc_chi: formData.loaiPhieu === 'Phiếu chi' ? formData.hangMucChi : null,
                 file_url: fileUrl || null,
                 anh_url: imageUrl || null
             };
@@ -182,6 +265,25 @@ export function AddThuChi() {
     const handleCancel = () => {
         navigate('/tai-chinh/thu-chi');
     };
+
+    const formatCurrency = (n: number) => (n === 0 ? '0' : n.toLocaleString('vi-VN'));
+    const amountNum = Number(formData.soTien) || 0;
+    const projectedNhanSuChi =
+        formData.loaiPhieu === 'Phiếu chi' && formData.hangMucChi === 'chi_nhan_su'
+            ? existingNhanSuChiTotal + amountNum
+            : existingNhanSuChiTotal;
+    const showNhanSuNguong =
+        formData.loaiPhieu === 'Phiếu chi' && !!formData.hopDongId && formData.hangMucChi === 'chi_nhan_su';
+    const overThreshold = showNhanSuNguong && nguongTien > 0 && projectedNhanSuChi > nguongTien;
+    const nearThreshold =
+        showNhanSuNguong &&
+        nguongTien > 0 &&
+        !overThreshold &&
+        projectedNhanSuChi >= nguongTien * 0.9 &&
+        projectedNhanSuChi <= nguongTien;
+    const pctDatNguong =
+        showNhanSuNguong && nguongTien > 0 ? (projectedNhanSuChi / nguongTien) * 100 : null;
+    const barWidthPct = pctDatNguong != null ? Math.min(100, Math.max(0, pctDatNguong)) : 0;
 
     return (
         <div className="max-w-4xl mx-auto mt-2 bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden animate-in fade-in flex flex-col h-[calc(100vh-8rem)]">
@@ -221,7 +323,7 @@ export function AddThuChi() {
             <div className="flex-1 overflow-y-auto p-12 bg-white flex justify-center">
                 <div className="w-full max-w-2xl space-y-8">
 
-                    {/* Loại Phiếu */}
+                    {/* Loại phiếu — luôn hiển thị rõ (Phiếu chi dùng chữ đậm, không trùng nền) */}
                     <div className="flex flex-col md:flex-row md:items-center gap-4 md:gap-8">
                         <div className="md:w-1/3 md:text-right">
                             <label className="text-sm font-medium text-slate-500">Loại phiếu</label>
@@ -231,14 +333,18 @@ export function AddThuChi() {
                                 value={formData.loaiPhieu}
                                 onChange={(e) => {
                                     const newLoaiPhieu = e.target.value;
-                                    // Khi chuyển sang phiếu thu, reset nhanSuId về rỗng
-                                    setFormData({ 
-                                        ...formData, 
+                                    setFormData({
+                                        ...formData,
                                         loaiPhieu: newLoaiPhieu,
-                                        nhanSuId: newLoaiPhieu === 'Phiếu thu' ? '' : formData.nhanSuId
+                                        nhanSuId: newLoaiPhieu === 'Phiếu thu' ? '' : formData.nhanSuId,
+                                        hangMucChi: newLoaiPhieu === 'Phiếu chi' ? formData.hangMucChi : 'chi_du_an',
                                     });
                                 }}
-                                className={`w-full px-4 py-2.5 bg-white border border-slate-300 rounded-md appearance-none focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 font-medium ${formData.loaiPhieu === 'Phiếu thu' ? 'text-emerald-500 italic' : 'text-slate-700'}`}
+                                className={`w-full px-4 py-2.5 bg-white border border-slate-300 rounded-md appearance-none focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 font-semibold ${
+                                    formData.loaiPhieu === 'Phiếu thu'
+                                        ? 'text-emerald-700'
+                                        : 'text-rose-700'
+                                }`}
                             >
                                 <option value="Phiếu thu">Phiếu thu</option>
                                 <option value="Phiếu chi">Phiếu chi</option>
@@ -295,14 +401,161 @@ export function AddThuChi() {
                                         return true; // Show all if no project selected
                                     })
                                     .map(c => (
-                                        <option key={c.id} value={c.id}>
-                                            {c.so_hop_dong || c.id.substring(0, 8)}
+                                        <option key={c.id || ''} value={c.id || ''}>
+                                            {c.so_hop_dong || (c.id ? String(c.id).substring(0, 8) : '')}
                                         </option>
                                     ))}
                             </select>
                             <ChevronDown size={16} className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
                         </div>
                     </div>
+
+                    {/* Loại chi (hạng mục) — Phiếu chi */}
+                    {formData.loaiPhieu === 'Phiếu chi' && (
+                        <div className="flex flex-col md:flex-row md:items-start gap-4 md:gap-8">
+                            <div className="md:w-1/3 md:text-right md:pt-2">
+                                <label className="text-sm font-medium text-slate-500">Loại chi</label>
+                            </div>
+                            <div className="md:w-2/3 flex-1 space-y-2">
+                                <div className="grid grid-cols-2 gap-2">
+                                    <button
+                                        type="button"
+                                        onClick={() => setFormData({ ...formData, hangMucChi: 'chi_du_an' })}
+                                        className={`py-2.5 rounded-lg text-xs font-bold border-2 transition-all ${
+                                            formData.hangMucChi === 'chi_du_an'
+                                                ? 'border-blue-600 bg-blue-50 text-blue-900'
+                                                : 'border-slate-200 bg-slate-50 text-slate-600 hover:border-slate-300'
+                                        }`}
+                                    >
+                                        Chi dự án
+                                    </button>
+                                    <button
+                                        type="button"
+                                        onClick={() => setFormData({ ...formData, hangMucChi: 'chi_nhan_su' })}
+                                        className={`py-2.5 rounded-lg text-xs font-bold border-2 transition-all ${
+                                            formData.hangMucChi === 'chi_nhan_su'
+                                                ? 'border-violet-600 bg-violet-50 text-violet-900'
+                                                : 'border-slate-200 bg-slate-50 text-slate-600 hover:border-slate-300'
+                                        }`}
+                                    >
+                                        Chi nhân sự
+                                    </button>
+                                </div>
+                                <p className="text-[11px] text-slate-500">
+                                    Chi nhân sự mới so sánh với ngưỡng trên hợp đồng (nếu có).
+                                </p>
+                            </div>
+                        </div>
+                    )}
+
+                    {/* Ngưỡng chi nhân sự — gọn trong một khối */}
+                    {formData.loaiPhieu === 'Phiếu chi' && formData.hopDongId && selectedContract && (
+                        <div className="flex flex-col md:flex-row md:items-start gap-4 md:gap-8">
+                            <div className="md:w-1/3 md:text-right md:pt-2">
+                                <label className="text-sm font-medium text-slate-500">Ngưỡng (HĐ)</label>
+                            </div>
+                            <div className="md:w-2/3 flex-1">
+                                <div className="rounded-xl border border-violet-200 bg-white overflow-hidden shadow-sm">
+                                    <div className="px-3 py-2 bg-violet-50/90 border-b border-violet-100/90 text-[11px] text-violet-950 leading-snug">
+                                        <span className="font-semibold">Ngưỡng chi NS (HĐ): </span>
+                                        {nguongTien <= 0 ? (
+                                            <span className="text-violet-700">Chưa đặt</span>
+                                        ) : (
+                                            <>
+                                                <span className="tabular-nums font-bold">{formatCurrency(nguongTien)} đ</span>
+                                                {normalizeNguongLoai(selectedContract.nguong_chi_nhan_su_loai) ===
+                                                    'phan_tram' &&
+                                                    Number(selectedContract.nguong_chi_nhan_su) > 0 && (
+                                                        <span className="text-violet-800/90">
+                                                            {' '}
+                                                            · {Number(selectedContract.nguong_chi_nhan_su)}% × QT{' '}
+                                                            {formatCurrency(Number(selectedContract.gia_tri_qt) || 0)} đ
+                                                        </span>
+                                                    )}
+                                            </>
+                                        )}
+                                    </div>
+                                    {formData.hangMucChi === 'chi_nhan_su' ? (
+                                        <div
+                                            className={`px-3 py-2.5 text-xs ${
+                                                overThreshold
+                                                    ? 'bg-red-50/40'
+                                                    : nearThreshold
+                                                      ? 'bg-amber-50/35'
+                                                      : 'bg-slate-50/40'
+                                            }`}
+                                        >
+                                            <div className="flex items-center justify-between gap-2 mb-1.5">
+                                                <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wide">
+                                                    Chi NS / ngưỡng
+                                                </span>
+                                                {nguongTien > 0 && pctDatNguong != null && (
+                                                    <span
+                                                        className={`text-sm font-black tabular-nums ${
+                                                            overThreshold
+                                                                ? 'text-red-600'
+                                                                : nearThreshold
+                                                                  ? 'text-amber-700'
+                                                                  : 'text-violet-700'
+                                                        }`}
+                                                    >
+                                                        {(Math.round(pctDatNguong * 10) / 10).toLocaleString('vi-VN')}%
+                                                        {pctDatNguong > 100 ? (
+                                                            <span className="text-[10px] font-bold text-red-600 ml-1">
+                                                                vượt
+                                                            </span>
+                                                        ) : null}
+                                                    </span>
+                                                )}
+                                            </div>
+                                            {nguongTien > 0 && pctDatNguong != null && (
+                                                <div className="h-2 w-full rounded-full bg-slate-200/80 overflow-hidden mb-2">
+                                                    <div
+                                                        className={`h-full rounded-full transition-all duration-300 ${
+                                                            overThreshold
+                                                                ? 'bg-red-500'
+                                                                : nearThreshold
+                                                                  ? 'bg-amber-500'
+                                                                  : 'bg-violet-500'
+                                                        }`}
+                                                        style={{ width: `${barWidthPct}%` }}
+                                                    />
+                                                </div>
+                                            )}
+                                            <p className="text-[11px] text-slate-800 leading-relaxed">
+                                                <span className="tabular-nums font-semibold text-violet-800">
+                                                    {formatCurrency(projectedNhanSuChi)}
+                                                </span>
+                                                <span className="text-slate-400"> / </span>
+                                                <span className="tabular-nums">{formatCurrency(nguongTien)} đ</span>
+                                                {(existingNhanSuChiTotal > 0 || amountNum > 0) && (
+                                                    <span className="text-slate-500 block sm:inline sm:ml-1 text-[10px]">
+                                                        · đã chi {formatCurrency(existingNhanSuChiTotal)} + phiếu{' '}
+                                                        {formatCurrency(amountNum)}
+                                                    </span>
+                                                )}
+                                            </p>
+                                            {nguongTien <= 0 ? (
+                                                <p className="text-[10px] text-slate-500 mt-1">Chưa đặt ngưỡng trên HĐ.</p>
+                                            ) : overThreshold ? (
+                                                <p className="text-[10px] font-bold text-red-600 mt-1">
+                                                    Vượt ngưỡng chi nhân sự.
+                                                </p>
+                                            ) : nearThreshold ? (
+                                                <p className="text-[10px] font-semibold text-amber-800 mt-1">
+                                                    Gần đạt ngưỡng (≥ 90%).
+                                                </p>
+                                            ) : null}
+                                        </div>
+                                    ) : (
+                                        <div className="px-3 py-2 text-[11px] text-slate-500">
+                                            Chọn <strong>Chi nhân sự</strong> (Loại chi) để xem mức đạt ngưỡng.
+                                        </div>
+                                    )}
+                                </div>
+                            </div>
+                        </div>
+                    )}
 
                     {/* Nhân sự (chi cho ai) - Chỉ hiển thị với Phiếu chi */}
                     {formData.loaiPhieu === 'Phiếu chi' && (
@@ -423,18 +676,19 @@ export function AddThuChi() {
                         </div>
                     </div>
 
-                    {/* Người nhận */}
+                    {/* Người nộp / Người nhận — chọn nhân sự (tên + ảnh, không mã) */}
                     <div className="flex flex-col md:flex-row md:items-center gap-4 md:gap-8">
                         <div className="md:w-1/3 md:text-right">
-                            <label className="text-sm font-medium text-slate-500">Người nộp/nhận</label>
+                            <label className="text-sm font-medium text-slate-500">
+                                {formData.loaiPhieu === 'Phiếu thu' ? 'Người nộp' : 'Người nhận'}
+                            </label>
                         </div>
-                        <div className="md:w-2/3 relative flex-1">
-                            <input
-                                type="text"
-                                value={formData.nguoiNhan}
-                                onChange={(e) => setFormData({ ...formData, nguoiNhan: e.target.value })}
-                                className="w-full px-4 py-2.5 bg-white border border-slate-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 text-slate-700"
-                                placeholder="Ngân hàng / Đối tác"
+                        <div className="md:w-2/3 flex-1">
+                            <NhanSuTenAnhPicker
+                                value={formData.nguoiNhanId}
+                                onChange={(id) => setFormData({ ...formData, nguoiNhanId: id })}
+                                employees={employees}
+                                placeholder={`Chọn nhân sự (${formData.loaiPhieu === 'Phiếu thu' ? 'nộp' : 'nhận'})`}
                             />
                         </div>
                     </div>

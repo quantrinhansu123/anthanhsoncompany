@@ -192,6 +192,49 @@ function taskCalendarDay(iso: string | null | undefined): Date | null {
   return new Date(d.getFullYear(), d.getMonth(), d.getDate());
 }
 
+/** Chuỗi `YYYY-MM-DD` từ input type=date → Date địa phương (0h). */
+function parseDateInputYmd(ymd: string): Date | null {
+  const s = ymd.trim();
+  if (!s) return null;
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(s);
+  if (!m) return null;
+  const y = Number(m[1]);
+  const mo = Number(m[2]) - 1;
+  const d = Number(m[3]);
+  const dt = new Date(y, mo, d);
+  if (dt.getFullYear() !== y || dt.getMonth() !== mo || dt.getDate() !== d) return null;
+  return dt;
+}
+
+function taskMatchesAssigneeFilter(
+  task: TaskRow,
+  employeeId: string,
+  employees: Array<{ id: string; full_name: string; code: string }>,
+): boolean {
+  if (!employeeId.trim()) return true;
+  const emp = employees.find((e) => e.id === employeeId);
+  if (!emp) return false;
+  const raw = (task.nguoi_phu_trach || '').trim();
+  if (!raw) return false;
+  for (const tok of raw.split(',').map((x) => x.trim()).filter(Boolean)) {
+    if (tok === emp.full_name || tok === emp.code || tok === emp.id) return true;
+  }
+  return false;
+}
+
+function taskNgayKetThucInRange(task: TaskRow, tu: string, den: string): boolean {
+  const hasTu = tu.trim().length > 0;
+  const hasDen = den.trim().length > 0;
+  if (!hasTu && !hasDen) return true;
+  const end = taskCalendarDay(task.ngay_ket_thuc);
+  if (!end) return false;
+  const tuD = hasTu ? parseDateInputYmd(tu) : null;
+  const denD = hasDen ? parseDateInputYmd(den) : null;
+  if (tuD && end.getTime() < tuD.getTime()) return false;
+  if (denD && end.getTime() > denD.getTime()) return false;
+  return true;
+}
+
 /** Số ngày từ ngày bắt đầu đến ngày kết thúc (tính cả hai mốc). */
 function inclusiveCalendarDays(start: Date, end: Date): number {
   return Math.floor((end.getTime() - start.getTime()) / 86400000) + 1;
@@ -210,6 +253,11 @@ export function QuanLyCongViec() {
   const [search, setSearch] = useState('');
   /** Rỗng = tất cả hợp đồng; có phần tử = chỉ công việc thuộc các hợp đồng đã chọn */
   const [filterHopDongIds, setFilterHopDongIds] = useState<string[]>([]);
+  /** Rỗng = tất cả nhân sự; khớp với `nguoi_phu_trach` (tên/code đã lưu) */
+  const [filterNhanSuId, setFilterNhanSuId] = useState('');
+  /** Lọc theo ngày kết thúc (YYYY-MM-DD), để trống = không giới hạn cạnh đó */
+  const [filterKetThucTu, setFilterKetThucTu] = useState('');
+  const [filterKetThucDen, setFilterKetThucDen] = useState('');
   const [contractFilterOpen, setContractFilterOpen] = useState(false);
   const [contractFilterSearch, setContractFilterSearch] = useState('');
   const contractFilterRef = useRef<HTMLDivElement>(null);
@@ -690,8 +738,25 @@ export function QuanLyCongViec() {
     return tasks.filter((t) => set.has((t.hop_dong_id || '').trim()));
   }, [tasks, filterHopDongIds]);
 
-  const filtered = useMemo(() => {
+  const tasksAfterAssigneeAndDate = useMemo(() => {
     let list = tasksInContractScope;
+    if (filterNhanSuId.trim()) {
+      list = list.filter((t) => taskMatchesAssigneeFilter(t, filterNhanSuId, employees));
+    }
+    if (filterKetThucTu.trim() || filterKetThucDen.trim()) {
+      list = list.filter((t) => taskNgayKetThucInRange(t, filterKetThucTu, filterKetThucDen));
+    }
+    return list;
+  }, [
+    tasksInContractScope,
+    filterNhanSuId,
+    filterKetThucTu,
+    filterKetThucDen,
+    employees,
+  ]);
+
+  const filtered = useMemo(() => {
+    let list = tasksAfterAssigneeAndDate;
     if (activeTab === 'doing') {
       list = list.filter((t) => t.trang_thai === 'Đang thực hiện');
     } else if (activeTab === 'done') {
@@ -708,7 +773,7 @@ export function QuanLyCongViec() {
       );
     }
     return list;
-  }, [tasksInContractScope, activeTab, search]);
+  }, [tasksAfterAssigneeAndDate, activeTab, search]);
 
   // Nếu có truyền `taskId` qua URL, tự chọn đúng task để người dùng bấm từ nơi khác.
   useEffect(() => {
@@ -717,6 +782,9 @@ export function QuanLyCongViec() {
     setActiveTab('all');
     setSearch('');
     setFilterHopDongIds([]);
+    setFilterNhanSuId('');
+    setFilterKetThucTu('');
+    setFilterKetThucDen('');
 
     const found = tasks.find((t) => String(t.id) === String(taskIdFromUrl));
     if (!found) return;
@@ -820,13 +888,13 @@ export function QuanLyCongViec() {
   };
 
   const statusCounts = useMemo(() => {
-    const list = tasksInContractScope;
+    const list = tasksAfterAssigneeAndDate;
     const all = list.length;
     const doing = list.filter((t) => t.trang_thai === 'Đang thực hiện').length;
     const done = list.filter((t) => isTrangThaiDaXong(t.trang_thai)).length;
     const pending = list.filter((t) => isTrangThaiChoDuyet(t.trang_thai)).length;
     return { all, doing, done, pending };
-  }, [tasksInContractScope]);
+  }, [tasksAfterAssigneeAndDate]);
 
   const selectedNgayThongKe = useMemo(() => {
     if (!selected) {
@@ -1000,8 +1068,9 @@ export function QuanLyCongViec() {
           </div>
           </div>
 
-          <div className="px-4 py-2 border-b border-slate-300 flex flex-col gap-2">
-            <div className="relative flex-1 min-w-0">
+          <div className="px-4 py-2 border-b border-slate-300">
+            <div className="grid grid-cols-2 gap-x-2 gap-y-2 items-start">
+            <div className="relative min-w-0">
               <Search className="w-4 h-4 text-slate-600 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
               <input
                 value={search}
@@ -1010,7 +1079,7 @@ export function QuanLyCongViec() {
                 className="w-full pl-8 pr-3 py-1.5 rounded-lg border-2 border-slate-400 text-xs focus:outline-none focus:ring-2 focus:ring-blue-600/40 focus:border-blue-600 bg-slate-200 font-bold text-slate-900"
               />
             </div>
-            <div className="relative" ref={contractFilterRef}>
+            <div className="relative min-w-0" ref={contractFilterRef}>
               <label className="sr-only">Lọc theo hợp đồng</label>
               <button
                 type="button"
@@ -1107,6 +1176,52 @@ export function QuanLyCongViec() {
                   </div>
                 </div>
               ) : null}
+            </div>
+            <div className="min-w-0">
+              <label className="block text-[10px] font-bold text-slate-600 uppercase tracking-wide mb-1">
+                Nhân sự phụ trách
+              </label>
+              <select
+                value={filterNhanSuId}
+                onChange={(e) => setFilterNhanSuId(e.target.value)}
+                className="w-full min-w-0 rounded-lg border-2 border-slate-400 px-2 py-1.5 text-[11px] bg-slate-200 font-bold text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-600/40 focus:border-blue-600"
+                title="Chỉ hiện công việc có người phụ trách đã chọn"
+              >
+                <option value="">Tất cả nhân sự</option>
+                {employees
+                  .slice()
+                  .sort((a, b) =>
+                    (a.full_name || a.code).localeCompare(b.full_name || b.code, 'vi'),
+                  )
+                  .map((e) => (
+                    <option key={e.id} value={e.id}>
+                      {e.full_name || e.code || e.id}
+                    </option>
+                  ))}
+              </select>
+            </div>
+            <div className="min-w-0">
+              <label className="block text-[10px] font-bold text-slate-600 uppercase tracking-wide mb-1">
+                Ngày kết thúc (từ — đến)
+              </label>
+              <div className="flex items-center gap-1">
+                <input
+                  type="date"
+                  value={filterKetThucTu}
+                  onChange={(e) => setFilterKetThucTu(e.target.value)}
+                  className="min-w-0 flex-1 rounded-lg border-2 border-slate-400 px-1 py-1.5 text-[10px] bg-slate-200 font-bold text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-600/40 focus:border-blue-600"
+                  title="Từ ngày kết thúc"
+                />
+                <span className="text-[9px] font-bold text-slate-500 shrink-0">—</span>
+                <input
+                  type="date"
+                  value={filterKetThucDen}
+                  onChange={(e) => setFilterKetThucDen(e.target.value)}
+                  className="min-w-0 flex-1 rounded-lg border-2 border-slate-400 px-1 py-1.5 text-[10px] bg-slate-200 font-bold text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-600/40 focus:border-blue-600"
+                  title="Đến ngày kết thúc"
+                />
+              </div>
+            </div>
             </div>
           </div>
 
@@ -2268,7 +2383,7 @@ export function QuanLyCongViec() {
                 Quy trình làm việc
               </h3>
               {selected ? (
-                <p className="text-xs text-slate-600 truncate mt-0.5" title={selected.ten_task}>
+                <p className="text-xs text-slate-600 mt-0.5 break-words">
                   Theo công việc: <span className="font-bold text-slate-600">{selected.ten_task}</span>
                 </p>
               ) : (
@@ -2514,7 +2629,7 @@ export function QuanLyCongViec() {
                           return (
                             <label
                               key={tpl.id}
-                              className="flex items-center gap-2 px-3 py-2 hover:bg-slate-200 cursor-pointer text-[11px]"
+                              className="flex items-start gap-2 px-3 py-2 hover:bg-slate-200 cursor-pointer text-[11px]"
                             >
                               <input
                                 type="checkbox"
@@ -2526,9 +2641,9 @@ export function QuanLyCongViec() {
                                       : [...prev, tpl.id],
                                   );
                                 }}
-                                className="h-3.5 w-3.5 rounded border-slate-300"
+                                className="h-3.5 w-3.5 shrink-0 rounded border-slate-300 mt-0.5"
                               />
-                              <span className="truncate text-slate-800">
+                              <span className="text-slate-800 break-words min-w-0">
                                 {tpl.task || tpl.id.slice(0, 8)}
                               </span>
                             </label>
@@ -2679,7 +2794,7 @@ export function QuanLyCongViec() {
                           }}
                         >
                           <div className="px-2.5 py-2 bg-slate-200/90">
-                            <div className="flex items-center gap-1.5 min-w-0">
+                            <div className="flex items-start gap-1.5 min-w-0">
                               <span
                                 role="button"
                                 tabIndex={0}
@@ -2707,10 +2822,7 @@ export function QuanLyCongViec() {
                               >
                                 {stepIndex + 1}
                               </span>
-                              <p
-                                className="flex-1 min-w-0 font-bold text-slate-900 text-sm leading-tight line-clamp-1"
-                                title={item.ten_task || item.id}
-                              >
+                              <p className="flex-1 min-w-0 font-bold text-slate-900 text-sm leading-snug break-words">
                                 {item.ten_task || item.id.slice(0, 8)}
                               </p>
                               <div className="relative shrink-0" data-quy-trinh-step-menu>

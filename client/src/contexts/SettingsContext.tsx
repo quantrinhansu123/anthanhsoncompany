@@ -35,7 +35,7 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
     // Load từ database hoặc dùng giá trị mặc định
     const [theme, setThemeState] = useState<Theme>('light');
     const [color, setColorState] = useState('blue');
-    const [fontFamily, setFontFamilyState] = useState('Inter');
+    const [fontFamily, setFontFamilyState] = useState('Roboto');
     const [fontSize, setFontSizeState] = useState('Trung bình');
     const [language, setLanguageState] = useState('vi');
     const [logoUrl, setLogoUrlState] = useState(DEFAULT_LOGO_URL);
@@ -65,7 +65,7 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
                 // Fallback to localStorage nếu database lỗi
                 setThemeState((localStorage.getItem('app-theme') as Theme) || 'light');
                 setColorState(localStorage.getItem('app-color') || 'blue');
-                setFontFamilyState(localStorage.getItem('app-font') || 'Inter');
+                setFontFamilyState(localStorage.getItem('app-font') || 'Roboto');
                 setFontSizeState(localStorage.getItem('app-fontsize') || 'Trung bình');
                 setLanguageState(localStorage.getItem('app-lang') || 'vi');
                 setLogoUrlState(localStorage.getItem('app-logo') || DEFAULT_LOGO_URL);
@@ -150,8 +150,8 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
             'Roboto': 'Roboto, sans-serif',
             'Open Sans': '"Open Sans", sans-serif'
         };
-        root.style.setProperty('--font-family', fontMap[fontFamily] || 'Inter, sans-serif');
-        root.style.fontFamily = fontMap[fontFamily] || 'Inter, sans-serif';
+        root.style.setProperty('--font-family', fontMap[fontFamily] || 'Roboto, sans-serif');
+        root.style.fontFamily = fontMap[fontFamily] || 'Roboto, sans-serif';
 
         // Apply Font Size
         const sizeMap: Record<string, string> = {

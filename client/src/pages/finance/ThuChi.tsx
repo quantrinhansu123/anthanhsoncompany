@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import {
     Search,
     Plus,
@@ -22,7 +22,12 @@ import {
     Briefcase,
     FileText,
     ChevronDown,
-    Calendar
+    Calendar,
+    TrendingDown,
+    TrendingUp,
+    Landmark,
+    Gauge,
+    Percent
 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { thuChiService, ThuChiRow } from '../../lib/services/thuChiService';
@@ -31,6 +36,7 @@ import { contractService } from '../../lib/services/contractService';
 import { employeeService } from '../../lib/services/employeeService';
 import { customerService, type Customer } from '../../lib/services/customerService';
 import { useThuChiModal } from '../../contexts/ThuChiModalContext';
+import { normalizeNguongLoai, tienQuyDoiNguongChiNhanSu } from '../../lib/nguongChiNhanSu';
 
 interface ToastProps {
     message: string;
@@ -62,6 +68,14 @@ const Toast = ({ message, type, onClose }: ToastProps) => {
     );
 };
 
+function StatChip({ label }: { label: string }) {
+    return (
+        <span className="inline-flex items-center rounded-lg border border-white/10 bg-white/[0.06] px-3 py-1.5 text-xs font-medium text-slate-300">
+            {label}
+        </span>
+    );
+}
+
 export function ThuChi() {
     const navigate = useNavigate();
     const [items, setItems] = useState<ThuChiRow[]>([]);
@@ -73,7 +87,18 @@ export function ThuChi() {
     const [activeTab, setActiveTab] = useState<'thu' | 'chi'>('thu'); // Tab mặc định: Phiếu thu
     const [customers, setCustomers] = useState<Array<Pick<Customer, 'id' | 'ten_don_vi'>>>([]);
     const [projects, setProjects] = useState<Array<{ id: string; ten_du_an: string; customer_id: string | null; customer_name: string | null }>>([]);
-    const [contracts, setContracts] = useState<Array<{ id: string; so_hop_dong: string | null; du_an_id: string | null; customer_id: string | null; customer_name: string | null }>>([]);
+    const [contracts, setContracts] = useState<
+        Array<{
+            id: string;
+            so_hop_dong: string | null;
+            du_an_id: string | null;
+            customer_id: string | null;
+            customer_name: string | null;
+            gia_tri_qt?: number | null;
+            nguong_chi_nhan_su?: number | null;
+            nguong_chi_nhan_su_loai?: string | null;
+        }>
+    >([]);
     const [employees, setEmployees] = useState<Array<{ id: string; full_name: string; code: string }>>([]);
     
     // Filter states - sử dụng mảng để có thể chọn nhiều
@@ -120,13 +145,18 @@ export function ThuChi() {
                 })));
                 
                 const contractList = await contractService.getAll();
-                setContracts(contractList.map((c: any) => ({ 
-                    id: c.id, 
-                    so_hop_dong: c.so_hop_dong, 
-                    du_an_id: c.du_an_id || null,
-                    customer_id: c.customer_id || null,
-                    customer_name: c.customer_name || null
-                })));
+                setContracts(
+                    contractList.map((c: any) => ({
+                        id: c.id,
+                        so_hop_dong: c.so_hop_dong,
+                        du_an_id: c.du_an_id || null,
+                        customer_id: c.customer_id || null,
+                        customer_name: c.customer_name || null,
+                        gia_tri_qt: c.gia_tri_qt ?? null,
+                        nguong_chi_nhan_su: c.nguong_chi_nhan_su ?? null,
+                        nguong_chi_nhan_su_loai: c.nguong_chi_nhan_su_loai ?? null,
+                    })),
+                );
                 
                 const employeeList = await employeeService.getAll();
                 setEmployees(employeeList.map(emp => ({
@@ -165,7 +195,15 @@ export function ThuChi() {
                 type: item.loai_phieu,
                 amount: new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND' }).format(item.so_tien),
                 description: item.noi_dung || '',
-                person: item.nguoi_nhan || 'Ngân hàng / Đối tác',
+                hang_muc_display:
+                    item.loai_phieu === 'Phiếu chi'
+                        ? item.hang_muc_chi === 'chi_du_an'
+                            ? 'Chi dự án'
+                            : item.hang_muc_chi === 'chi_nhan_su'
+                              ? 'Chi nhân sự'
+                              : '—'
+                        : '—',
+                person: item.nguoi_nhan || '',
                 ten_du_an: item.ten_du_an || projectInfoMap.get(item.du_an_id || '')?.ten_du_an || '(Chưa có dự án)',
                 customer_id: projectInfoMap.get(item.du_an_id || '')?.customer_id || null,
                 customer_name: projectInfoMap.get(item.du_an_id || '')?.customer_name || null,
@@ -347,6 +385,65 @@ export function ThuChi() {
     const totalAmount = filteredItems.reduce((sum, item) => sum + (item.so_tien || 0), 0);
     const formattedTotalAmount = new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND' }).format(totalAmount);
 
+    const nguongVndByHopDongId = useMemo(() => {
+        const m = new Map<string, number>();
+        contracts.forEach((c) => {
+            if (!c.id) return;
+            const loai = normalizeNguongLoai(c.nguong_chi_nhan_su_loai);
+            const raw = Number(c.nguong_chi_nhan_su ?? 0);
+            const vnd = tienQuyDoiNguongChiNhanSu(loai, Number(c.gia_tri_qt) || 0, raw);
+            m.set(String(c.id), vnd);
+        });
+        return m;
+    }, [contracts]);
+
+    /** Tab Phiếu chi: tổng chi NS & tổng ngưỡng (cộng ngưỡng các HĐ có phiếu chi NS trong bộ lọc) */
+    const chiNhanSuSummary = useMemo(() => {
+        if (activeTab !== 'chi') {
+            return { tongChiNS: 0, tongNguong: 0, pct: null as number | null };
+        }
+        const chiNsRows = filteredItems.filter(
+            (i) => i.loai_phieu === 'Phiếu chi' && i.hang_muc_chi === 'chi_nhan_su',
+        );
+        const tongChiNS = chiNsRows.reduce((s, i) => s + (Number(i.so_tien) || 0), 0);
+        const hopIds = new Set<string>();
+        chiNsRows.forEach((i) => {
+            if (i.hop_dong_id) hopIds.add(String(i.hop_dong_id));
+        });
+        let tongNguong = 0;
+        hopIds.forEach((hid) => {
+            tongNguong += nguongVndByHopDongId.get(hid) ?? 0;
+        });
+        const pct = tongNguong > 0 ? (tongChiNS / tongNguong) * 100 : null;
+        return { tongChiNS, tongNguong, pct };
+    }, [activeTab, filteredItems, nguongVndByHopDongId]);
+
+    const fmtVnd = (n: number) =>
+        new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND' }).format(n);
+
+    /** Tổng chi nhân sự theo từng HĐ trong danh sách đang lọc (dùng cho cột ngưỡng / %) */
+    const tongChiNsByHopFiltered = useMemo(() => {
+        const m = new Map<string, number>();
+        filteredItems.forEach((i) => {
+            if (i.loai_phieu === 'Phiếu chi' && i.hang_muc_chi === 'chi_nhan_su' && i.hop_dong_id) {
+                const k = String(i.hop_dong_id);
+                m.set(k, (m.get(k) || 0) + (Number(i.so_tien) || 0));
+            }
+        });
+        return m;
+    }, [filteredItems]);
+
+    const rowNguongMeta = (item: (typeof items)[0]) => {
+        if (item.loai_phieu !== 'Phiếu chi' || item.hang_muc_chi !== 'chi_nhan_su' || !item.hop_dong_id) {
+            return { nguong: null as number | null, pct: null as number | null };
+        }
+        const hid = String(item.hop_dong_id);
+        const nguong = nguongVndByHopDongId.get(hid) ?? 0;
+        const tong = tongChiNsByHopFiltered.get(hid) ?? 0;
+        const pct = nguong > 0 ? (tong / nguong) * 100 : null;
+        return { nguong: nguong > 0 ? nguong : null, pct };
+    };
+
     const isAllSelected = filteredItems.length > 0 && filteredItems.every(item => selectedIds.includes(item.id));
 
     const toggleSelectAll = () => {
@@ -361,67 +458,85 @@ export function ThuChi() {
         <>
             <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500 pb-10">
                 {toast && <Toast message={toast.message} type={toast.type} onClose={() => setToast(null)} />}
-                <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
+                <div className="bg-white rounded-2xl shadow-[0_2px_8px_-2px_rgba(15,23,42,0.08),0_1px_2px_rgba(15,23,42,0.04)] border border-slate-200/90 overflow-hidden">
                     {/* Header */}
-                    <div className="px-4 md:px-6 py-4 border-b border-slate-200 bg-slate-50">
-                        <div className="flex items-center justify-between mb-4">
-                            <div className="flex items-center gap-4">
+                    <div className="px-4 md:px-8 pt-6 pb-5 border-b border-slate-200/80 bg-gradient-to-br from-slate-50 via-white to-slate-50/30">
+                        <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4 mb-6">
+                            <div className="flex items-start gap-3">
                                 <button
+                                    type="button"
                                     onClick={() => navigate('/tai-chinh')}
-                                    className="p-2 hover:bg-slate-200 rounded-lg transition-colors"
+                                    className="p-2.5 rounded-xl border border-slate-200/80 bg-white text-slate-600 hover:bg-slate-50 hover:border-slate-300 transition-all shadow-sm"
+                                    aria-label="Quay lại"
                                 >
-                                    <ArrowLeft size={20} className="text-slate-600" />
+                                    <ArrowLeft size={18} strokeWidth={2} />
                                 </button>
-                                <h2 className="text-lg font-bold text-slate-700 uppercase">
-                                    Quản lý Thu chi
-                                </h2>
+                                <div>
+                                    <h1 className="text-lg md:text-xl font-semibold tracking-tight text-slate-900">
+                                        Quản lý thu chi
+                                    </h1>
+                                    <p className="mt-0.5 text-sm text-slate-500">
+                                        Theo dõi phiếu thu, phiếu chi và mức đạt ngưỡng nhân sự theo hợp đồng
+                                    </p>
+                                </div>
                             </div>
                         </div>
-                        
-                        {/* Tabs */}
-                        <div className="flex gap-2 border-b border-slate-200 -mb-4">
+
+                        {/* Tabs — segmented */}
+                        <div
+                            className="inline-flex p-1 rounded-xl bg-slate-100/90 border border-slate-200/70 shadow-inner"
+                            role="tablist"
+                        >
                             <button
+                                type="button"
+                                role="tab"
+                                aria-selected={activeTab === 'thu'}
                                 onClick={() => {
                                     setActiveTab('thu');
                                     setCurrentPage(1);
                                     setSelectedIds([]);
                                 }}
-                                className={`px-4 py-2 text-sm font-semibold transition-colors border-b-2 ${
+                                className={`relative px-5 py-2.5 text-sm font-medium rounded-lg transition-all duration-200 flex items-center gap-2 ${
                                     activeTab === 'thu'
-                                        ? 'border-emerald-500 text-emerald-600 bg-emerald-50'
-                                        : 'border-transparent text-slate-500 hover:text-slate-700 hover:border-slate-300'
+                                        ? 'bg-white text-emerald-700 shadow-sm ring-1 ring-slate-200/80'
+                                        : 'text-slate-600 hover:text-slate-900'
                                 }`}
                             >
+                                <TrendingUp size={16} className={activeTab === 'thu' ? 'text-emerald-600' : 'text-slate-400'} />
                                 Phiếu thu
                             </button>
                             <button
+                                type="button"
+                                role="tab"
+                                aria-selected={activeTab === 'chi'}
                                 onClick={() => {
                                     setActiveTab('chi');
                                     setCurrentPage(1);
                                     setSelectedIds([]);
                                 }}
-                                className={`px-4 py-2 text-sm font-semibold transition-colors border-b-2 ${
+                                className={`relative px-5 py-2.5 text-sm font-medium rounded-lg transition-all duration-200 flex items-center gap-2 ${
                                     activeTab === 'chi'
-                                        ? 'border-red-500 text-red-600 bg-red-50'
-                                        : 'border-transparent text-slate-500 hover:text-slate-700 hover:border-slate-300'
+                                        ? 'bg-white text-rose-700 shadow-sm ring-1 ring-slate-200/80'
+                                        : 'text-slate-600 hover:text-slate-900'
                                 }`}
                             >
+                                <TrendingDown size={16} className={activeTab === 'chi' ? 'text-rose-600' : 'text-slate-400'} />
                                 Phiếu chi
                             </button>
                         </div>
                     </div>
 
                     {/* Toolbar */}
-                    <div className="px-4 md:px-6 py-4 border-b border-slate-200">
+                    <div className="px-4 md:px-8 py-5 border-b border-slate-100 bg-white">
                         <div className="flex flex-col md:flex-row gap-4 justify-between items-start md:items-center mb-4">
                             <div className="relative w-full md:w-80">
-                                <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+                                <Search size={16} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
                                 <input
                                     type="text"
-                                    placeholder="Tìm kiếm..."
+                                    placeholder="Tìm mã, nội dung..."
                                     value={searchTerm}
                                     onChange={(e) => setSearchTerm(e.target.value)}
-                                    className="w-full pl-9 pr-4 py-2 text-sm border border-slate-200 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all"
+                                    className="w-full pl-10 pr-4 py-2.5 text-sm border border-slate-200 rounded-xl bg-slate-50/50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-slate-900/10 focus:border-slate-300 transition-all placeholder:text-slate-400"
                                 />
                             </div>
 
@@ -698,7 +813,7 @@ export function ThuChi() {
                                                                 onChange={() => toggleNhanSuFilter(emp.id)}
                                                                 className="w-3 h-3 text-blue-600 border-slate-300 rounded"
                                                             />
-                                                            <span className="text-xs">{emp.code ? `[${emp.code}] ` : ''}{emp.full_name}</span>
+                                                            <span className="text-xs">{emp.full_name}</span>
                                                         </label>
                                                     ))}
                                                 </div>
@@ -709,11 +824,16 @@ export function ThuChi() {
                             </div>
 
                             <button
+                                type="button"
                                 onClick={handleAddClick}
-                                className="flex items-center gap-2 px-4 py-2 text-sm font-bold text-white bg-blue-600 hover:bg-blue-700 rounded-md transition-colors shadow-sm ripple"
+                                className={`flex items-center justify-center gap-2 px-5 py-2.5 text-sm font-semibold text-white rounded-xl transition-all shadow-md hover:shadow-lg active:scale-[0.98] ${
+                                    activeTab === 'thu'
+                                        ? 'bg-gradient-to-r from-emerald-600 to-emerald-700 hover:from-emerald-500 hover:to-emerald-600'
+                                        : 'bg-gradient-to-r from-rose-600 to-rose-700 hover:from-rose-500 hover:to-rose-600'
+                                }`}
                             >
-                                <Plus size={18} />
-                                {activeTab === 'thu' ? 'Thêm phiếu thu mới' : 'Thêm phiếu chi mới'}
+                                <Plus size={18} strokeWidth={2.5} />
+                                {activeTab === 'thu' ? 'Thêm phiếu thu' : 'Thêm phiếu chi'}
                             </button>
                         </div>
 
@@ -789,34 +909,145 @@ export function ThuChi() {
                             </div>
                         </div>
 
-                        {/* Tổng số tiền */}
-                        <div className="px-4 md:px-6 py-3">
-                            <div className="bg-gradient-to-r from-slate-900 to-slate-800 rounded-2xl px-5 py-5 shadow-lg border border-slate-700/40">
-                                <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
-                                    <div>
-                                        <div className="text-xs font-bold text-slate-300 uppercase tracking-wide">
-                                            Tổng số tiền ({activeTab === 'thu' ? 'Phiếu thu' : 'Phiếu chi'})
+                        {/* KPI tổng */}
+                        <div className="px-4 md:px-8 pb-2 pt-1">
+                            <div className="relative overflow-hidden rounded-2xl border border-slate-800/20 bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950 shadow-xl">
+                                <div
+                                    className="pointer-events-none absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-white/15 to-transparent"
+                                    aria-hidden
+                                />
+                                <div className="absolute -right-20 -top-20 h-40 w-40 rounded-full bg-rose-500/10 blur-3xl" aria-hidden />
+                                <div className="absolute -left-16 bottom-0 h-32 w-32 rounded-full bg-violet-500/10 blur-3xl" aria-hidden />
+
+                                {activeTab === 'chi' ? (
+                                    <div className="relative px-5 py-6 md:px-7 md:py-7">
+                                        <div className="flex items-center gap-2 mb-5">
+                                            <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-white/10 text-rose-300 ring-1 ring-white/10">
+                                                <TrendingDown size={18} />
+                                            </div>
+                                            <div>
+                                                <p className="text-xs font-medium uppercase tracking-wider text-slate-500">
+                                                    Tổng quan phiếu chi
+                                                </p>
+                                                <p className="text-sm text-slate-400">Theo bộ lọc hiện tại</p>
+                                            </div>
                                         </div>
-                                        <div className={`mt-1 text-2xl md:text-3xl font-extrabold ${activeTab === 'thu' ? 'text-emerald-300' : 'text-rose-300'}`}>
-                                            {formattedTotalAmount}
+                                        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                                            <div className="group rounded-xl border border-white/[0.07] bg-white/[0.04] p-4 backdrop-blur-sm transition-colors hover:bg-white/[0.06]">
+                                                <div className="flex items-center gap-2 text-slate-400">
+                                                    <Landmark size={15} className="text-rose-400/90" />
+                                                    <span className="text-xs font-medium">Tổng tiền chi</span>
+                                                </div>
+                                                <p className="mt-3 text-2xl font-semibold tracking-tight text-rose-100 tabular-nums md:text-3xl">
+                                                    {formattedTotalAmount}
+                                                </p>
+                                            </div>
+                                            <div className="group rounded-xl border border-white/[0.07] bg-white/[0.04] p-4 backdrop-blur-sm transition-colors hover:bg-white/[0.06]">
+                                                <div className="flex items-center gap-2 text-slate-400">
+                                                    <Gauge size={15} className="text-violet-300/90" />
+                                                    <span className="text-xs font-medium">Tổng tiền ngưỡng</span>
+                                                </div>
+                                                <p className="mt-3 text-2xl font-semibold tracking-tight text-violet-100 tabular-nums md:text-3xl">
+                                                    {chiNhanSuSummary.tongNguong > 0
+                                                        ? fmtVnd(chiNhanSuSummary.tongNguong)
+                                                        : '—'}
+                                                </p>
+                                                <p className="mt-2 text-[11px] leading-relaxed text-slate-500">
+                                                    Cộng ngưỡng các HĐ có phiếu chi nhân sự trong lọc
+                                                </p>
+                                            </div>
+                                            <div className="group rounded-xl border border-white/[0.07] bg-white/[0.04] p-4 backdrop-blur-sm transition-colors hover:bg-white/[0.06]">
+                                                <div className="flex items-start justify-between gap-2">
+                                                    <div className="flex items-center gap-2 text-slate-400">
+                                                        <Percent size={15} className="text-slate-400" aria-hidden />
+                                                        <span className="text-xs font-medium">Đạt ngưỡng (chi NS)</span>
+                                                    </div>
+                                                    {chiNhanSuSummary.pct != null && chiNhanSuSummary.tongNguong > 0 ? (
+                                                        <span
+                                                            className={`text-lg font-semibold tabular-nums ${
+                                                                chiNhanSuSummary.pct > 100
+                                                                    ? 'text-red-300'
+                                                                    : chiNhanSuSummary.pct >= 90
+                                                                      ? 'text-amber-200'
+                                                                      : 'text-emerald-300'
+                                                            }`}
+                                                        >
+                                                            {(Math.round(chiNhanSuSummary.pct * 10) / 10).toLocaleString('vi-VN')}%
+                                                        </span>
+                                                    ) : (
+                                                        <span className="text-sm text-slate-500">—</span>
+                                                    )}
+                                                </div>
+                                                {chiNhanSuSummary.pct != null && chiNhanSuSummary.tongNguong > 0 ? (
+                                                    <>
+                                                        <div className="mt-4 h-2 w-full overflow-hidden rounded-full bg-slate-800/90 ring-1 ring-white/5">
+                                                            <div
+                                                                className={`h-full rounded-full bg-gradient-to-r transition-all duration-500 ${
+                                                                    chiNhanSuSummary.pct > 100
+                                                                        ? 'from-red-600 to-red-400'
+                                                                        : chiNhanSuSummary.pct >= 90
+                                                                          ? 'from-amber-600 to-amber-400'
+                                                                          : 'from-emerald-600 to-emerald-400'
+                                                                }`}
+                                                                style={{
+                                                                    width: `${Math.min(100, chiNhanSuSummary.pct)}%`,
+                                                                }}
+                                                            />
+                                                        </div>
+                                                        <p className="mt-3 text-[11px] text-slate-400 tabular-nums">
+                                                            Chi NS: {fmtVnd(chiNhanSuSummary.tongChiNS)}
+                                                            {chiNhanSuSummary.pct > 100 ? (
+                                                                <span className="ml-1.5 font-medium text-red-300">
+                                                                    · Vượt ngưỡng
+                                                                </span>
+                                                            ) : null}
+                                                        </p>
+                                                    </>
+                                                ) : (
+                                                    <p className="mt-4 text-[11px] leading-relaxed text-slate-500">
+                                                        Cần phiếu chi nhân sự có hợp đồng và ngưỡng trên HĐ.
+                                                    </p>
+                                                )}
+                                            </div>
+                                        </div>
+                                        <div className="mt-6 flex flex-wrap items-center gap-2 border-t border-white/10 pt-5">
+                                            <StatChip label={`${filteredItems.length} phiếu`} />
+                                            {selectedCustomerIds.length > 0 && (
+                                                <StatChip label={`${selectedCustomerIds.length} khách hàng`} />
+                                            )}
+                                            {selectedHopDongIds.length > 0 && (
+                                                <StatChip label={`${selectedHopDongIds.length} hợp đồng`} />
+                                            )}
                                         </div>
                                     </div>
-                                    <div className="flex items-center gap-2 text-sm text-slate-300">
-                                        <span className="px-3 py-1 rounded-full bg-white/10 border border-white/10 font-semibold">
-                                            {filteredItems.length} phiếu
-                                        </span>
-                                        {selectedCustomerIds.length > 0 && (
-                                            <span className="px-3 py-1 rounded-full bg-white/10 border border-white/10">
-                                                {selectedCustomerIds.length} khách hàng
-                                            </span>
-                                        )}
-                                        {selectedHopDongIds.length > 0 && (
-                                            <span className="px-3 py-1 rounded-full bg-white/10 border border-white/10">
-                                                {selectedHopDongIds.length} hợp đồng
-                                            </span>
-                                        )}
+                                ) : (
+                                    <div className="relative flex flex-col gap-6 px-5 py-6 md:flex-row md:items-center md:justify-between md:px-7 md:py-7">
+                                        <div className="absolute -right-16 -top-16 h-36 w-36 rounded-full bg-emerald-500/10 blur-3xl" aria-hidden />
+                                        <div className="relative flex items-start gap-4">
+                                            <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-emerald-500/15 text-emerald-300 ring-1 ring-emerald-400/20">
+                                                <TrendingUp size={22} />
+                                            </div>
+                                            <div>
+                                                <p className="text-xs font-medium uppercase tracking-wider text-slate-500">
+                                                    Tổng tiền thu
+                                                </p>
+                                                <p className="mt-1 text-3xl font-semibold tracking-tight text-emerald-100 tabular-nums md:text-4xl">
+                                                    {formattedTotalAmount}
+                                                </p>
+                                                <p className="mt-1 text-sm text-slate-500">Theo bộ lọc hiện tại</p>
+                                            </div>
+                                        </div>
+                                        <div className="relative flex flex-wrap items-center gap-2 md:justify-end">
+                                            <StatChip label={`${filteredItems.length} phiếu`} />
+                                            {selectedCustomerIds.length > 0 && (
+                                                <StatChip label={`${selectedCustomerIds.length} khách hàng`} />
+                                            )}
+                                            {selectedHopDongIds.length > 0 && (
+                                                <StatChip label={`${selectedHopDongIds.length} hợp đồng`} />
+                                            )}
+                                        </div>
                                     </div>
-                                </div>
+                                )}
                             </div>
                         </div>
                     </div>
@@ -846,7 +1077,7 @@ export function ThuChi() {
                     {!loading && !error && (
                         <div className="overflow-x-auto" onClick={() => setOpenColumnFilter(null)}>
                             <table className="w-full text-sm text-left">
-                                <thead className="bg-slate-50 text-slate-700 font-semibold border-b border-slate-200">
+                                <thead className="border-b border-slate-200 bg-slate-50/90 text-[11px] font-semibold uppercase tracking-wider text-slate-500">
                                     <tr>
                                         <th className="p-4 w-10">
                                             <button onClick={toggleSelectAll} className="flex items-center">
@@ -932,8 +1163,19 @@ export function ThuChi() {
                                             )}
                                         </th>
                                         <th className="p-4 whitespace-nowrap">Ngày chứng từ</th>
-                                        <th className="p-4 whitespace-nowrap">Loại</th>
+                                        <th className="p-4 whitespace-nowrap">Loại phiếu</th>
+                                        <th className="p-4 whitespace-nowrap">Hạng mục chi</th>
                                         <th className="p-4 whitespace-nowrap text-right pr-6">Số tiền</th>
+                                        {activeTab === 'chi' && (
+                                            <>
+                                                <th className="p-4 whitespace-nowrap text-right min-w-[7.5rem]">
+                                                    Ngưỡng (HĐ)
+                                                </th>
+                                                <th className="p-4 whitespace-nowrap min-w-[9.5rem]">
+                                                    Đạt ngưỡng
+                                                </th>
+                                            </>
+                                        )}
                                         <th className="p-4 whitespace-nowrap relative">
                                             <div className="flex items-center justify-between gap-2">
                                                 <span>Nội dung</span>
@@ -962,7 +1204,6 @@ export function ThuChi() {
                                                 </div>
                                             )}
                                         </th>
-                                        <th className="p-4 whitespace-nowrap">Người nộp/nhận</th>
                                         <th className="p-4 whitespace-nowrap">Ảnh</th>
                                         <th className="p-4 whitespace-nowrap text-center">Hành động</th>
                                     </tr>
@@ -972,7 +1213,7 @@ export function ThuChi() {
                                         currentItems.map((item) => (
                                             <tr
                                                 key={item.id}
-                                                className="hover:bg-slate-50 transition-colors group"
+                                                className="border-b border-slate-100/90 transition-colors hover:bg-slate-50/80 group"
                                             >
                                                 <td className="p-4">
                                                     <button onClick={() => toggleSelect(item.id)} className="flex items-center">
@@ -998,14 +1239,70 @@ export function ThuChi() {
                                                         {item.type || 'N/A'}
                                                     </span>
                                                 </td>
+                                                <td className="p-4 text-slate-600 whitespace-nowrap">
+                                                    {item.hang_muc_display ?? '—'}
+                                                </td>
                                                 <td className="p-4 text-slate-900 font-bold text-right pr-6">
                                                     {item.amount || '0'}
                                                 </td>
+                                                {activeTab === 'chi' && (() => {
+                                                    const { nguong, pct } = rowNguongMeta(item);
+                                                    const over = pct != null && pct > 100;
+                                                    const near = pct != null && pct >= 90 && pct <= 100;
+                                                    return (
+                                                        <>
+                                                            <td className="p-4 text-right align-middle">
+                                                                {nguong != null && nguong > 0 ? (
+                                                                    <span className="text-xs font-medium text-slate-700 tabular-nums">
+                                                                        {fmtVnd(nguong)}
+                                                                    </span>
+                                                                ) : (
+                                                                    <span className="text-xs text-slate-400">—</span>
+                                                                )}
+                                                            </td>
+                                                            <td className="p-4 align-middle min-w-[9.5rem]">
+                                                                {pct != null && nguong != null && nguong > 0 ? (
+                                                                    <div className="space-y-1">
+                                                                        <div className="flex items-center justify-between gap-2">
+                                                                            <span
+                                                                                className={`text-[11px] font-semibold tabular-nums ${
+                                                                                    over
+                                                                                        ? 'text-red-600'
+                                                                                        : near
+                                                                                          ? 'text-amber-600'
+                                                                                          : 'text-violet-700'
+                                                                                }`}
+                                                                            >
+                                                                                {(Math.round(pct * 10) / 10).toLocaleString('vi-VN')}%
+                                                                            </span>
+                                                                        </div>
+                                                                        <div className="h-1.5 w-full max-w-[8rem] rounded-full bg-slate-200 overflow-hidden ml-auto">
+                                                                            <div
+                                                                                className={`h-full rounded-full transition-all ${
+                                                                                    over
+                                                                                        ? 'bg-red-500'
+                                                                                        : near
+                                                                                          ? 'bg-amber-500'
+                                                                                          : 'bg-violet-500'
+                                                                                }`}
+                                                                                style={{
+                                                                                    width: `${Math.min(100, pct)}%`,
+                                                                                }}
+                                                                            />
+                                                                        </div>
+                                                                        <p className="text-[9px] text-slate-400 leading-tight">
+                                                                            Theo tổng chi NS (lọc) của HĐ
+                                                                        </p>
+                                                                    </div>
+                                                                ) : (
+                                                                    <span className="text-xs text-slate-400">—</span>
+                                                                )}
+                                                            </td>
+                                                        </>
+                                                    );
+                                                })()}
                                                 <td className="p-4 text-slate-600">
                                                     {item.description || '(Trống)'}
-                                                </td>
-                                                <td className="p-4 text-slate-600">
-                                                    {item.person || '(Trống)'}
                                                 </td>
                                                 <td className="p-4">
                                                     {item.anh_url ? (
@@ -1048,7 +1345,7 @@ export function ThuChi() {
                                         ))
                                     ) : (
                                         <tr>
-                                            <td colSpan={10} className="p-8 text-center text-slate-500">
+                                            <td colSpan={activeTab === 'chi' ? 12 : 10} className="p-8 text-center text-slate-500">
                                                 <div className="flex flex-col items-center gap-2">
                                                     <p className="text-sm font-medium">
                                                         {activeTab === 'thu' ? 'Không có phiếu thu' : 'Không có phiếu chi'}

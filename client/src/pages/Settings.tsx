@@ -63,7 +63,7 @@ export function Settings() {
                         onClick={async () => {
                             setTheme('light');
                             setColor('blue');
-                            setFontFamily('Inter');
+                            setFontFamily('Roboto');
                             setFontSize('Trung bình');
                             setLanguage('vi');
                             setLogoUrl('https://www.appsheet.com/template/gettablefileurl?appName=Appsheet-325045268&tableName=Kho%20%E1%BA%A3nh&fileName=Kho%20%E1%BA%A3nh_Images%2F13c7458d.%E1%BA%A2nh.064848.jpg');

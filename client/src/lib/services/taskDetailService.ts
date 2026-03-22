@@ -176,6 +176,16 @@ export interface LoiGhiNhanItem {
   ngay_gio: string;
 }
 
+/** Một dòng lỗi đã gắn với công việc (dùng tab “Lỗi vi phạm” trong chi tiết nhân sự) */
+export interface ViPhamNhanSuRow {
+  cong_viec_chi_tiet_id: string;
+  ten_cong_viec: string;
+  hop_dong_id: string | null;
+  task_id: string | null;
+  trang_thai: string;
+  loi: LoiGhiNhanItem;
+}
+
 export function parseLoiGhiNhanColumn(raw: unknown): LoiGhiNhanItem[] {
   if (!Array.isArray(raw)) return [];
   return raw
@@ -1411,6 +1421,46 @@ export const taskDetailService = {
     const next = [...existing, comment];
 
     return this.updateComments(detailId, next);
+  },
+
+  /** Tổng hợp mọi dòng `loi_ghi_nhan` mà `nguoi_vi_pham_id` trùng nhân sự */
+  async getLoiViPhamByNhanSuId(nhanSuId: string): Promise<ViPhamNhanSuRow[]> {
+    const idNorm = String(nhanSuId || '').trim();
+    if (!idNorm) return [];
+
+    const { data, error } = await supabase
+      .from('cong_viec_chi_tiet')
+      .select('id, ten_cong_viec, hop_dong_id, task_id, loi_ghi_nhan, trang_thai')
+      .not('loi_ghi_nhan', 'is', null);
+
+    if (error) {
+      console.error('[taskDetailService] getLoiViPhamByNhanSuId:', error);
+      throw error;
+    }
+
+    const out: ViPhamNhanSuRow[] = [];
+    for (const row of data || []) {
+      const lois = parseLoiGhiNhanColumn(row.loi_ghi_nhan);
+      for (const loi of lois) {
+        if (String(loi.nguoi_vi_pham_id || '').trim() === idNorm) {
+          out.push({
+            cong_viec_chi_tiet_id: String(row.id),
+            ten_cong_viec: String(row.ten_cong_viec || ''),
+            hop_dong_id: row.hop_dong_id != null ? String(row.hop_dong_id) : null,
+            task_id: row.task_id != null ? String(row.task_id) : null,
+            trang_thai: String(row.trang_thai || ''),
+            loi,
+          });
+        }
+      }
+    }
+
+    out.sort((a, b) => {
+      const ta = new Date(a.loi.ngay_gio || 0).getTime();
+      const tb = new Date(b.loi.ngay_gio || 0).getTime();
+      return tb - ta;
+    });
+    return out;
   },
 };
 

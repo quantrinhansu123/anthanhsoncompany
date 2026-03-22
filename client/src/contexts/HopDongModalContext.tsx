@@ -12,6 +12,8 @@ interface HopDong {
     loaiDichVu: string;
     giaTriHD: number;
     giaTriQT: number;
+    nguongChiNhanSu?: number;
+    nguongChiNhanSuLoai?: 'tien' | 'phan_tram';
     daThu: number;
     conPhaiThu: number;
     ngayUpdate: string;

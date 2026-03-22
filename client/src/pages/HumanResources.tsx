@@ -155,12 +155,22 @@ export function HumanResources() {
 
   // Filter employees locally or use search API
   const filteredEmployees = searchTerm
-    ? employees.filter(emp =>
-      emp.name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      emp.code?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      emp.department?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      emp.email?.toLowerCase().includes(searchTerm.toLowerCase())
-    )
+    ? employees.filter((emp) => {
+        const q = searchTerm.toLowerCase();
+        const ten =
+          (emp as any).full_name ||
+          emp.name ||
+          (emp as any).hoTen ||
+          (emp as any).ho_ten ||
+          '';
+        return (
+          String(ten).toLowerCase().includes(q) ||
+          (emp.phongBan || emp.department || (emp as any).phong_ban || '')
+            .toLowerCase()
+            .includes(q) ||
+          (emp.email || '').toLowerCase().includes(q)
+        );
+      })
     : employees;
 
   const totalPages = Math.ceil(filteredEmployees.length / itemsPerPage);
@@ -203,7 +213,7 @@ export function HumanResources() {
             <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
             <input
               type="text"
-              placeholder="Tìm theo mã, tên, phòng ban, email..."
+              placeholder="Tìm theo tên, phòng ban, email..."
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
               className="w-full pl-9 pr-4 py-2 text-sm border border-slate-200 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all"
@@ -264,7 +274,6 @@ export function HumanResources() {
                       )}
                     </button>
                   </th>
-                  <th className="p-4 whitespace-nowrap">Mã NV</th>
                   <th className="p-4 whitespace-nowrap">Ảnh</th>
                   <th className="p-4 whitespace-nowrap">Họ và tên</th>
                   <th className="p-4 whitespace-nowrap">Phòng ban</th>
@@ -290,9 +299,6 @@ export function HumanResources() {
                             <Square size={18} className="text-slate-400" />
                           )}
                         </button>
-                      </td>
-                      <td className="p-4 font-medium text-slate-700">
-                        {employee.code || employee.ma_nv || employee.employee_code || '(Trống)'}
                       </td>
                       <td className="p-4">
                         {(() => {

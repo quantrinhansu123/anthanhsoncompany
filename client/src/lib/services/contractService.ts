@@ -24,6 +24,9 @@ export interface ContractRow {
   loai_dich_vu?: string | null;
   gia_tri_hd?: number | null;
   gia_tri_qt?: number | null;
+  nguong_chi_nhan_su?: number | null;
+  /** tien | phan_tram — nếu phan_tram thì nguong_chi_nhan_su là % nhân với gia_tri_qt */
+  nguong_chi_nhan_su_loai?: string | null;
   da_thu?: number | null;
   con_phai_thu?: number | null;
   progress?: number | null;

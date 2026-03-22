@@ -258,7 +258,9 @@ export function Layout() {
       <ThemThuChiHopDongModal
         isOpen={isAddFinanceOpen}
         onClose={closeAddFinance}
-        onSuccess={(data) => console.log('Finance added:', data)}
+        onSuccess={() => {
+          window.location.reload();
+        }}
       />
 
       <ThemCongViecHopDongModal

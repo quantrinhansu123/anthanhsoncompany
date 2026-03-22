@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { addMonths, isBefore, parse, parseISO, startOfDay } from 'date-fns';
 import {
-  X, User, Mail, Phone, MapPin, CreditCard, Calendar as CalendarIcon, FileText, Users, Eye, Loader2
+  X, User, Mail, Phone, MapPin, CreditCard, Calendar as CalendarIcon, FileText, Users, Eye, Loader2, AlertTriangle, ExternalLink
 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { employeeService, type Employee } from '../../lib/services/employeeService';
@@ -10,7 +10,18 @@ import { dependentPersonService, type DependentPerson } from '../../lib/services
 import { contractService, ContractRow } from '../../lib/services/contractService';
 import { thuChiService, ThuChiRow } from '../../lib/services/thuChiService';
 import { projectService } from '../../lib/services/projectService';
+import { taskDetailService, type ViPhamNhanSuRow } from '../../lib/services/taskDetailService';
 import { PreviewLinkModal } from '../../components/PreviewLinkModal';
+
+function formatLoiNgayGio(iso: string): string {
+  try {
+    const d = new Date(iso);
+    if (Number.isNaN(d.getTime())) return (iso || '').trim() || '—';
+    return d.toLocaleString('vi-VN');
+  } catch {
+    return (iso || '').trim() || '—';
+  }
+}
 
 interface Props {
     isOpen: boolean;
@@ -21,7 +32,9 @@ interface Props {
 export function ChiTietNhanVienModal({ isOpen, onClose, employeeId }: Props) {
   const navigate = useNavigate();
   const [viewingEmployee, setViewingEmployee] = useState<Employee | null>(null);
-  const [activeTab, setActiveTab] = useState<'employee' | 'license' | 'dependent' | 'finance' | 'projects'>('employee');
+  const [activeTab, setActiveTab] = useState<
+    'employee' | 'license' | 'dependent' | 'finance' | 'projects' | 'violations'
+  >('employee');
   const [certificates, setCertificates] = useState<ProfessionalCertificate[]>([]);
   const [dependentPersons, setDependentPersons] = useState<DependentPerson[]>([]);
   const [loadingCertificates, setLoadingCertificates] = useState(false);
@@ -33,6 +46,8 @@ export function ChiTietNhanVienModal({ isOpen, onClose, employeeId }: Props) {
   const [projectsByEmployee, setProjectsByEmployee] = useState<Map<string, { project: any; contracts: ContractRow[] }>>(new Map());
   const [loadingBase, setLoadingBase] = useState(false);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+  const [viPhamRows, setViPhamRows] = useState<ViPhamNhanSuRow[]>([]);
+  const [loadingViPham, setLoadingViPham] = useState(false);
 
   useEffect(() => {
     if (!isOpen) setPreviewUrl(null);
@@ -45,6 +60,7 @@ export function ChiTietNhanVienModal({ isOpen, onClose, employeeId }: Props) {
         // Reset states when closed
         setViewingEmployee(null);
         setActiveTab('employee');
+        setViPhamRows([]);
     }
   }, [isOpen, employeeId]);
 
@@ -114,6 +130,16 @@ export function ChiTietNhanVienModal({ isOpen, onClose, employeeId }: Props) {
           .then(all => setEmployeeThuChi(all.filter(tc => tc.nhan_su_id === id.toString())))
           .catch(err => console.error('Error loading thu chi:', err))
           .finally(() => setLoadingThuChi(false));
+
+        setLoadingViPham(true);
+        taskDetailService
+          .getLoiViPhamByNhanSuId(id.toString())
+          .then(setViPhamRows)
+          .catch((err) => {
+            console.error('Error loading lỗi vi phạm:', err);
+            setViPhamRows([]);
+          })
+          .finally(() => setLoadingViPham(false));
 
       } catch (err) {
         console.error('Error loading extended data:', err);
@@ -206,15 +232,16 @@ export function ChiTietNhanVienModal({ isOpen, onClose, employeeId }: Props) {
         <div className="border-b border-slate-200 bg-slate-50">
           <div className="flex gap-1 px-6 overflow-x-auto no-scrollbar">
             {[
-                { id: 'employee', label: 'Thông tin nhân viên', icon: <User size={16} /> },
-                { id: 'license', label: 'Chứng chỉ hành nghề', icon: <FileText size={16} /> },
-                { id: 'dependent', label: 'Người phụ thuộc', icon: <Users size={16} /> },
-                { id: 'finance', label: 'Thu chi', icon: <CreditCard size={16} /> },
-                { id: 'projects', label: 'Dự án phụ trách', icon: <FileText size={16} /> },
+                { id: 'employee', label: 'Thông tin nhân viên', icon: <User size={16} />, count: null as number | null },
+                { id: 'license', label: 'Chứng chỉ hành nghề', icon: <FileText size={16} />, count: null },
+                { id: 'dependent', label: 'Người phụ thuộc', icon: <Users size={16} />, count: null },
+                { id: 'finance', label: 'Thu chi', icon: <CreditCard size={16} />, count: null },
+                { id: 'projects', label: 'Dự án phụ trách', icon: <FileText size={16} />, count: null },
+                { id: 'violations', label: 'Lỗi vi phạm', icon: <AlertTriangle size={16} />, count: viPhamRows.length },
             ].map((tab) => (
                 <button
                     key={tab.id}
-                    onClick={() => setActiveTab(tab.id as any)}
+                    onClick={() => setActiveTab(tab.id as typeof activeTab)}
                     className={`px-4 py-3 text-sm font-medium transition-colors border-b-2 flex items-center gap-2 whitespace-nowrap ${activeTab === tab.id
                         ? 'text-blue-600 border-blue-600 bg-white'
                         : 'text-slate-600 border-transparent hover:text-slate-800'
@@ -222,6 +249,11 @@ export function ChiTietNhanVienModal({ isOpen, onClose, employeeId }: Props) {
                 >
                     {tab.icon}
                     {tab.label}
+                    {tab.count != null && tab.count > 0 && (
+                      <span className="min-w-[1.25rem] px-1.5 py-0.5 rounded-full text-[10px] font-bold bg-amber-100 text-amber-900 border border-amber-200">
+                        {tab.count}
+                      </span>
+                    )}
                 </button>
             ))}
           </div>
@@ -446,6 +478,92 @@ export function ChiTietNhanVienModal({ isOpen, onClose, employeeId }: Props) {
                   ))}
                 </div>
               ) : <div className="text-center py-8 text-slate-500 text-sm italic">Không có dự án phụ trách</div>}
+            </div>
+          )}
+
+          {activeTab === 'violations' && (
+            <div className="space-y-4">
+              <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 border-b border-slate-200 pb-3">
+                <h4 className="text-sm font-semibold text-slate-700 uppercase tracking-wide flex items-center gap-2">
+                  <AlertTriangle size={18} className="text-amber-600" />
+                  Lỗi vi phạm (ghi nhận từ Quản lý công việc)
+                </h4>
+                {!loadingViPham && (
+                  <p className="text-sm text-slate-600">
+                    Tổng <span className="font-bold text-slate-800">{viPhamRows.length}</span> lần ghi nhận
+                  </p>
+                )}
+              </div>
+              <p className="text-xs text-slate-500 -mt-2">
+                Danh sách dựa trên mục “Người vi phạm” trong lỗi ghi nhận của từng công việc.
+              </p>
+              {loadingViPham ? (
+                <div className="flex items-center justify-center py-10">
+                  <Loader2 className="w-6 h-6 animate-spin text-blue-600" />
+                  <span className="ml-2 text-sm text-slate-600">Đang tải...</span>
+                </div>
+              ) : viPhamRows.length > 0 ? (
+                <div className="overflow-x-auto border border-slate-200 rounded-lg">
+                  <table className="w-full text-sm min-w-[720px]">
+                    <thead className="bg-amber-50/80 text-slate-800 font-semibold border-b border-amber-100">
+                      <tr>
+                        <th className="p-3 text-left whitespace-nowrap">Thời điểm</th>
+                        <th className="p-3 text-left">Công việc</th>
+                        <th className="p-3 text-left">Chuyên ngành / Bộ môn</th>
+                        <th className="p-3 text-left">Hạng mục kiểm tra</th>
+                        <th className="p-3 text-left">Nội dung</th>
+                        <th className="p-3 text-left">Cảnh báo lỗi</th>
+                        <th className="p-3 text-left">Ghi chú</th>
+                        <th className="p-3 text-left whitespace-nowrap">Trạng thái CV</th>
+                        <th className="p-3 text-center">{''}</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100">
+                      {viPhamRows.map((row) => {
+                        const loi = row.loi;
+                        const taskLinkId = row.task_id || row.cong_viec_chi_tiet_id;
+                        return (
+                          <tr key={`${row.cong_viec_chi_tiet_id}-${loi.id}`} className="hover:bg-slate-50 align-top">
+                            <td className="p-3 text-xs whitespace-nowrap text-slate-700">
+                              {formatLoiNgayGio(loi.ngay_gio)}
+                            </td>
+                            <td className="p-3 text-xs font-medium text-slate-900 max-w-[180px]">
+                              {row.ten_cong_viec || '—'}
+                            </td>
+                            <td className="p-3 text-xs text-slate-700 max-w-[140px]">
+                              {[loi.chuyen_nganh, loi.bo_mon].filter(Boolean).join(' · ') || '—'}
+                            </td>
+                            <td className="p-3 text-xs text-slate-700 max-w-[160px]">{loi.hang_muc_kiem_tra || '—'}</td>
+                            <td className="p-3 text-xs text-slate-600 max-w-[200px]">{loi.noi_dung_kiem_tra || '—'}</td>
+                            <td className="p-3 text-xs text-amber-900 font-medium max-w-[180px]">{loi.canh_bao_loi || '—'}</td>
+                            <td className="p-3 text-xs text-slate-600 max-w-[160px]">{loi.ghi_chu || '—'}</td>
+                            <td className="p-3 text-xs whitespace-nowrap">{row.trang_thai || '—'}</td>
+                            <td className="p-3 text-center">
+                              <button
+                                type="button"
+                                title="Mở trong Quản lý công việc"
+                                onClick={() => {
+                                  onClose();
+                                  navigate(
+                                    `/quy-trinh/quan-ly-cong-viec?taskId=${encodeURIComponent(taskLinkId)}`,
+                                  );
+                                }}
+                                className="inline-flex items-center gap-1 text-xs font-semibold text-blue-600 hover:text-blue-800"
+                              >
+                                <ExternalLink size={14} />
+                              </button>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              ) : (
+                <div className="text-center py-10 text-slate-500 text-sm border border-dashed border-slate-200 rounded-lg bg-slate-50/50">
+                  Chưa có lỗi vi phạm nào được ghi nhận cho nhân viên này.
+                </div>
+              )}
             </div>
           )}
         </div>

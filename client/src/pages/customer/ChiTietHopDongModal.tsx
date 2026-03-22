@@ -10,6 +10,9 @@ import { taskDetailService } from '../../lib/services/taskDetailService';
 import { useHopDongModal } from '../../contexts/HopDongModalContext';
 import { useNavigate } from 'react-router-dom';
 import { PreviewLinkModal } from '../../components/PreviewLinkModal';
+import { thuChiService, ThuChiRow } from '../../lib/services/thuChiService';
+import type { NguongChiNhanSuLoai } from '../../lib/nguongChiNhanSu';
+import { normalizeNguongLoai, tienQuyDoiNguongChiNhanSu } from '../../lib/nguongChiNhanSu';
 
 interface Contract {
     id?: number;
@@ -23,6 +26,8 @@ interface Contract {
     loaiDichVu: string;
     giaTriHD: number;
     giaTriQT: number;
+    nguongChiNhanSu?: number;
+    nguongChiNhanSuLoai?: NguongChiNhanSuLoai;
     daThu: number;
     conPhaiThu: number;
     ngayUpdate: string;
@@ -74,10 +79,39 @@ export function ChiTietHopDongModal({ isOpen, onClose, contract }: ChiTietHopDon
         ghi_chu: '',
     });
     const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+    const [thuChiRows, setThuChiRows] = useState<ThuChiRow[]>([]);
+    const [loadingThuChi, setLoadingThuChi] = useState(false);
+
+    const loadThuChi = useCallback(async () => {
+        if (!contract?.uuid) {
+            setThuChiRows([]);
+            return;
+        }
+        setLoadingThuChi(true);
+        try {
+            const all = await thuChiService.getAll();
+            setThuChiRows(
+                all
+                    .filter((r) => (r.hop_dong_id || '') === contract.uuid)
+                    .sort((a, b) => String(b.ngay || '').localeCompare(String(a.ngay || ''))),
+            );
+        } catch (e) {
+            console.error('[ChiTietHopDongModal] loadThuChi:', e);
+            setThuChiRows([]);
+        } finally {
+            setLoadingThuChi(false);
+        }
+    }, [contract?.uuid]);
 
     useEffect(() => {
         if (!isOpen) setPreviewUrl(null);
     }, [isOpen]);
+
+    useEffect(() => {
+        if (isOpen && contract?.uuid) {
+            loadThuChi();
+        }
+    }, [isOpen, contract?.uuid, loadThuChi]);
 
     const formatCurrency = (amount: number) => {
         return new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND' }).format(amount);
@@ -338,6 +372,19 @@ export function ChiTietHopDongModal({ isOpen, onClose, contract }: ChiTietHopDon
                                 {[
                                     { label: 'Giá trị hợp đồng', value: formatCurrency(contract.giaTriHD), color: 'text-slate-800' },
                                     { label: 'Giá trị quyết toán', value: formatCurrency(contract.giaTriQT), color: 'text-green-600' },
+                                    {
+                                        label: 'Ngưỡng chi nhân sự',
+                                        value: (() => {
+                                            const loai = normalizeNguongLoai(contract.nguongChiNhanSuLoai);
+                                            const raw = contract.nguongChiNhanSu ?? 0;
+                                            const tien = tienQuyDoiNguongChiNhanSu(loai, contract.giaTriQT, raw);
+                                            if (loai === 'phan_tram' && raw > 0) {
+                                                return `${Number(raw).toLocaleString('vi-VN')}% × QT → ${formatCurrency(tien)}`;
+                                            }
+                                            return formatCurrency(tien);
+                                        })(),
+                                        color: 'text-violet-700',
+                                    },
                                     { label: 'Đã thu', value: formatCurrency(contract.daThu), color: 'text-green-600' },
                                     { label: 'Còn phải thu', value: formatCurrency(contract.conPhaiThu), color: contract.conPhaiThu > 0 ? 'text-red-500' : 'text-green-600' },
                                 ].map((row, index) => (
@@ -429,7 +476,7 @@ export function ChiTietHopDongModal({ isOpen, onClose, contract }: ChiTietHopDon
                                 <div className="flex items-center gap-2">
                                     <h3 className="text-sm font-semibold text-slate-800">Thu chi</h3>
                                     <span className="px-1.5 py-0.5 bg-blue-100 text-blue-600 rounded text-[10px] font-bold">
-                                        {contract.daThu > 0 ? '1' : '0'}
+                                        {thuChiRows.length}
                                     </span>
                                 </div>
                                 <button onClick={openAddFinance} className="p-1.5 text-purple-600 hover:bg-purple-50 rounded border border-purple-100 transition-colors" title="Thêm thu chi">
@@ -437,38 +484,56 @@ export function ChiTietHopDongModal({ isOpen, onClose, contract }: ChiTietHopDon
                                 </button>
                             </div>
                             <div className="overflow-x-auto">
+                                {loadingThuChi ? (
+                                    <p className="px-4 py-6 text-xs text-slate-500">Đang tải chứng từ...</p>
+                                ) : (
                                 <table className="w-full text-left">
-                                    <thead className="border-b border-slate-200 text-slate-800 font-semibold bg-white text-xs uppercase tracking-wider">
+                                    <thead className="border-b border-slate-200 text-slate-800 font-semibold bg-white text-[10px] uppercase tracking-wider">
                                         <tr>
                                             <th className="px-4 py-3">Loại phiếu</th>
+                                            <th className="px-4 py-3 whitespace-nowrap">Hạng mục</th>
                                             <th className="px-4 py-3">Ngày</th>
                                             <th className="px-4 py-3 text-right">Số tiền</th>
-                                            <th className="px-4 py-3">Nội dung</th>
+                                            <th className="px-4 py-3 min-w-[8rem]">Nội dung</th>
                                         </tr>
                                     </thead>
                                     <tbody className="divide-y divide-slate-100 text-sm">
-                                        {contract.daThu > 0 ? (
-                                            <tr className="bg-white hover:bg-slate-50 transition-colors">
-                                                <td className="px-4 py-3">
-                                                    <span className="text-green-600 italic font-bold">Phiếu thu</span>
-                                                </td>
-                                                <td className="px-4 py-3 text-slate-600">Đã ghi nhận</td>
-                                                <td className="px-4 py-3 text-right">
-                                                    <span className="font-bold text-slate-800">
-                                                        {formatCurrency(contract.daThu)}
-                                                    </span>
-                                                </td>
-                                                <td className="px-4 py-3 text-slate-600">Thanh toán theo hợp đồng</td>
-                                            </tr>
-                                        ) : (
+                                        {thuChiRows.length === 0 ? (
                                             <tr>
-                                                <td colSpan={4} className="px-4 py-8 text-center text-slate-400 italic">
+                                                <td colSpan={5} className="px-4 py-8 text-center text-slate-400 italic">
                                                     Chưa có phiếu thu/chi nào
                                                 </td>
                                             </tr>
+                                        ) : (
+                                            thuChiRows.map((row) => (
+                                                <tr key={row.id} className="bg-white hover:bg-slate-50 transition-colors">
+                                                    <td className="px-4 py-3">
+                                                        <span className={row.loai_phieu === 'Phiếu thu' ? 'text-emerald-700 font-bold' : 'text-rose-700 font-bold'}>
+                                                            {row.loai_phieu}
+                                                        </span>
+                                                    </td>
+                                                    <td className="px-4 py-3 text-xs text-slate-600">
+                                                        {row.loai_phieu === 'Phiếu chi'
+                                                            ? row.hang_muc_chi === 'chi_nhan_su'
+                                                                ? 'Chi nhân sự'
+                                                                : 'Chi dự án'
+                                                            : '—'}
+                                                    </td>
+                                                    <td className="px-4 py-3 text-slate-600 whitespace-nowrap">
+                                                        {formatDate(row.ngay)}
+                                                    </td>
+                                                    <td className="px-4 py-3 text-right font-bold text-slate-800 tabular-nums">
+                                                        {formatCurrency(row.so_tien || 0)}
+                                                    </td>
+                                                    <td className="px-4 py-3 text-slate-600 text-xs max-w-[14rem]">
+                                                        {row.noi_dung || '—'}
+                                                    </td>
+                                                </tr>
+                                            ))
                                         )}
                                     </tbody>
                                 </table>
+                                )}
                             </div>
                         </div>
                     )}

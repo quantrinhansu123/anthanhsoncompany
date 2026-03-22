@@ -7,6 +7,8 @@ import { taskService, TaskRow } from '../../lib/services/taskService';
 import { employeeService } from '../../lib/services/employeeService';
 import { thuChiService } from '../../lib/services/thuChiService';
 import { useHopDongModal } from '../../contexts/HopDongModalContext';
+import type { NguongChiNhanSuLoai } from '../../lib/nguongChiNhanSu';
+import { normalizeNguongLoai, tienQuyDoiNguongChiNhanSu } from '../../lib/nguongChiNhanSu';
 
 interface Contract {
     id: number;
@@ -20,6 +22,10 @@ interface Contract {
     loaiDichVu: string;
     giaTriHD: number;
     giaTriQT: number;
+    nguongChiNhanSu: number;
+    nguongChiNhanSuLoai: NguongChiNhanSuLoai;
+    /** Tiền quy đổi (QT × % hoặc nhập VND) */
+    nguongChiNhanSuTien: number;
     daThu: number;
     conPhaiThu: number;
     ngayUpdate: string;
@@ -130,6 +136,8 @@ export function HopDong() {
                     contracts: contracts.map((c, idx) => {
                         const daThu = thuChiMap.get(c.id) || 0;
                         const giaTriQT = Number(c.gia_tri_qt || 0);
+                        const loaiNs = normalizeNguongLoai(c.nguong_chi_nhan_su_loai);
+                        const rawNguong = Number(c.nguong_chi_nhan_su ?? 0);
                         return {
                             id: idx + 1,
                             uuid: c.id,
@@ -142,6 +150,9 @@ export function HopDong() {
                             loaiDichVu: c.loai_dich_vu || '',
                             giaTriHD: Number(c.gia_tri_hd || 0),
                             giaTriQT,
+                            nguongChiNhanSu: rawNguong,
+                            nguongChiNhanSuLoai: loaiNs,
+                            nguongChiNhanSuTien: tienQuyDoiNguongChiNhanSu(loaiNs, giaTriQT, rawNguong),
                             daThu,
                             conPhaiThu: giaTriQT - daThu,
                             ngayUpdate: c.ngay_update ? new Date(c.ngay_update).toLocaleDateString('vi-VN') : '',
@@ -232,6 +243,37 @@ export function HopDong() {
                         <Plus size={18} />
                         Thêm hợp đồng
                     </button>
+                </div>
+
+                {/* Tổng hợp — đặt trên cùng để xem nhanh số liệu */}
+                <div className="px-4 md:px-6 py-3 bg-slate-50 border-b border-slate-200 flex flex-wrap items-center gap-6 md:gap-10 text-sm justify-between">
+                    <div className="flex flex-wrap items-center gap-6 md:gap-10">
+                        <div className="flex items-center gap-3">
+                            <div className="p-2 rounded-md bg-white border border-slate-200 text-slate-600"><Briefcase size={18} /></div>
+                            <div>
+                                <div className="text-[10px] font-semibold text-slate-500 uppercase">Hợp đồng</div>
+                                <div className="font-bold text-slate-800">{items.reduce((sum, p) => sum + p.contracts.length, 0)}</div>
+                            </div>
+                        </div>
+                        <div className="flex items-center gap-3">
+                            <div className="p-2 rounded-md bg-white border border-slate-200 text-emerald-600"><BarChart3 size={18} /></div>
+                            <div>
+                                <div className="text-[10px] font-semibold text-slate-500 uppercase">Tổng quyết toán</div>
+                                <div className="font-bold text-slate-800">{formatCurrency(items.reduce((sum, p) => sum + p.contracts.reduce((s, c) => s + c.giaTriQT, 0), 0))} đ</div>
+                            </div>
+                        </div>
+                        <div className="flex items-center gap-3">
+                            <div className="p-2 rounded-md bg-white border border-slate-200 text-amber-600"><CheckCircle size={18} /></div>
+                            <div>
+                                <div className="text-[10px] font-semibold text-slate-500 uppercase">Đã thu</div>
+                                <div className="font-bold text-emerald-700">{formatCurrency(items.reduce((sum, p) => sum + p.contracts.reduce((s, c) => s + c.daThu, 0), 0))} đ</div>
+                            </div>
+                        </div>
+                    </div>
+                    <div className="flex items-center gap-2 text-slate-600">
+                        <span className="text-xs font-semibold uppercase">Dự án:</span>
+                        <span className="font-bold text-slate-900">{items.length}</span>
+                    </div>
                 </div>
 
                 {/* Toolbar — tìm kiếm + lọc (giống nhịp Nhân sự) */}
@@ -337,7 +379,7 @@ export function HopDong() {
                                             <td className="py-2 pl-3 md:pl-5">
                                                 <ChevronDown size={12} className={`text-slate-400 transition-transform ${expandedProjects.includes(group.id) ? '' : '-rotate-90'}`} />
                                             </td>
-                                            <td colSpan={6} className="py-2 px-2">
+                                            <td colSpan={7} className="py-2 px-2">
                                                 <div className="flex items-center gap-2 flex-wrap">
                                                     <span className="text-xs font-bold text-slate-800">{group.projectName}</span>
                                                     <span className="text-[9px] font-bold text-blue-700 bg-blue-50 px-1.5 py-0.5 rounded-full">{group.contracts.length} HĐ</span>
@@ -380,6 +422,25 @@ export function HopDong() {
                                                     </td>
                                                     <td className="py-2 px-2 text-right">
                                                         <span className="text-xs font-semibold text-emerald-600">{formatCurrency(c.daThu)}</span>
+                                                    </td>
+                                                    <td className="py-2 px-2 text-right">
+                                                        <div className="flex flex-col items-end gap-0">
+                                                            <span
+                                                                className="text-xs font-semibold text-violet-700 tabular-nums"
+                                                                title={
+                                                                    c.nguongChiNhanSuLoai === 'phan_tram' && c.nguongChiNhanSu > 0
+                                                                        ? `${c.nguongChiNhanSu}% × Giá trị QT = ${formatCurrency(c.nguongChiNhanSuTien)} đ`
+                                                                        : undefined
+                                                                }
+                                                            >
+                                                                {formatCurrency(c.nguongChiNhanSuTien)}
+                                                            </span>
+                                                            {c.nguongChiNhanSuLoai === 'phan_tram' && c.nguongChiNhanSu > 0 ? (
+                                                                <span className="text-[9px] text-slate-500 tabular-nums">
+                                                                    {c.nguongChiNhanSu}% QT
+                                                                </span>
+                                                            ) : null}
+                                                        </div>
                                                     </td>
                                                     <td className="py-2 px-2">
                                                         <div className="flex items-center gap-1.5 min-w-[5.5rem]">
@@ -466,14 +527,21 @@ export function HopDong() {
                                                             </div>
                                                         </div>
                                                         
-                                                        <div className="grid grid-cols-2 gap-1.5 mb-2">
-                                                            <div className="px-1.5 py-1 bg-slate-50 rounded border border-slate-100">
+                                                        <div className="grid grid-cols-3 gap-1.5 mb-2">
+                                                            <div className="px-1.5 py-1 bg-slate-50 rounded border border-slate-100 min-w-0">
                                                                 <div className="text-[8px] font-semibold text-slate-500 uppercase">QT</div>
                                                                 <div className="text-[11px] font-bold text-slate-800 leading-tight truncate" title={formatCurrency(c.giaTriQT)}>{formatCurrency(c.giaTriQT)}</div>
                                                             </div>
-                                                            <div className="px-1.5 py-1 bg-emerald-50 rounded border border-emerald-100">
+                                                            <div className="px-1.5 py-1 bg-emerald-50 rounded border border-emerald-100 min-w-0">
                                                                 <div className="text-[8px] font-semibold text-emerald-700 uppercase">Thu</div>
                                                                 <div className="text-[11px] font-bold text-emerald-800 leading-tight truncate">{formatCurrency(c.daThu)}</div>
+                                                            </div>
+                                                            <div className="px-1.5 py-1 bg-violet-50 rounded border border-violet-100 min-w-0">
+                                                                <div className="text-[8px] font-semibold text-violet-700 uppercase">Ngưỡng NS</div>
+                                                                <div className="text-[11px] font-bold text-violet-800 leading-tight truncate" title={c.nguongChiNhanSuLoai === 'phan_tram' ? `${c.nguongChiNhanSu}% × QT` : undefined}>{formatCurrency(c.nguongChiNhanSuTien)}</div>
+                                                                {c.nguongChiNhanSuLoai === 'phan_tram' && c.nguongChiNhanSu > 0 ? (
+                                                                    <div className="text-[8px] text-violet-600 tabular-nums leading-tight">{c.nguongChiNhanSu}%</div>
+                                                                ) : null}
                                                             </div>
                                                         </div>
 
@@ -510,37 +578,6 @@ export function HopDong() {
                         </div>
                     </div>
                 )}
-
-                {/* Tổng hợp — nền sáng giống nhịp bảng Nhân sự */}
-                <div className="px-4 md:px-6 py-3 bg-slate-50 border-t border-slate-200 flex flex-wrap items-center gap-6 md:gap-10 text-sm justify-between">
-                    <div className="flex flex-wrap items-center gap-6 md:gap-10">
-                        <div className="flex items-center gap-3">
-                            <div className="p-2 rounded-md bg-white border border-slate-200 text-slate-600"><Briefcase size={18} /></div>
-                            <div>
-                                <div className="text-[10px] font-semibold text-slate-500 uppercase">Hợp đồng</div>
-                                <div className="font-bold text-slate-800">{items.reduce((sum, p) => sum + p.contracts.length, 0)}</div>
-                            </div>
-                        </div>
-                        <div className="flex items-center gap-3">
-                            <div className="p-2 rounded-md bg-white border border-slate-200 text-emerald-600"><BarChart3 size={18} /></div>
-                            <div>
-                                <div className="text-[10px] font-semibold text-slate-500 uppercase">Tổng quyết toán</div>
-                                <div className="font-bold text-slate-800">{formatCurrency(items.reduce((sum, p) => sum + p.contracts.reduce((s, c) => s + c.giaTriQT, 0), 0))} đ</div>
-                            </div>
-                        </div>
-                        <div className="flex items-center gap-3">
-                            <div className="p-2 rounded-md bg-white border border-slate-200 text-amber-600"><CheckCircle size={18} /></div>
-                            <div>
-                                <div className="text-[10px] font-semibold text-slate-500 uppercase">Đã thu</div>
-                                <div className="font-bold text-emerald-700">{formatCurrency(items.reduce((sum, p) => sum + p.contracts.reduce((s, c) => s + c.daThu, 0), 0))} đ</div>
-                            </div>
-                        </div>
-                    </div>
-                    <div className="flex items-center gap-2 text-slate-600">
-                        <span className="text-xs font-semibold uppercase">Dự án:</span>
-                        <span className="font-bold text-slate-900">{items.length}</span>
-                    </div>
-                </div>
             </div>
         </div>
     );

@@ -73,6 +73,17 @@ export function ChiTietThuChiModal({ isOpen, onClose, item }: Props) {
                                                     </span>
                                                 </div>
 
+                                                {item.type === 'Phiếu chi' && (
+                                                    <>
+                                                        <div className="flex items-center gap-2 text-slate-500">
+                                                            Hạng mục chi:
+                                                        </div>
+                                                        <div className="text-slate-800 font-semibold text-right">
+                                                            {item.hang_muc_display ?? (item.hang_muc_chi === 'chi_du_an' ? 'Chi dự án' : item.hang_muc_chi === 'chi_nhan_su' ? 'Chi nhân sự' : '—')}
+                                                        </div>
+                                                    </>
+                                                )}
+
                                                 <div className="flex items-center gap-2 text-slate-500 mt-2">
                                                     <DollarSign size={16} />
                                                     Số tiền:
@@ -103,9 +114,13 @@ export function ChiTietThuChiModal({ isOpen, onClose, item }: Props) {
                                                     <div className="w-8 h-8 rounded-lg bg-indigo-50 flex items-center justify-center text-indigo-500 group-hover:bg-indigo-100 transition-colors">
                                                         <User size={16} />
                                                     </div>
-                                                    <div className="text-sm text-slate-500">Người nộp/nhận:</div>
+                                                    <div className="text-sm text-slate-500">
+                                                        {item.type === 'Phiếu thu' ? 'Người nộp:' : 'Người nhận:'}
+                                                    </div>
                                                 </div>
-                                                <div className="text-sm font-bold text-slate-800">{item.person}</div>
+                                                <div className="text-sm font-bold text-slate-800 text-right max-w-[55%]">
+                                                    {item.person || item.nguoi_nhan || '(Trống)'}
+                                                </div>
                                             </div>
 
                                             <div className="flex items-center justify-between group">

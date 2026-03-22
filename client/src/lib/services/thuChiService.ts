@@ -17,6 +17,8 @@ export interface ThuChiRow {
   file_url?: string | null;
   anh_url?: string | null; // URL ảnh chứng từ
   ghi_chu?: string | null;
+  /** chi_du_an | chi_nhan_su — phân loại chi (hợp đồng / nhân sự) */
+  hang_muc_chi?: string | null;
   created_at?: string;
   updated_at?: string;
   // Joined data

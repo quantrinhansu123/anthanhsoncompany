@@ -566,7 +566,7 @@ export function ThuChiNhanSu() {
                                                                 onChange={() => toggleNhanSuFilter(emp.id)}
                                                                 className="w-3 h-3 text-blue-600 border-slate-300 rounded"
                                                             />
-                                                            <span className="text-xs">{emp.code ? `[${emp.code}] ` : ''}{emp.full_name}</span>
+                                                            <span className="text-xs">{emp.full_name}</span>
                                                         </label>
                                                     ))}
                                                 </div>
@@ -855,7 +855,7 @@ export function ThuChiNhanSu() {
                                                                         onChange={() => toggleNhanSuFilter(emp.id)}
                                                                         className="w-3 h-3 text-blue-600 border-slate-300 rounded"
                                                                     />
-                                                                    <span className="text-xs">{emp.code ? `[${emp.code}] ` : ''}{emp.full_name}</span>
+                                                                    <span className="text-xs">{emp.full_name}</span>
                                                                 </label>
                                                             ))}
                                                         </div>
