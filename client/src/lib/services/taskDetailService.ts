@@ -956,6 +956,21 @@ export const taskDetailService = {
             })
           : undefined;
     }
+    /** Menu "Hoàn thành bước": gán Đạt cho cả checklist con — nếu không, deriveTrangThaiForQuyTrinhItem
+     *  vẫn trả "Chưa đánh giá" và tiến độ % không lên (kể cả khi chỉ còn 1 bước thì không đạt 100%). */
+    const markingStepDone =
+      patch.trang_thai !== undefined && patch.trang_thai.trim() === 'Đạt';
+    if (
+      markingStepDone &&
+      patch.tieu_chuan === undefined &&
+      nextTieuChuan &&
+      nextTieuChuan.length > 0
+    ) {
+      nextTieuChuan = nextTieuChuan.map((t) => ({
+        ...t,
+        trang_thai: 'Đạt',
+      }));
+    }
     list[idx] = {
       ...prev,
       ten_task: patch.ten_task !== undefined ? patch.ten_task.trim() : prev.ten_task,

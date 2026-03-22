@@ -23,7 +23,7 @@ import {
   FileText,
   Users
 } from 'lucide-react';
-import { useNavigate } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { employeeService, type Employee } from '../lib/services/employeeService';
 import { testNhanSuConnection } from '../lib/utils/testDatabaseConnection';
 import { certificateService, type ProfessionalCertificate } from '../lib/services/certificateService';
@@ -210,13 +210,22 @@ export function HumanResources() {
             />
           </div>
 
-          <button
-            onClick={() => navigate('/nhan-su/them')}
-            className="flex items-center gap-2 px-4 py-2 text-sm font-bold text-white bg-blue-600 hover:bg-blue-700 rounded-md transition-colors shadow-sm"
-          >
-            <Plus size={18} />
-            Thêm nhân viên
-          </button>
+          <div className="flex flex-wrap items-center gap-2">
+            <Link
+              to="/nhan-su/lich-lam-viec"
+              className="flex items-center gap-2 px-4 py-2 text-sm font-semibold text-slate-700 bg-white border border-slate-200 hover:bg-slate-50 rounded-md transition-colors shadow-sm"
+            >
+              <CalendarIcon size={18} />
+              Lịch làm việc
+            </Link>
+            <button
+              onClick={() => navigate('/nhan-su/them')}
+              className="flex items-center gap-2 px-4 py-2 text-sm font-bold text-white bg-blue-600 hover:bg-blue-700 rounded-md transition-colors shadow-sm"
+            >
+              <Plus size={18} />
+              Thêm nhân viên
+            </button>
+          </div>
         </div>
 
         {/* Loading State */}

@@ -10,6 +10,7 @@ import { dependentPersonService, type DependentPerson } from '../../lib/services
 import { contractService, ContractRow } from '../../lib/services/contractService';
 import { thuChiService, ThuChiRow } from '../../lib/services/thuChiService';
 import { projectService } from '../../lib/services/projectService';
+import { PreviewLinkModal } from '../../components/PreviewLinkModal';
 
 interface Props {
     isOpen: boolean;
@@ -31,6 +32,11 @@ export function ChiTietNhanVienModal({ isOpen, onClose, employeeId }: Props) {
   const [loadingThuChi, setLoadingThuChi] = useState(false);
   const [projectsByEmployee, setProjectsByEmployee] = useState<Map<string, { project: any; contracts: ContractRow[] }>>(new Map());
   const [loadingBase, setLoadingBase] = useState(false);
+  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!isOpen) setPreviewUrl(null);
+  }, [isOpen]);
 
   useEffect(() => {
     if (isOpen && employeeId) {
@@ -166,16 +172,20 @@ export function ChiTietNhanVienModal({ isOpen, onClose, employeeId }: Props) {
 
   if (loadingBase || !viewingEmployee) {
     return (
+    <>
     <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-[60] p-4">
             <div className="bg-white rounded-lg shadow-xl p-8 flex flex-col items-center">
                 <Loader2 className="w-8 h-8 animate-spin text-blue-600 mb-2" />
                 <p className="text-sm text-slate-500">Đang tải thông tin nhân viên...</p>
             </div>
         </div>
+    <PreviewLinkModal url={previewUrl} onClose={() => setPreviewUrl(null)} title="Xem tệp" zIndexClass="z-[240]" />
+    </>
     );
   }
 
   return (
+    <>
     <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-[60] p-4">
       <div className="bg-white rounded-lg shadow-xl w-full max-w-5xl max-h-[90vh] overflow-hidden flex flex-col animate-in fade-in zoom-in-95 duration-200">
         {/* Modal Header */}
@@ -331,9 +341,9 @@ export function ChiTietNhanVienModal({ isOpen, onClose, employeeId }: Props) {
                           </td>
                           <td className="p-3">
                             <div className="flex gap-2 text-xs">
-                                {cert.file_url && <a href={cert.file_url} target="_blank" className="text-blue-600 hover:underline">File</a>}
-                                {cert.anh_url && <a href={cert.anh_url} target="_blank" className="text-blue-600 hover:underline">Ảnh 1</a>}
-                                {cert.anh2_url && <a href={cert.anh2_url} target="_blank" className="text-blue-600 hover:underline">Ảnh 2</a>}
+                                {cert.file_url && <a href={cert.file_url} className="text-blue-600 hover:underline">File</a>}
+                                {cert.anh_url && <a href={cert.anh_url} className="text-blue-600 hover:underline">Ảnh 1</a>}
+                                {cert.anh2_url && <a href={cert.anh2_url} className="text-blue-600 hover:underline">Ảnh 2</a>}
                             </div>
                           </td>
                         </tr>
@@ -452,5 +462,7 @@ export function ChiTietNhanVienModal({ isOpen, onClose, employeeId }: Props) {
         </div>
       </div>
     </div>
+    <PreviewLinkModal url={previewUrl} onClose={() => setPreviewUrl(null)} title="Xem tệp" zIndexClass="z-[240]" />
+    </>
   );
 }

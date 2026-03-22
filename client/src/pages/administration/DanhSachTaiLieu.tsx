@@ -18,6 +18,7 @@ import {
     Loader2
 } from 'lucide-react';
 import { taiLieuService, TaiLieuRow } from '../../lib/services/taiLieuService';
+import { PreviewLinkModal } from '../../components/PreviewLinkModal';
 
 interface TaiLieu {
     id: string;
@@ -82,8 +83,7 @@ export function DanhSachTaiLieu() {
     const [currentPage, setCurrentPage] = useState(1);
     const [itemsPerPage, setItemsPerPage] = useState(20);
     const [isModalOpen, setIsModalOpen] = useState(false);
-    const [isViewLinkModalOpen, setIsViewLinkModalOpen] = useState(false);
-    const [viewingLink, setViewingLink] = useState('');
+    const [previewDocUrl, setPreviewDocUrl] = useState<string | null>(null);
     const [selectedItems, setSelectedItems] = useState<string[]>([]);
     const [editingId, setEditingId] = useState<string | null>(null);
     const [viewMode, setViewMode] = useState<'table' | 'folder'>('table');
@@ -199,14 +199,7 @@ export function DanhSachTaiLieu() {
 
     const handleViewLink = (link: string) => {
         if (link && link.trim() !== '') {
-            setViewingLink(link);
-            setIsViewLinkModalOpen(true);
-        }
-    };
-
-    const handleOpenLink = (link: string) => {
-        if (link && link.trim() !== '') {
-            window.open(link, '_blank', 'noopener,noreferrer');
+            setPreviewDocUrl(link.trim());
         }
     };
 
@@ -449,9 +442,9 @@ export function DanhSachTaiLieu() {
                                                         <Eye size={16} />
                                                     </button>
                                                     <button
-                                                        onClick={() => handleOpenLink(item.link)}
+                                                        onClick={() => handleViewLink(item.link)}
                                                         className="p-1.5 text-purple-600 hover:bg-purple-100 rounded-md transition-colors"
-                                                        title="Mở trong tab mới"
+                                                        title="Xem trong cửa sổ"
                                                     >
                                                         <ExternalLink size={16} />
                                                     </button>
@@ -555,9 +548,9 @@ export function DanhSachTaiLieu() {
                                             <div className="flex items-center gap-1.5">
                                                 {item.link && (
                                                     <button
-                                                        onClick={() => handleOpenLink(item.link)}
+                                                        onClick={() => handleViewLink(item.link)}
                                                         className="p-1.5 rounded-md border border-slate-200 text-blue-600 hover:bg-blue-50 hover:border-blue-300 transition-colors"
-                                                        title="Mở link"
+                                                        title="Xem tài liệu"
                                                     >
                                                         <ExternalLink size={14} />
                                                     </button>
@@ -794,48 +787,12 @@ export function DanhSachTaiLieu() {
                 </div>
             )}
 
-            {/* View Link Modal - Hiển thị nội dung link trong iframe */}
-            {isViewLinkModalOpen && (
-                <div className="fixed inset-0 z-[200] flex items-center justify-center bg-black/70 backdrop-blur-sm p-4">
-                    <div className="bg-white rounded-2xl shadow-2xl w-full max-w-6xl h-[90vh] overflow-hidden animate-in zoom-in-95 duration-200 flex flex-col">
-                        <div className="px-6 py-4 bg-slate-50 border-b border-slate-200 flex items-center justify-between">
-                            <div className="flex items-center gap-3">
-                                <Eye className="text-blue-600" size={20} />
-                                <h2 className="text-lg font-bold text-slate-800 uppercase tracking-tight">Xem tài liệu</h2>
-                            </div>
-                            <div className="flex items-center gap-2">
-                                <button
-                                    onClick={() => handleOpenLink(viewingLink)}
-                                    className="px-3 py-1.5 text-sm font-medium text-blue-600 hover:bg-blue-50 rounded-lg transition-colors flex items-center gap-2"
-                                >
-                                    <ExternalLink size={16} />
-                                    Mở trong tab mới
-                                </button>
-                                <button 
-                                    onClick={() => setIsViewLinkModalOpen(false)} 
-                                    className="p-1.5 hover:bg-slate-200 rounded-lg transition-colors text-slate-400 hover:text-slate-600"
-                                >
-                                    <X size={20} />
-                                </button>
-                            </div>
-                        </div>
-                        <div className="flex-1 overflow-hidden">
-                            {viewingLink ? (
-                                <iframe
-                                    src={viewingLink}
-                                    className="w-full h-full border-0"
-                                    title="Document Viewer"
-                                    sandbox="allow-same-origin allow-scripts allow-popups allow-forms"
-                                />
-                            ) : (
-                                <div className="flex items-center justify-center h-full">
-                                    <p className="text-slate-500">Không có link để hiển thị</p>
-                                </div>
-                            )}
-                        </div>
-                    </div>
-                </div>
-            )}
+            <PreviewLinkModal
+                url={previewDocUrl}
+                onClose={() => setPreviewDocUrl(null)}
+                title="Xem tài liệu"
+                zIndexClass="z-[200]"
+            />
         </div>
     );
 }

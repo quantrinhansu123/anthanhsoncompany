@@ -215,89 +215,101 @@ export function HopDong() {
     };
 
     return (
-        <div className="pb-10 animate-in fade-in duration-500">
+        <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500 pb-10">
             {toast && <Toast message={toast.message} type={toast.type} onClose={() => setToast(null)} />}
 
-            <div className="bg-white rounded-3xl border border-slate-100 shadow-xl overflow-hidden">
-                {/* Header Section */}
-                <div className="px-8 py-6 bg-gradient-to-br from-indigo-900 via-slate-900 to-slate-800 flex justify-between items-center relative overflow-hidden">
-                    <div className="absolute top-0 right-0 w-64 h-64 bg-white/5 rounded-full -mr-32 -mt-32 blur-3xl pointer-events-none" />
-                    <div className="relative z-10">
-                        <h1 className="text-2xl font-black text-white uppercase tracking-tight flex items-center gap-3">
-                            <Briefcase className="text-indigo-400" />
-                            Quản lý hợp đồng
-                        </h1>
-                        <p className="text-indigo-200/60 text-xs font-bold uppercase tracking-widest mt-1">Theo dõi tiến độ & tài chính dự án</p>
-                    </div>
+            <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
+                {/* Header — cùng nhịp với trang Nhân sự */}
+                <div className="px-4 md:px-6 py-4 border-b border-slate-200 bg-slate-50 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+                    <h2 className="text-lg font-bold text-slate-700 uppercase tracking-tight">
+                        Quản lý hợp đồng
+                    </h2>
                     <button
+                        type="button"
                         onClick={() => openThemHopDong()}
-                        className="group relative flex items-center gap-2 px-6 py-3 bg-white text-indigo-900 text-sm font-black rounded-2xl shadow-lg hover:shadow-white/20 transition-all hover:scale-[1.05] active:scale-[0.98]"
+                        className="inline-flex items-center justify-center gap-2 px-4 py-2 text-sm font-bold text-white bg-blue-600 hover:bg-blue-700 rounded-md transition-colors shadow-sm shrink-0"
                     >
-                        <Plus size={18} className="group-hover:rotate-90 transition-transform duration-300" />
-                        TẠO HỢP ĐỒNG MỚI
+                        <Plus size={18} />
+                        Thêm hợp đồng
                     </button>
                 </div>
 
-                {/* Filter Bar */}
-                <div className="px-8 py-5 border-b border-slate-100 bg-white flex flex-wrap items-center gap-4">
-                    <div className="relative flex-1 max-w-md group">
-                        <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-400 group-focus-within:text-indigo-500 transition-colors" size={18} />
+                {/* Toolbar — tìm kiếm + lọc (giống nhịp Nhân sự) */}
+                <div className="px-4 md:px-6 py-4 border-b border-slate-200 flex flex-col lg:flex-row gap-4 justify-between items-stretch lg:items-center">
+                    <div className="relative w-full lg:max-w-md">
+                        <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
                         <input
                             type="text"
                             value={searchTerm}
                             onChange={(e) => setSearchTerm(e.target.value)}
-                            placeholder="Tìm theo số HĐ, gói thầu..."
-                            className="w-full pl-12 pr-4 py-3 bg-slate-50 border border-slate-100 rounded-2xl text-sm font-medium focus:outline-none focus:ring-4 focus:ring-indigo-500/10 focus:border-indigo-500 transition-all"
+                            placeholder="Tìm theo số HĐ, gói thầu, dự án..."
+                            className="w-full pl-9 pr-4 py-2 text-sm border border-slate-200 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all"
                         />
                     </div>
 
-                    <div className="flex items-center gap-3">
+                    <div className="flex flex-wrap items-center gap-3">
                         <div className="relative">
                             <button
+                                type="button"
                                 onClick={() => setOpenFilterDropdown(openFilterDropdown === 'duan' ? null : 'duan')}
-                                className="flex items-center gap-2 px-4 py-3 bg-slate-50 border border-slate-100 rounded-2xl hover:bg-white hover:border-indigo-200 transition-all"
+                                className="flex items-center gap-2 px-3 py-2 text-sm font-bold text-slate-700 bg-white border border-slate-200 rounded-md hover:bg-slate-50 transition-colors"
                             >
-                                <span className="text-sm font-bold text-slate-600">Dự án</span>
-                                {selectedDuAnIds.size > 0 && <span className="bg-indigo-600 text-white text-[10px] font-black w-5 h-5 rounded-full flex items-center justify-center">{selectedDuAnIds.size}</span>}
-                                <ChevronDown size={14} className={`text-slate-400 transition-transform ${openFilterDropdown === 'duan' ? 'rotate-180' : ''}`} />
+                                <span>Dự án</span>
+                                {selectedDuAnIds.size > 0 && (
+                                    <span className="bg-blue-600 text-white text-[10px] font-bold min-w-[1.25rem] h-5 px-1 rounded-full flex items-center justify-center">
+                                        {selectedDuAnIds.size}
+                                    </span>
+                                )}
+                                <ChevronDown size={14} className={`text-slate-400 shrink-0 transition-transform ${openFilterDropdown === 'duan' ? 'rotate-180' : ''}`} />
                             </button>
                             {openFilterDropdown === 'duan' && (
-                                <div className="absolute top-full left-0 mt-2 w-72 bg-white border border-slate-100 rounded-3xl shadow-2xl z-[50] p-3 animate-in fade-in zoom-in-95">
-                                    <div className="max-h-64 overflow-y-auto custom-scrollbar space-y-1">
-                                        {projects.map(p => (
+                                <div className="absolute top-full left-0 mt-1 w-72 bg-white border border-slate-200 rounded-lg shadow-lg z-[50] p-2 animate-in fade-in zoom-in-95">
+                                    <div className="max-h-64 overflow-y-auto custom-scrollbar space-y-0.5">
+                                        {projects.map((p) => (
                                             <button
                                                 key={p.id}
+                                                type="button"
                                                 onClick={() => {
                                                     const newSet = new Set(selectedDuAnIds);
                                                     newSet.has(p.id) ? newSet.delete(p.id) : newSet.add(p.id);
                                                     setSelectedDuAnIds(newSet);
                                                 }}
-                                                className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl transition-all ${selectedDuAnIds.has(p.id) ? 'bg-indigo-50 text-indigo-700' : 'hover:bg-slate-50 text-slate-600'}`}
+                                                className={`w-full flex items-center gap-3 px-3 py-2 rounded-md text-left text-sm transition-colors ${selectedDuAnIds.has(p.id) ? 'bg-blue-50 text-blue-800' : 'hover:bg-slate-50 text-slate-700'}`}
                                             >
-                                                <div className={`w-4 h-4 rounded border-2 flex items-center justify-center transition-all ${selectedDuAnIds.has(p.id) ? 'bg-indigo-600 border-indigo-600' : 'border-slate-200'}`}>
+                                                <div
+                                                    className={`w-4 h-4 rounded border-2 flex items-center justify-center shrink-0 ${selectedDuAnIds.has(p.id) ? 'bg-blue-600 border-blue-600' : 'border-slate-300'}`}
+                                                >
                                                     {selectedDuAnIds.has(p.id) && <CheckCircle className="text-white" size={12} />}
                                                 </div>
-                                                <span className="text-xs font-bold text-left flex-1">{p.ten_du_an}</span>
+                                                <span className="font-medium truncate">{p.ten_du_an}</span>
                                             </button>
                                         ))}
                                     </div>
-                                    <button onClick={() => setSelectedDuAnIds(new Set())} className="w-full mt-2 py-2 text-[10px] font-black text-slate-400 hover:text-indigo-600 uppercase tracking-widest transition-colors">Thiết lập lại</button>
+                                    <button
+                                        type="button"
+                                        onClick={() => setSelectedDuAnIds(new Set())}
+                                        className="w-full mt-2 py-1.5 text-xs font-semibold text-slate-500 hover:text-blue-700"
+                                    >
+                                        Bỏ chọn dự án
+                                    </button>
                                 </div>
                             )}
                         </div>
 
-                        <div className="flex bg-slate-100 p-1.5 rounded-2xl ml-4">
+                        <div className="flex bg-slate-100 p-1 rounded-md">
                             <button
+                                type="button"
                                 onClick={() => setViewMode('table')}
-                                className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-black uppercase tracking-widest transition-all ${viewMode === 'table' ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-400 hover:text-slate-600'}`}
+                                className={`flex items-center gap-1.5 px-3 py-1.5 rounded text-xs font-bold uppercase tracking-wide transition-colors ${viewMode === 'table' ? 'bg-white text-blue-700 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
                             >
-                                <BarChart3 size={16} /> Bảng
+                                <BarChart3 size={14} /> Bảng
                             </button>
                             <button
+                                type="button"
                                 onClick={() => setViewMode('folder')}
-                                className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-black uppercase tracking-widest transition-all ${viewMode === 'folder' ? 'bg-white text-indigo-600 shadow-sm' : 'text-slate-400 hover:text-slate-600'}`}
+                                className={`flex items-center gap-1.5 px-3 py-1.5 rounded text-xs font-bold uppercase tracking-wide transition-colors ${viewMode === 'folder' ? 'bg-white text-blue-700 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
                             >
-                                <FolderOpen size={16} /> Thư mục
+                                <FolderOpen size={14} /> Thư mục
                             </button>
                         </div>
                     </div>
@@ -306,83 +318,82 @@ export function HopDong() {
                 {/* Main Content View */}
                 {viewMode === 'table' ? (
                     <div className="w-full overflow-x-auto custom-scrollbar">
-                        <table className="w-full text-left border-collapse">
-                            <thead>
-                                <tr className="bg-slate-50/50 border-b border-slate-100">
-                                    <th className="py-4 pl-8 w-10"></th>
-                                    <th className="py-4 px-4 text-[10px] font-black text-slate-400 uppercase tracking-widest">Hợp đồng & Trạng thái</th>
-                                    <th className="py-4 px-4 text-[10px] font-black text-slate-400 uppercase tracking-widest">Phụ trách</th>
-                                    <th className="py-4 px-4 text-[10px] font-black text-slate-400 uppercase tracking-widest text-right">Giá trị QT</th>
-                                    <th className="py-4 px-4 text-[10px] font-black text-slate-400 uppercase tracking-widest text-right">Đã thu</th>
-                                    <th className="py-4 px-4 text-[10px] font-black text-slate-400 uppercase tracking-widest">Tiến độ công việc</th>
-                                    <th className="py-4 pr-8 text-center text-[10px] font-black text-slate-400 uppercase tracking-widest w-24">Lệnh</th>
+                        <table className="w-full text-xs text-left border-collapse">
+                            <thead className="bg-slate-50 text-slate-700 font-semibold border-b border-slate-200">
+                                <tr>
+                                    <th className="py-2 px-2 w-8 pl-3 md:pl-5"></th>
+                                    <th className="py-2 px-2 text-[10px] uppercase tracking-wide">Hợp đồng &amp; trạng thái</th>
+                                    <th className="py-2 px-2 text-[10px] uppercase tracking-wide">Phụ trách</th>
+                                    <th className="py-2 px-2 text-[10px] uppercase tracking-wide text-right">Giá trị QT</th>
+                                    <th className="py-2 px-2 text-[10px] uppercase tracking-wide text-right">Đã thu</th>
+                                    <th className="py-2 px-2 text-[10px] uppercase tracking-wide">Tiến độ</th>
+                                    <th className="py-2 px-2 pr-3 md:pr-5 text-center text-[10px] uppercase tracking-wide w-24">Thao tác</th>
                                 </tr>
                             </thead>
                             <tbody>
                                 {filteredItems.map(group => (
                                     <React.Fragment key={group.id}>
-                                        <tr onClick={() => toggleProject(group.id)} className="bg-slate-50/30 cursor-pointer hover:bg-slate-50 transition-colors border-b border-slate-100/50">
-                                            <td className="py-3 pl-8">
-                                                <ChevronDown size={14} className={`text-slate-300 transition-transform ${expandedProjects.includes(group.id) ? '' : '-rotate-90'}`} />
+                                        <tr onClick={() => toggleProject(group.id)} className="bg-slate-50/80 cursor-pointer hover:bg-slate-100 transition-colors border-b border-slate-200">
+                                            <td className="py-2 pl-3 md:pl-5">
+                                                <ChevronDown size={12} className={`text-slate-400 transition-transform ${expandedProjects.includes(group.id) ? '' : '-rotate-90'}`} />
                                             </td>
-                                            <td colSpan={6} className="py-3 px-4">
-                                                <div className="flex items-center gap-2">
-                                                    <div className="w-1.5 h-1.5 bg-indigo-500 rounded-full animate-pulse" />
-                                                    <span className="text-sm font-black text-slate-800">{group.projectName}</span>
-                                                    <span className="text-[10px] font-black text-indigo-400 bg-indigo-50 px-2 py-0.5 rounded-full ml-2">{group.contracts.length} hợp đồng</span>
+                                            <td colSpan={6} className="py-2 px-2">
+                                                <div className="flex items-center gap-2 flex-wrap">
+                                                    <span className="text-xs font-bold text-slate-800">{group.projectName}</span>
+                                                    <span className="text-[9px] font-bold text-blue-700 bg-blue-50 px-1.5 py-0.5 rounded-full">{group.contracts.length} HĐ</span>
                                                 </div>
                                             </td>
                                         </tr>
                                         {expandedProjects.includes(group.id) && group.contracts.map(c => {
                                             const progress = getContractProgress(c.uuid);
                                             return (
-                                                <tr key={c.uuid} className="group hover:bg-indigo-50/20 transition-all border-b border-slate-50 last:border-0 grow-on-hover px-4">
-                                                    <td className="py-4"></td>
-                                                    <td className="py-4 px-4">
-                                                        <div className="flex flex-col gap-1">
-                                                            <div className="flex items-center gap-2">
-                                                                <span className="text-[13px] font-black text-slate-700">{c.soHopDong}</span>
-                                                                <span className="text-[10px] bg-red-50 text-red-600 font-bold px-2 py-0.5 rounded-md italic">{c.fileStatus}</span>
+                                                <tr key={c.uuid} className="group border-b border-slate-100 hover:bg-slate-50 transition-colors">
+                                                    <td className="py-2 px-2"></td>
+                                                    <td className="py-2 px-2">
+                                                        <div className="flex flex-col gap-0.5">
+                                                            <div className="flex items-center gap-1.5 flex-wrap">
+                                                                <span className="text-xs font-bold text-slate-800">{c.soHopDong}</span>
+                                                                <span className="text-[9px] bg-red-50 text-red-600 font-semibold px-1.5 py-0.5 rounded border border-red-100">{c.fileStatus}</span>
                                                             </div>
-                                                            <span className="text-[11px] font-medium text-slate-400 line-clamp-1">{c.tenGoiThau}</span>
+                                                            <span className="text-[11px] text-slate-500 line-clamp-1">{c.tenGoiThau}</span>
                                                         </div>
                                                     </td>
-                                                    <td className="py-4 px-4">
-                                                        <div className="flex -space-x-2">
+                                                    <td className="py-2 px-2">
+                                                        <div className="flex -space-x-1.5">
                                                             {c.nhanSuIds?.slice(0, 3).map((id, i) => {
                                                                 const emp = employees.find(e => e.id === String(id));
                                                                 return (
-                                                                    <div key={i} className="w-8 h-8 rounded-full border-2 border-white bg-slate-200 overflow-hidden" title={emp?.full_name}>
-                                                                        {emp?.anh_nhan_su ? <img src={emp.anh_nhan_su} className="w-full h-full object-cover" alt="" /> : <User size={14} className="m-auto mt-1.5 text-slate-400" />}
+                                                                    <div key={i} className="w-6 h-6 rounded-full border border-white bg-slate-200 overflow-hidden" title={emp?.full_name}>
+                                                                        {emp?.anh_nhan_su ? <img src={emp.anh_nhan_su} className="w-full h-full object-cover" alt="" /> : <User size={11} className="m-auto mt-1 text-slate-400" />}
                                                                     </div>
                                                                 );
                                                             })}
                                                             {c.nhanSuIds && c.nhanSuIds.length > 3 && (
-                                                                <div className="w-8 h-8 rounded-full border-2 border-white bg-indigo-100 flex items-center justify-center">
-                                                                    <span className="text-[10px] font-black text-indigo-600">+{c.nhanSuIds.length - 3}</span>
+                                                                <div className="w-6 h-6 rounded-full border border-white bg-blue-50 flex items-center justify-center">
+                                                                    <span className="text-[9px] font-bold text-blue-700">+{c.nhanSuIds.length - 3}</span>
                                                                 </div>
                                                             )}
                                                         </div>
                                                     </td>
-                                                    <td className="py-4 px-4 text-right">
-                                                        <span className="text-sm font-black text-slate-800">{formatCurrency(c.giaTriQT)}</span>
+                                                    <td className="py-2 px-2 text-right">
+                                                        <span className="text-xs font-semibold text-slate-800">{formatCurrency(c.giaTriQT)}</span>
                                                     </td>
-                                                    <td className="py-4 px-4 text-right">
-                                                        <span className="text-sm font-black text-emerald-600">{formatCurrency(c.daThu)}</span>
+                                                    <td className="py-2 px-2 text-right">
+                                                        <span className="text-xs font-semibold text-emerald-600">{formatCurrency(c.daThu)}</span>
                                                     </td>
-                                                    <td className="py-4 px-4">
-                                                        <div className="flex items-center gap-3">
-                                                            <div className="flex-1 h-1.5 bg-slate-100 rounded-full overflow-hidden">
-                                                                <div className={`h-full transition-all duration-1000 ${progress === 100 ? 'bg-emerald-500' : 'bg-indigo-500'}`} style={{ width: `${progress}%` }} />
+                                                    <td className="py-2 px-2">
+                                                        <div className="flex items-center gap-1.5 min-w-[5.5rem]">
+                                                            <div className="flex-1 h-1 bg-slate-200 rounded-full overflow-hidden">
+                                                                <div className={`h-full transition-all duration-500 ${progress === 100 ? 'bg-emerald-500' : 'bg-blue-600'}`} style={{ width: `${progress}%` }} />
                                                             </div>
-                                                            <span className="text-xs font-black text-slate-600">{progress}%</span>
+                                                            <span className="text-[10px] font-bold text-slate-600 tabular-nums w-7">{progress}%</span>
                                                         </div>
                                                     </td>
-                                                    <td className="py-4 pr-8 text-center">
-                                                        <div className="flex items-center justify-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
-                                                            <button onClick={() => openChiTietHopDong(c)} className="p-2 bg-indigo-50 text-indigo-600 rounded-xl hover:bg-indigo-600 hover:text-white transition-all shadow-sm" title="Xem chi tiết"><Eye size={14} /></button>
-                                                            <button onClick={() => openThemHopDong(c)} className="p-2 bg-orange-50 text-orange-600 rounded-xl hover:bg-orange-600 hover:text-white transition-all shadow-sm" title="Sửa"><Edit size={14} /></button>
-                                                            <button onClick={() => openDelete({ id: c.id, uuid: c.uuid, soHopDong: c.soHopDong })} className="p-2 bg-rose-50 text-rose-600 rounded-xl hover:bg-rose-600 hover:text-white transition-all shadow-sm" title="Xóa"><Trash2 size={14} /></button>
+                                                    <td className="py-2 px-1 pr-3 md:pr-5 text-center">
+                                                        <div className="flex items-center justify-center gap-0.5 opacity-70 group-hover:opacity-100 transition-opacity">
+                                                            <button type="button" onClick={() => openChiTietHopDong(c)} className="p-1.5 text-slate-600 hover:bg-blue-50 hover:text-blue-700 rounded-md" title="Xem chi tiết"><Eye size={12} /></button>
+                                                            <button type="button" onClick={() => openThemHopDong(c)} className="p-1.5 text-slate-600 hover:bg-amber-50 hover:text-amber-800 rounded-md" title="Sửa"><Edit size={12} /></button>
+                                                            <button type="button" onClick={() => openDelete({ id: c.id, uuid: c.uuid, soHopDong: c.soHopDong })} className="p-1.5 text-slate-600 hover:bg-red-50 hover:text-red-700 rounded-md" title="Xóa"><Trash2 size={12} /></button>
                                                         </div>
                                                     </td>
                                                 </tr>
@@ -394,99 +405,98 @@ export function HopDong() {
                         </table>
                     </div>
                 ) : (
-                    <div className="flex h-[600px]">
+                    <div className="flex h-[min(600px,70vh)] min-h-[320px] border-t border-slate-200">
                         {/* Folder Sidebar */}
-                        <div className="w-1/3 lg:w-1/4 border-r border-slate-100 bg-slate-50/30 overflow-y-auto custom-scrollbar">
-                            <div className="p-4 space-y-2">
+                        <div className="w-1/3 lg:w-1/4 border-r border-slate-200 bg-slate-50 overflow-y-auto custom-scrollbar">
+                            <div className="p-2 space-y-0.5">
                                 {filteredItems.map(p => (
                                     <button
+                                        type="button"
                                         key={p.id}
                                         onClick={() => setSelectedFolderProjectId(p.id)}
-                                        className={`w-full flex items-center justify-between p-3.5 rounded-2xl transition-all ${selectedFolderProjectId === p.id ? 'bg-white shadow-xl shadow-indigo-500/10 border border-indigo-100' : 'hover:bg-white/50'}`}
+                                        className={`w-full flex items-center justify-between p-2 rounded-md border transition-colors ${selectedFolderProjectId === p.id ? 'bg-white border-blue-200 shadow-sm' : 'border-transparent hover:bg-white hover:border-slate-200'}`}
                                     >
-                                        <div className="flex items-center gap-3 min-w-0">
-                                            <div className={`p-2 rounded-xl ${selectedFolderProjectId === p.id ? 'bg-indigo-600 text-white' : 'bg-white text-slate-400 border border-slate-100'}`}>
-                                                <FolderOpen size={16} />
+                                        <div className="flex items-center gap-1.5 min-w-0">
+                                            <div className={`p-1 rounded shrink-0 ${selectedFolderProjectId === p.id ? 'bg-blue-600 text-white' : 'bg-white text-slate-500 border border-slate-200'}`}>
+                                                <FolderOpen size={12} />
                                             </div>
-                                            <span className={`text-[13px] font-black truncate text-left ${selectedFolderProjectId === p.id ? 'text-indigo-900' : 'text-slate-600'}`}>{p.projectName}</span>
+                                            <span className={`text-xs font-bold truncate text-left ${selectedFolderProjectId === p.id ? 'text-slate-900' : 'text-slate-600'}`}>{p.projectName}</span>
                                         </div>
-                                        <span className={`text-[10px] font-black px-2 py-0.5 rounded-full ${selectedFolderProjectId === p.id ? 'bg-indigo-50 text-indigo-600' : 'bg-slate-200 text-slate-500'}`}>{p.contracts.length}</span>
+                                        <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded-full shrink-0 ${selectedFolderProjectId === p.id ? 'bg-blue-50 text-blue-700' : 'bg-slate-200 text-slate-600'}`}>{p.contracts.length}</span>
                                     </button>
                                 ))}
                             </div>
                         </div>
 
                         {/* Folder Content */}
-                        <div className="flex-1 overflow-y-auto custom-scrollbar bg-slate-50/10 p-6">
+                        <div className="flex-1 overflow-y-auto custom-scrollbar bg-white p-3 md:p-4">
                             {(() => {
                                 const selected = filteredItems.find(p => p.id === selectedFolderProjectId);
-                                if (!selected) return <div className="h-full flex items-center justify-center text-slate-400 font-bold uppercase tracking-widest text-xs">Chọn thư mục để xem nội dung</div>;
+                                if (!selected) return <div className="h-full flex items-center justify-center text-slate-500 text-xs font-medium">Chọn dự án bên trái để xem hợp đồng</div>;
                                 return (
-                                    <div className="space-y-4">
-                                        <div className="flex items-center justify-between mb-8">
+                                    <div className="space-y-3">
+                                        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 pb-3 border-b border-slate-200">
                                             <div>
-                                                <h2 className="text-xl font-black text-slate-800 uppercase tracking-tight">{selected.projectName}</h2>
-                                                <p className="text-xs font-bold text-slate-400 uppercase tracking-widest mt-1">Tổng cộng {selected.contracts.length} hợp đồng</p>
+                                                <h3 className="text-base font-bold text-slate-800">{selected.projectName}</h3>
+                                                <p className="text-[11px] text-slate-500">{selected.contracts.length} hợp đồng</p>
                                             </div>
-                                            <div className="flex items-center gap-4">
-                                                <div className="p-4 bg-white rounded-3xl border border-slate-100 shadow-sm flex items-center gap-3">
-                                                    <div className="p-2 bg-emerald-50 text-emerald-600 rounded-xl"><BarChart3 size={16} /></div>
-                                                    <div>
-                                                        <div className="text-[10px] font-black text-slate-400 uppercase">Tổng giá trị</div>
-                                                        <div className="text-sm font-black text-slate-800">{formatCurrency(selected.contracts.reduce((s, c) => s + c.giaTriQT, 0))}</div>
-                                                    </div>
+                                            <div className="flex items-center gap-2 px-2.5 py-1.5 rounded-md border border-slate-200 bg-slate-50">
+                                                <div className="p-1 bg-emerald-100 text-emerald-700 rounded"><BarChart3 size={12} /></div>
+                                                <div>
+                                                    <div className="text-[9px] font-semibold text-slate-500 uppercase">Tổng QT</div>
+                                                    <div className="text-xs font-bold text-slate-800">{formatCurrency(selected.contracts.reduce((s, c) => s + c.giaTriQT, 0))}</div>
                                                 </div>
                                             </div>
                                         </div>
-                                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                        <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-2">
                                             {selected.contracts.map(c => {
                                                 const progress = getContractProgress(c.uuid);
                                                 return (
-                                                    <div key={c.uuid} onClick={() => openChiTietHopDong(c)} className="bg-white p-5 rounded-3xl border border-slate-100 shadow-sm hover:shadow-xl hover:-translate-y-1 transition-all cursor-pointer group">
-                                                        <div className="flex justify-between items-start mb-4">
-                                                            <div className="flex flex-col gap-1">
-                                                                <span className="text-[10px] font-black text-indigo-500 uppercase flex items-center gap-1">
-                                                                    <FileText size={10} /> {c.soHopDong}
+                                                    <div key={c.uuid} role="button" tabIndex={0} onClick={() => openChiTietHopDong(c)} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openChiTietHopDong(c); } }} className="bg-white p-2.5 rounded-lg border border-slate-200 shadow-sm hover:border-slate-300 transition-all cursor-pointer group text-left">
+                                                        <div className="flex justify-between items-start gap-1.5 mb-2">
+                                                            <div className="flex flex-col gap-0.5 min-w-0">
+                                                                <span className="text-[9px] font-bold text-blue-700 uppercase flex items-center gap-0.5 truncate">
+                                                                    <FileText size={9} className="shrink-0" /> {c.soHopDong}
                                                                 </span>
-                                                                <h3 className="font-black text-slate-800 line-clamp-1">{c.tenGoiThau}</h3>
+                                                                <span className="font-bold text-slate-800 line-clamp-1 text-xs leading-tight">{c.tenGoiThau}</span>
                                                             </div>
-                                                            <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                                                                <button onClick={(e) => { e.stopPropagation(); openThemHopDong(c); }} className="p-2 bg-slate-50 text-slate-400 hover:text-orange-500 rounded-lg transition-colors" title="Sửa"><Edit size={12} /></button>
-                                                                <button onClick={(e) => { e.stopPropagation(); openDelete({ id: c.id, uuid: c.uuid, soHopDong: c.soHopDong }); }} className="p-2 bg-slate-50 text-slate-400 hover:text-rose-500 rounded-lg transition-colors" title="Xóa"><Trash2 size={12} /></button>
+                                                            <div className="flex gap-0 opacity-0 group-hover:opacity-100 transition-opacity shrink-0">
+                                                                <button type="button" onClick={(e) => { e.stopPropagation(); openThemHopDong(c); }} className="p-1 text-slate-500 hover:bg-amber-50 hover:text-amber-800 rounded" title="Sửa"><Edit size={11} /></button>
+                                                                <button type="button" onClick={(e) => { e.stopPropagation(); openDelete({ id: c.id, uuid: c.uuid, soHopDong: c.soHopDong }); }} className="p-1 text-slate-500 hover:bg-red-50 hover:text-red-700 rounded" title="Xóa"><Trash2 size={11} /></button>
                                                             </div>
                                                         </div>
                                                         
-                                                        <div className="grid grid-cols-2 gap-4 mb-6">
-                                                            <div className="p-3 bg-slate-50 rounded-2xl">
-                                                                <div className="text-[9px] font-black text-slate-400 uppercase mb-1">Quyết toán</div>
-                                                                <div className="text-xs font-black text-slate-700">{formatCurrency(c.giaTriQT)}</div>
+                                                        <div className="grid grid-cols-2 gap-1.5 mb-2">
+                                                            <div className="px-1.5 py-1 bg-slate-50 rounded border border-slate-100">
+                                                                <div className="text-[8px] font-semibold text-slate-500 uppercase">QT</div>
+                                                                <div className="text-[11px] font-bold text-slate-800 leading-tight truncate" title={formatCurrency(c.giaTriQT)}>{formatCurrency(c.giaTriQT)}</div>
                                                             </div>
-                                                            <div className="p-3 bg-emerald-50/50 rounded-2xl">
-                                                                <div className="text-[9px] font-black text-emerald-600 uppercase mb-1">Đã thu</div>
-                                                                <div className="text-xs font-black text-emerald-700">{formatCurrency(c.daThu)}</div>
-                                                            </div>
-                                                        </div>
-
-                                                        <div className="space-y-2">
-                                                            <div className="flex justify-between text-[10px] font-black">
-                                                                <span className="text-slate-400 uppercase tracking-widest">Tiến độ</span>
-                                                                <span className="text-indigo-600">{progress}%</span>
-                                                            </div>
-                                                            <div className="h-1.5 bg-slate-100 rounded-full overflow-hidden">
-                                                                <div className={`h-full transition-all duration-1000 ${progress === 100 ? 'bg-emerald-500' : 'bg-indigo-500'}`} style={{ width: `${progress}%` }} />
+                                                            <div className="px-1.5 py-1 bg-emerald-50 rounded border border-emerald-100">
+                                                                <div className="text-[8px] font-semibold text-emerald-700 uppercase">Thu</div>
+                                                                <div className="text-[11px] font-bold text-emerald-800 leading-tight truncate">{formatCurrency(c.daThu)}</div>
                                                             </div>
                                                         </div>
 
-                                                        <div className="mt-4 pt-4 border-t border-slate-50 flex items-center justify-between">
-                                                            <div className="flex -space-x-1.5">
+                                                        <div className="space-y-0.5">
+                                                            <div className="flex justify-between text-[9px] font-bold">
+                                                                <span className="text-slate-500 uppercase">Tiến độ</span>
+                                                                <span className="text-blue-700">{progress}%</span>
+                                                            </div>
+                                                            <div className="h-1 bg-slate-200 rounded-full overflow-hidden">
+                                                                <div className={`h-full transition-all duration-500 ${progress === 100 ? 'bg-emerald-500' : 'bg-blue-600'}`} style={{ width: `${progress}%` }} />
+                                                            </div>
+                                                        </div>
+
+                                                        <div className="mt-2 pt-2 border-t border-slate-100 flex items-center justify-between">
+                                                            <div className="flex -space-x-1">
                                                                 {c.nhanSuIds?.slice(0, 3).map((id, i) => (
-                                                                    <div key={i} className="w-6 h-6 rounded-full border-2 border-white bg-slate-200 overflow-hidden">
-                                                                        <User size={10} className="m-auto mt-1 text-slate-400" />
+                                                                    <div key={i} className="w-5 h-5 rounded-full border border-white bg-slate-200 overflow-hidden">
+                                                                        <User size={9} className="m-auto mt-0.5 text-slate-400" />
                                                                     </div>
                                                                 ))}
                                                             </div>
-                                                            <div className="flex items-center gap-1.5 text-[10px] font-black text-slate-300">
-                                                                <Calendar size={10} />
+                                                            <div className="flex items-center gap-1 text-[9px] font-semibold text-slate-500">
+                                                                <Calendar size={9} />
                                                                 {c.ngayKyHD}
                                                             </div>
                                                         </div>
@@ -501,34 +511,34 @@ export function HopDong() {
                     </div>
                 )}
 
-                {/* Footer Stats */}
-                <div className="px-8 py-4 bg-slate-900 flex flex-wrap items-center gap-12 text-sm justify-between">
-                    <div className="flex flex-wrap items-center gap-12">
-                        <div className="flex items-center gap-4">
-                            <div className="p-2.5 bg-white/10 rounded-2xl text-white"><Briefcase size={20} /></div>
+                {/* Tổng hợp — nền sáng giống nhịp bảng Nhân sự */}
+                <div className="px-4 md:px-6 py-3 bg-slate-50 border-t border-slate-200 flex flex-wrap items-center gap-6 md:gap-10 text-sm justify-between">
+                    <div className="flex flex-wrap items-center gap-6 md:gap-10">
+                        <div className="flex items-center gap-3">
+                            <div className="p-2 rounded-md bg-white border border-slate-200 text-slate-600"><Briefcase size={18} /></div>
                             <div>
-                                <div className="text-[10px] font-black text-slate-500 uppercase tracking-widest">Hợp đồng</div>
-                                <div className="text-white font-black">{items.reduce((sum, p) => sum + p.contracts.length, 0)} hợp đồng</div>
+                                <div className="text-[10px] font-semibold text-slate-500 uppercase">Hợp đồng</div>
+                                <div className="font-bold text-slate-800">{items.reduce((sum, p) => sum + p.contracts.length, 0)}</div>
                             </div>
                         </div>
-                        <div className="flex items-center gap-4">
-                            <div className="p-2.5 bg-white/10 rounded-2xl text-emerald-400"><BarChart3 size={20} /></div>
+                        <div className="flex items-center gap-3">
+                            <div className="p-2 rounded-md bg-white border border-slate-200 text-emerald-600"><BarChart3 size={18} /></div>
                             <div>
-                                <div className="text-[10px] font-black text-slate-500 uppercase tracking-widest">Tổng quyết toán</div>
-                                <div className="text-white font-black">{formatCurrency(items.reduce((sum, p) => sum + p.contracts.reduce((s, c) => s + c.giaTriQT, 0), 0))} VNĐ</div>
+                                <div className="text-[10px] font-semibold text-slate-500 uppercase">Tổng quyết toán</div>
+                                <div className="font-bold text-slate-800">{formatCurrency(items.reduce((sum, p) => sum + p.contracts.reduce((s, c) => s + c.giaTriQT, 0), 0))} đ</div>
                             </div>
                         </div>
-                        <div className="flex items-center gap-4">
-                            <div className="p-2.5 bg-white/10 rounded-2xl text-amber-400"><CheckCircle size={20} /></div>
+                        <div className="flex items-center gap-3">
+                            <div className="p-2 rounded-md bg-white border border-slate-200 text-amber-600"><CheckCircle size={18} /></div>
                             <div>
-                                <div className="text-[10px] font-black text-slate-500 uppercase tracking-widest">Đã thu hồi</div>
-                                <div className="text-emerald-400 font-black">{formatCurrency(items.reduce((sum, p) => sum + p.contracts.reduce((s, c) => s + c.daThu, 0), 0))} VNĐ</div>
+                                <div className="text-[10px] font-semibold text-slate-500 uppercase">Đã thu</div>
+                                <div className="font-bold text-emerald-700">{formatCurrency(items.reduce((sum, p) => sum + p.contracts.reduce((s, c) => s + c.daThu, 0), 0))} đ</div>
                             </div>
                         </div>
                     </div>
-                    <div className="flex items-center gap-2">
-                        <span className="text-slate-500 text-[10px] font-black uppercase tracking-widest">Tổng dự án:</span>
-                        <span className="font-bold text-white">{items.length}</span>
+                    <div className="flex items-center gap-2 text-slate-600">
+                        <span className="text-xs font-semibold uppercase">Dự án:</span>
+                        <span className="font-bold text-slate-900">{items.length}</span>
                     </div>
                 </div>
             </div>

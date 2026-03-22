@@ -5,6 +5,7 @@ import { taskService } from '../services/taskService';
 import { contractService } from '../services/contractService';
 import { aiService } from '../services/aiService';
 import employeeRoutes from './employeeRoutes';
+import workScheduleRoutes from './workScheduleRoutes';
 
 const router = Router();
 
@@ -24,6 +25,7 @@ router.post('/ai', async (req, res) => {
 
 // Employee routes are specialized (has search)
 router.use('/employees', employeeRoutes);
+router.use('/work-schedules', workScheduleRoutes);
 
 // Generic CRUD routes
 const projectController = createGenericController(projectService);

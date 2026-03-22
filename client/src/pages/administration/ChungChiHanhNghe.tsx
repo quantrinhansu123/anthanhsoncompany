@@ -24,6 +24,7 @@ import {
 import { useNavigate } from 'react-router-dom';
 import { certificateService, type ProfessionalCertificate } from '../../lib/services/certificateService';
 import { employeeService } from '../../lib/services/employeeService';
+import { PreviewLinkModal } from '../../components/PreviewLinkModal';
 
 export function ChungChiHanhNghe() {
   const navigate = useNavigate();
@@ -51,6 +52,7 @@ export function ChungChiHanhNghe() {
     employeeCode: ''
   });
   const [certificateFileNameSearch, setCertificateFileNameSearch] = useState('');
+  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [showCertificateFileNameDropdown, setShowCertificateFileNameDropdown] = useState(false);
   const itemsPerPage = 10;
 
@@ -310,6 +312,7 @@ export function ChungChiHanhNghe() {
   const currentCertificates = filteredCertificates.slice(startIndex, endIndex);
 
   return (
+    <>
     <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500 pb-10">
       <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
         {/* Header */}
@@ -420,9 +423,13 @@ export function ChungChiHanhNghe() {
                       <td className="p-4 text-slate-700 font-medium">{certificate.tenFileLuu || '(Trống)'}</td>
                       <td className="p-4 text-slate-600">
                         {certificate.file_url ? (
-                          <a href={certificate.file_url} target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline">
+                          <button
+                            type="button"
+                            onClick={() => setPreviewUrl(certificate.file_url)}
+                            className="text-blue-600 hover:underline"
+                          >
                             Xem file
-                          </a>
+                          </button>
                         ) : (
                           '(Trống)'
                         )}
@@ -681,9 +688,17 @@ export function ChungChiHanhNghe() {
                     {certificateFormData.file_url ? (
                       <>
                         <FileText size={24} className="text-slate-600" />
-                        <a href={certificateFormData.file_url} target="_blank" rel="noopener noreferrer" className="flex-1 text-sm text-blue-600 hover:underline">
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.preventDefault();
+                            e.stopPropagation();
+                            setPreviewUrl(certificateFormData.file_url);
+                          }}
+                          className="flex-1 text-sm text-blue-600 hover:underline text-left"
+                        >
                           Xem file
-                        </a>
+                        </button>
                         <button
                           type="button"
                           onClick={(e) => {
@@ -732,9 +747,17 @@ export function ChungChiHanhNghe() {
                             className="w-full h-full object-cover"
                           />
                         </div>
-                        <a href={certificateFormData.anh_url} target="_blank" rel="noopener noreferrer" className="flex-1 text-sm text-blue-600 hover:underline">
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.preventDefault();
+                            e.stopPropagation();
+                            setPreviewUrl(certificateFormData.anh_url);
+                          }}
+                          className="flex-1 text-sm text-blue-600 hover:underline text-left"
+                        >
                           Xem ảnh
-                        </a>
+                        </button>
                         <button
                           type="button"
                           onClick={(e) => {
@@ -783,7 +806,7 @@ export function ChungChiHanhNghe() {
                             className="w-full h-full object-cover"
                           />
                         </div>
-                        <a href={certificateFormData.anh2_url} target="_blank" rel="noopener noreferrer" className="flex-1 text-sm text-blue-600 hover:underline">
+                        <a href={certificateFormData.anh2_url} rel="noopener noreferrer" className="flex-1 text-sm text-blue-600 hover:underline">
                           Xem ảnh
                         </a>
                         <button
@@ -872,5 +895,12 @@ export function ChungChiHanhNghe() {
         </div>
       )}
     </div>
+    <PreviewLinkModal
+      url={previewUrl}
+      onClose={() => setPreviewUrl(null)}
+      title="Xem tài liệu"
+      zIndexClass="z-[200]"
+    />
+    </>
   );
 }

@@ -349,9 +349,7 @@ export function ThemDuAnModal({ isOpen, onClose, onSave, initialData }: Props) {
                                                             <User size={14} className="text-slate-400" />
                                                         </div>
                                                     )}
-                                                    <span className="text-sm text-slate-800">
-                                                        {emp.code ? `[${emp.code}] ` : ''}{emp.full_name}
-                                                    </span>
+                                                    <span className="text-sm text-slate-800">{emp.full_name}</span>
                                                 </label>
                                             );
                                         })}
@@ -396,9 +394,7 @@ export function ThemDuAnModal({ isOpen, onClose, onSave, initialData }: Props) {
                                                             <User size={14} className="text-slate-400" />
                                                         </div>
                                                     )}
-                                                    <span className="text-sm text-slate-800">
-                                                        {emp.code ? `[${emp.code}] ` : ''}{emp.full_name}
-                                                    </span>
+                                                    <span className="text-sm text-slate-800">{emp.full_name}</span>
                                                 </label>
                                             );
                                         })}

@@ -25,6 +25,7 @@ export function Header({ onMenuClick, isOpen = true, isMobile = false }: HeaderP
     'tong-hop-cham-cong': 'Tổng hợp chấm công',
     'marketing': 'Marketing',
     'nhan-su': 'Nhân sự',
+    'lich-lam-viec': 'Lịch làm việc',
     'kho-van': 'Kho vận',
     'mua-hang': 'Mua hàng',
     'tai-chinh': 'Tài chính',

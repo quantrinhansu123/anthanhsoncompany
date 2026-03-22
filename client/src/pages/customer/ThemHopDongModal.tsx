@@ -4,6 +4,7 @@ import { contractService, ContractFile } from '../../lib/services/contractServic
 import { projectService } from '../../lib/services/projectService';
 import { employeeService } from '../../lib/services/employeeService';
 import { thuChiService } from '../../lib/services/thuChiService';
+import { PreviewLinkModal } from '../../components/PreviewLinkModal';
 
 interface Contract {
     id?: number;
@@ -54,6 +55,11 @@ export function ThemHopDongModal({ isOpen, onClose, editData, onSuccess }: ThemH
     const nhanSuDropdownRef = useRef<HTMLDivElement | null>(null);
     const [showAddLoaiDichVuModal, setShowAddLoaiDichVuModal] = useState(false);
     const [newLoaiDichVuValue, setNewLoaiDichVuValue] = useState('');
+    const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+
+    useEffect(() => {
+        if (!isOpen) setPreviewUrl(null);
+    }, [isOpen]);
 
     const [formData, setFormData] = useState({
         soHopDong: '',
@@ -254,6 +260,7 @@ export function ThemHopDongModal({ isOpen, onClose, editData, onSuccess }: ThemH
     if (!isOpen) return null;
 
     return (
+        <>
         <div className="fixed inset-0 z-[70] flex items-center justify-center bg-black/40 p-4 backdrop-blur-sm animate-in fade-in duration-200">
             <div className="bg-white w-full max-w-2xl rounded-2xl shadow-xl flex flex-col max-h-[90vh] animate-in zoom-in-95 duration-200 overflow-hidden">
                 {/* Header */}
@@ -477,9 +484,14 @@ export function ThemHopDongModal({ isOpen, onClose, editData, onSuccess }: ThemH
                                             </div>
                                         </div>
                                         <div className="flex items-center gap-2 shrink-0">
-                                            <a href={file.file_url} target="_blank" rel="noopener noreferrer" className="p-1 text-blue-600 hover:bg-blue-50 rounded">
+                                            <button
+                                                type="button"
+                                                onClick={() => setPreviewUrl(file.file_url)}
+                                                className="p-1 text-blue-600 hover:bg-blue-50 rounded"
+                                                title="Xem tài liệu"
+                                            >
                                                 <ExternalLink size={14} />
-                                            </a>
+                                            </button>
                                             <button onClick={() => handleDeleteFile(file.file_type)} className="p-1 text-red-500 hover:bg-red-50 rounded">
                                                 <Trash2 size={14} />
                                             </button>
@@ -575,5 +587,12 @@ export function ThemHopDongModal({ isOpen, onClose, editData, onSuccess }: ThemH
                 )}
             </div>
         </div>
+        <PreviewLinkModal
+            url={previewUrl}
+            onClose={() => setPreviewUrl(null)}
+            title="Xem tài liệu"
+            zIndexClass="z-[320]"
+        />
+        </>
     );
 }

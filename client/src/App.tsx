@@ -13,6 +13,7 @@ import { Administration } from './pages/Administration';
 import { System } from './pages/System';
 import { RecruitmentList } from './pages/human-resources/RecruitmentList';
 import { AddEmployee } from './pages/human-resources/AddEmployee';
+import { LichLamViec } from './pages/human-resources/LichLamViec';
 import { Finance } from './pages/Finance';
 import { ThuChi } from './pages/finance/ThuChi';
 import { ThuChiNhanSu } from './pages/finance/ThuChiNhanSu';
@@ -61,6 +62,7 @@ export default function App() {
             <Route path="nhan-su/ho-so" element={<RecruitmentList />} />
             <Route path="nhan-su/them" element={<AddEmployee />} />
             <Route path="nhan-su/them/:id" element={<AddEmployee />} />
+            <Route path="nhan-su/lich-lam-viec" element={<LichLamViec />} />
             <Route path="kho-van" element={<Logistics />} />
             <Route path="kho-van/danh-sach-van-don" element={<DanhSachVanDon />} />
             <Route path="he-thong" element={<System />} />

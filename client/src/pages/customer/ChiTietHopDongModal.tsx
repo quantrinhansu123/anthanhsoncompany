@@ -9,6 +9,7 @@ import { taskService, TaskRow } from '../../lib/services/taskService';
 import { taskDetailService } from '../../lib/services/taskDetailService';
 import { useHopDongModal } from '../../contexts/HopDongModalContext';
 import { useNavigate } from 'react-router-dom';
+import { PreviewLinkModal } from '../../components/PreviewLinkModal';
 
 interface Contract {
     id?: number;
@@ -72,6 +73,11 @@ export function ChiTietHopDongModal({ isOpen, onClose, contract }: ChiTietHopDon
         tien_do: 0,
         ghi_chu: '',
     });
+    const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+
+    useEffect(() => {
+        if (!isOpen) setPreviewUrl(null);
+    }, [isOpen]);
 
     const formatCurrency = (amount: number) => {
         return new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND' }).format(amount);
@@ -209,9 +215,9 @@ export function ChiTietHopDongModal({ isOpen, onClose, contract }: ChiTietHopDon
         }
     };
 
-    if (!isOpen || !contract) return null;
-
     return (
+        <>
+        {isOpen && contract ? (
         <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/40 p-4 backdrop-blur-sm animate-in fade-in duration-200">
             <div className="bg-[#FAF9FB] w-full max-w-4xl rounded-2xl shadow-xl flex flex-col max-h-[90vh] animate-in zoom-in-95 duration-200 overflow-hidden">
                 {/* Modal Header */}
@@ -368,25 +374,23 @@ export function ChiTietHopDongModal({ isOpen, onClose, contract }: ChiTietHopDon
                                                     <div className="flex-1 min-w-0">
                                                         <div className="text-sm font-medium text-slate-800">{file.file_type}</div>
                                                         <div className="text-xs text-slate-500 truncate">{file.file_name}</div>
-                                                        <a
-                                                            href={file.file_url}
-                                                            target="_blank"
-                                                            rel="noopener noreferrer"
-                                                            className="text-xs text-blue-600 hover:text-blue-800 hover:underline truncate block mt-1"
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => setPreviewUrl(file.file_url)}
+                                                            className="text-xs text-blue-600 hover:text-blue-800 hover:underline truncate block mt-1 text-left w-full"
                                                         >
                                                             {file.file_url}
-                                                        </a>
+                                                        </button>
                                                     </div>
                                                 </div>
-                                                <a
-                                                    href={file.file_url}
-                                                    target="_blank"
-                                                    rel="noopener noreferrer"
+                                                <button
+                                                    type="button"
+                                                    onClick={() => setPreviewUrl(file.file_url)}
                                                     className="px-3 py-1.5 text-sm font-medium text-blue-600 bg-blue-50 hover:bg-blue-100 rounded-md flex items-center gap-2 transition-colors"
                                                 >
                                                     <ExternalLink size={14} />
-                                                    Mở link
-                                                </a>
+                                                    Xem tài liệu
+                                                </button>
                                             </div>
                                         ))}
                                     </div>
@@ -517,14 +521,14 @@ export function ChiTietHopDongModal({ isOpen, onClose, contract }: ChiTietHopDon
                                                         {(task.link_tai_lieu || task.anh_bang_chung) && (
                                                             <div className="mt-2 flex items-center gap-3">
                                                                 {task.link_tai_lieu && (
-                                                                    <a href={task.link_tai_lieu} target="_blank" rel="noopener noreferrer" className="text-[10px] text-blue-600 hover:underline flex items-center gap-1">
+                                                                    <button type="button" onClick={() => setPreviewUrl(task.link_tai_lieu!)} className="text-[10px] text-blue-600 hover:underline flex items-center gap-1">
                                                                         <LinkIcon size={10} /> Tài liệu
-                                                                    </a>
+                                                                    </button>
                                                                 )}
                                                                 {task.anh_bang_chung && (
-                                                                    <a href={task.anh_bang_chung} target="_blank" rel="noopener noreferrer" className="text-[10px] text-blue-600 hover:underline flex items-center gap-1">
+                                                                    <button type="button" onClick={() => setPreviewUrl(task.anh_bang_chung!)} className="text-[10px] text-blue-600 hover:underline flex items-center gap-1">
                                                                         <ImageIcon size={10} /> Bằng chứng
-                                                                    </a>
+                                                                    </button>
                                                                 )}
                                                             </div>
                                                         )}
@@ -753,5 +757,13 @@ export function ChiTietHopDongModal({ isOpen, onClose, contract }: ChiTietHopDon
                 </div>
             )}
         </div>
+        ) : null}
+        <PreviewLinkModal
+            url={previewUrl}
+            onClose={() => setPreviewUrl(null)}
+            title="Xem tài liệu"
+            zIndexClass="z-[280]"
+        />
+        </>
     );
 }

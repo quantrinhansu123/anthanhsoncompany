@@ -19,7 +19,6 @@ import {
   Pencil,
   Trash2,
   BookOpen,
-  ChevronUp,
   ChevronDown,
   GripVertical,
   MoreHorizontal,
@@ -28,6 +27,7 @@ import {
 import {
   taskService,
   type TaskRow,
+  type QuyTrinhLamViecItem,
   type QuyTrinhTieuChuanDong,
 } from '../../lib/services/taskService';
 import {
@@ -48,6 +48,7 @@ import {
   type TaskDetailHistory,
 } from '../../lib/services/taskDetailService';
 import { useNavigate, useSearchParams } from 'react-router-dom';
+import { PreviewLinkModal } from '../../components/PreviewLinkModal';
 
 type StatusTab = 'all' | 'doing' | 'done' | 'pending';
 
@@ -69,6 +70,13 @@ function isTrangThaiDaXong(s?: string | null): boolean {
 
 function isTrangThaiChoDuyet(s?: string | null): boolean {
   return String(s ?? '').trim() === 'Chờ duyệt';
+}
+
+/** Hiển thị mô tả: giữ \n từ DB; tách các cụm bắt đầu bằng "+)" (sau khoảng trắng) xuống dòng. */
+function formatMoTaDisplay(raw: string | null | undefined): string {
+  const t = String(raw ?? '').trim();
+  if (!t) return '';
+  return t.replace(/(\s)\+\)\s*/g, '\n+) ');
 }
 
 function loiViPhamSelectButtonLabel(
@@ -160,6 +168,22 @@ function listProgressPercent(task: TaskRow): number {
   return Math.round((done / items.length) * 100);
 }
 
+/** Tiến độ checklist trong một bước: số dòng Đạt / tổng dòng có nội dung. */
+function quyTrinhChecklistLineProgress(item: QuyTrinhLamViecItem): {
+  done: number;
+  total: number;
+  pct: number;
+} {
+  const lines = (item.tieu_chuan ?? []).filter((t) => String(t?.noi_dung ?? '').trim());
+  if (lines.length === 0) return { done: 0, total: 0, pct: 0 };
+  const done = lines.filter((t) => (String(t.trang_thai ?? '').trim() === 'Đạt')).length;
+  return {
+    done,
+    total: lines.length,
+    pct: Math.round((done / lines.length) * 100),
+  };
+}
+
 /** Ngày lịch địa phương (bỏ giờ) để đếm ngày khớp UI `toLocaleDateString('vi-VN')`. */
 function taskCalendarDay(iso: string | null | undefined): Date | null {
   if (!iso?.trim()) return null;
@@ -187,7 +211,9 @@ export function QuanLyCongViec() {
   /** Rỗng = tất cả hợp đồng; có phần tử = chỉ công việc thuộc các hợp đồng đã chọn */
   const [filterHopDongIds, setFilterHopDongIds] = useState<string[]>([]);
   const [contractFilterOpen, setContractFilterOpen] = useState(false);
+  const [contractFilterSearch, setContractFilterSearch] = useState('');
   const contractFilterRef = useRef<HTMLDivElement>(null);
+  const contractFilterSearchRef = useRef<HTMLInputElement>(null);
   const [activeTab, setActiveTab] = useState<StatusTab>('all');
   const [selected, setSelected] = useState<TaskRow | null>(null);
   const navigate = useNavigate();
@@ -287,12 +313,6 @@ export function QuanLyCongViec() {
   const [showAddTaskDropdown, setShowAddTaskDropdown] = useState(false);
   const [addTaskCheckboxIds, setAddTaskCheckboxIds] = useState<string[]>([]);
   const [addTaskSaving, setAddTaskSaving] = useState(false);
-  /** Tiêu chuẩn khi Thêm task từ mẫu (Quy trình làm việc) */
-  const [addTaskTieuForm, setAddTaskTieuForm] = useState({
-    noi_dung_tieu_chuan: '',
-    trang_thai_tieu_chuan: '',
-    ghi_chu_tieu_chuan: '',
-  });
   const [addCustomTaskTen, setAddCustomTaskTen] = useState('');
   const [addCustomTaskMoTa, setAddCustomTaskMoTa] = useState('');
   /** Nhiều dòng checklist khi thêm bước tùy chỉnh */
@@ -303,7 +323,6 @@ export function QuanLyCongViec() {
     itemId: string;
     ten_task: string;
     noi_dung_tieu_chuan: string;
-    trang_thai: string;
     ghi_chu: string;
     /** Các bước con (checklist) — chỉnh trong modal Sửa bước */
     tieu_chuan_lines: QuyTrinhTieuChuanDong[];
@@ -315,6 +334,20 @@ export function QuanLyCongViec() {
   const [quyTrinhStepViewItemId, setQuyTrinhStepViewItemId] = useState<string | null>(null);
   /** Menu ba chấm trên từng dòng checklist tiêu chuẩn — key `bướcId:chỉSốDòng` */
   const [checklistLineMenuKey, setChecklistLineMenuKey] = useState<string | null>(null);
+  const checklistMenuAnchorRef = useRef<HTMLButtonElement | null>(null);
+  const [checklistLineMenuBox, setChecklistLineMenuBox] = useState<{
+    top: number;
+    left: number;
+    width: number;
+    maxHeight: number;
+  } | null>(null);
+  const quyTrinhStepMenuAnchorRef = useRef<HTMLButtonElement | null>(null);
+  const [quyTrinhStepMenuBox, setQuyTrinhStepMenuBox] = useState<{
+    top: number;
+    left: number;
+    width: number;
+    maxHeight: number;
+  } | null>(null);
   const quyTrinhDragIdRef = useRef<string | null>(null);
   const [quyTrinhDragId, setQuyTrinhDragId] = useState<string | null>(null);
   const [quyTrinhDragOverId, setQuyTrinhDragOverId] = useState<string | null>(null);
@@ -341,6 +374,12 @@ export function QuanLyCongViec() {
   }, [quyTrinhStepViewItemId, quyTrinhItemsForSelected]);
 
   useEffect(() => {
+    if (quyTrinhStepViewItemId == null) {
+      setChecklistLineMenuKey(null);
+    }
+  }, [quyTrinhStepViewItemId]);
+
+  useEffect(() => {
     if (quyTrinhStepMenuId == null) return;
     const onDown = (e: MouseEvent) => {
       const el = e.target as HTMLElement;
@@ -362,6 +401,65 @@ export function QuanLyCongViec() {
     return () => document.removeEventListener('mousedown', onDown);
   }, [checklistLineMenuKey]);
 
+  useLayoutEffect(() => {
+    if (checklistLineMenuKey == null) {
+      setChecklistLineMenuBox(null);
+      checklistMenuAnchorRef.current = null;
+      return;
+    }
+    const btn = checklistMenuAnchorRef.current;
+    if (!btn) return;
+    const MENU_W = 168;
+    const place = () => {
+      const r = btn.getBoundingClientRect();
+      const left = Math.min(Math.max(8, r.right - MENU_W), window.innerWidth - MENU_W - 8);
+      const top = r.bottom + 4;
+      const maxHeight = Math.max(160, window.innerHeight - top - 12);
+      setChecklistLineMenuBox({ top, left, width: MENU_W, maxHeight });
+    };
+    place();
+    window.addEventListener('resize', place);
+    window.addEventListener('scroll', place, true);
+    return () => {
+      window.removeEventListener('resize', place);
+      window.removeEventListener('scroll', place, true);
+    };
+  }, [checklistLineMenuKey]);
+
+  useLayoutEffect(() => {
+    if (quyTrinhStepMenuId == null) {
+      setQuyTrinhStepMenuBox(null);
+      quyTrinhStepMenuAnchorRef.current = null;
+      return;
+    }
+    const btn = quyTrinhStepMenuAnchorRef.current;
+    if (!btn) return;
+    const MENU_W = 192;
+    const place = () => {
+      const r = btn.getBoundingClientRect();
+      const left = Math.min(Math.max(8, r.right - MENU_W), window.innerWidth - MENU_W - 8);
+      const top = r.bottom + 4;
+      const maxHeight = Math.max(200, window.innerHeight - top - 12);
+      setQuyTrinhStepMenuBox({ top, left, width: MENU_W, maxHeight });
+    };
+    place();
+    window.addEventListener('resize', place);
+    window.addEventListener('scroll', place, true);
+    return () => {
+      window.removeEventListener('resize', place);
+      window.removeEventListener('scroll', place, true);
+    };
+  }, [quyTrinhStepMenuId]);
+
+  useEffect(() => {
+    if (!contractFilterOpen) {
+      setContractFilterSearch('');
+      return;
+    }
+    const t = window.setTimeout(() => contractFilterSearchRef.current?.focus(), 0);
+    return () => window.clearTimeout(t);
+  }, [contractFilterOpen]);
+
   useEffect(() => {
     if (!contractFilterOpen) return;
     const onDown = (e: MouseEvent) => {
@@ -372,6 +470,15 @@ export function QuanLyCongViec() {
     document.addEventListener('mousedown', onDown);
     return () => document.removeEventListener('mousedown', onDown);
   }, [contractFilterOpen]);
+
+  const contractsMatchingFilter = useMemo(() => {
+    const q = contractFilterSearch.trim().toLowerCase();
+    if (!q) return contracts;
+    return contracts.filter((c) => {
+      const label = (c.ten_goi_thau || c.so_hop_dong || c.id).toLowerCase();
+      return label.includes(q) || String(c.id).toLowerCase().includes(q);
+    });
+  }, [contracts, contractFilterSearch]);
 
   useLayoutEffect(() => {
     if (!loiNguoiViPhamOpen) {
@@ -828,7 +935,7 @@ export function QuanLyCongViec() {
 
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 lg:gap-5 flex-1 min-h-0">
         {/* Danh sách công việc (trái) */}
-        <div className="lg:col-span-3 bg-white border-2 border-slate-400 rounded-xl shadow-lg flex flex-col min-h-0">
+        <div className="lg:col-span-4 bg-white border-2 border-slate-400 rounded-xl shadow-lg flex flex-col min-h-0">
           <div className="px-4 py-3 border-b-2 border-slate-300 flex items-center justify-between gap-2">
           <div className="flex gap-1 text-[11px] font-bold rounded-full bg-slate-200/90 p-1">
             {[
@@ -929,51 +1036,75 @@ export function QuanLyCongViec() {
               </button>
               {contractFilterOpen ? (
                 <div
-                  className="absolute left-0 right-0 top-full z-50 mt-1 max-h-56 overflow-y-auto rounded-lg border-2 border-slate-400 bg-white py-1 shadow-lg"
+                  className="absolute left-0 right-0 top-full z-50 mt-1 max-h-72 flex flex-col rounded-lg border-2 border-slate-400 bg-white shadow-lg overflow-hidden"
                   role="listbox"
+                  aria-label="Lọc theo hợp đồng"
                 >
-                  <label className="flex cursor-pointer items-center gap-2 px-3 py-2 text-xs font-bold text-slate-900 hover:bg-slate-100">
-                    <input
-                      type="checkbox"
-                      className="h-3.5 w-3.5 rounded border-slate-400 text-blue-800 focus:ring-blue-600"
-                      checked={filterHopDongIds.length === 0}
-                      onChange={(e) => {
-                        if (e.target.checked) setFilterHopDongIds([]);
-                      }}
-                    />
-                    Tất cả hợp đồng
-                  </label>
-                  <div className="mx-2 border-t border-slate-200" />
-                  {contracts.length === 0 ? (
-                    <p className="px-3 py-2 text-[11px] text-slate-600">Chưa có hợp đồng.</p>
-                  ) : (
-                    contracts.map((c) => {
-                      const label = c.ten_goi_thau || c.so_hop_dong || c.id;
-                      const checked =
-                        filterHopDongIds.length > 0 && filterHopDongIds.includes(c.id);
-                      return (
-                        <label
-                          key={c.id}
-                          className="flex cursor-pointer items-center gap-2 px-3 py-2 text-xs text-slate-800 hover:bg-slate-100"
-                        >
-                          <input
-                            type="checkbox"
-                            className="h-3.5 w-3.5 rounded border-slate-400 text-blue-800 focus:ring-blue-600"
-                            checked={checked}
-                            onChange={() => {
-                              setFilterHopDongIds((prev) => {
-                                if (prev.length === 0) return [c.id];
-                                if (prev.includes(c.id))
-                                  return prev.filter((x) => x !== c.id);
-                                return [...prev, c.id];
-                              });
-                            }}
-                          />
-                          <span className="truncate">{label}</span>
-                        </label>
-                      );
-                    })
-                  )}
+                  <div className="shrink-0 p-2 border-b border-slate-200 bg-slate-50">
+                    <div className="relative">
+                      <Search
+                        className="w-3.5 h-3.5 text-slate-500 absolute left-2.5 top-1/2 -translate-y-1/2 pointer-events-none"
+                        aria-hidden
+                      />
+                      <input
+                        ref={contractFilterSearchRef}
+                        type="search"
+                        value={contractFilterSearch}
+                        onChange={(e) => setContractFilterSearch(e.target.value)}
+                        placeholder="Tìm hợp đồng…"
+                        autoComplete="off"
+                        className="w-full pl-8 pr-2 py-1.5 rounded-md border border-slate-300 text-xs text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-600/30 focus:border-blue-600 bg-white"
+                      />
+                    </div>
+                  </div>
+                  <div className="overflow-y-auto flex-1 min-h-0 py-1 max-h-[min(13rem,50vh)] [scrollbar-gutter:stable]">
+                    <label className="flex cursor-pointer items-center gap-2 px-3 py-2 text-xs font-bold text-slate-900 hover:bg-slate-100">
+                      <input
+                        type="checkbox"
+                        className="h-3.5 w-3.5 rounded border-slate-400 text-blue-800 focus:ring-blue-600"
+                        checked={filterHopDongIds.length === 0}
+                        onChange={(e) => {
+                          if (e.target.checked) setFilterHopDongIds([]);
+                        }}
+                      />
+                      Tất cả hợp đồng
+                    </label>
+                    <div className="mx-2 border-t border-slate-200" />
+                    {contracts.length === 0 ? (
+                      <p className="px-3 py-2 text-[11px] text-slate-600">Chưa có hợp đồng.</p>
+                    ) : contractsMatchingFilter.length === 0 ? (
+                      <p className="px-3 py-2 text-[11px] text-slate-600">
+                        Không có hợp đồng khớp &quot;{contractFilterSearch.trim()}&quot;.
+                      </p>
+                    ) : (
+                      contractsMatchingFilter.map((c) => {
+                        const label = c.ten_goi_thau || c.so_hop_dong || c.id;
+                        const checked =
+                          filterHopDongIds.length > 0 && filterHopDongIds.includes(c.id);
+                        return (
+                          <label
+                            key={c.id}
+                            className="flex cursor-pointer items-center gap-2 px-3 py-2 text-xs text-slate-800 hover:bg-slate-100"
+                          >
+                            <input
+                              type="checkbox"
+                              className="h-3.5 w-3.5 rounded border-slate-400 text-blue-800 focus:ring-blue-600"
+                              checked={checked}
+                              onChange={() => {
+                                setFilterHopDongIds((prev) => {
+                                  if (prev.length === 0) return [c.id];
+                                  if (prev.includes(c.id))
+                                    return prev.filter((x) => x !== c.id);
+                                  return [...prev, c.id];
+                                });
+                              }}
+                            />
+                            <span className="min-w-0 break-words">{label}</span>
+                          </label>
+                        );
+                      })
+                    )}
+                  </div>
                 </div>
               ) : null}
             </div>
@@ -985,54 +1116,58 @@ export function QuanLyCongViec() {
             ) : filtered.length === 0 ? (
               <p className="px-4 py-4 text-xs text-slate-600">Không có công việc nào.</p>
             ) : (
-              <div className="space-y-1">
+              <div className="space-y-2 px-0.5">
                 {filtered.map((task, index) => {
                   const isActive = selected && selected.id === task.id;
                   const listPct = listProgressPercent(task);
+                  const hopDongLabel = task.hop_dong_id
+                    ? contractLabelById(task.hop_dong_id)
+                    : '';
                   return (
                     <div
                       key={`${task.id}-${index}`}
-                      className={`w-full px-3 py-2.5 border-l-4 flex items-center justify-between gap-2 ${
+                      className={`w-full px-4 py-3.5 border-l-[5px] rounded-r-lg flex items-start justify-between gap-3 ${
                         isActive
-                          ? 'bg-blue-100 border-blue-700 shadow-sm'
-                          : 'bg-white border-transparent hover:bg-slate-200'
+                          ? 'bg-blue-100 border-blue-700 shadow-sm ring-1 ring-blue-200/80'
+                          : 'bg-slate-50/90 border-transparent hover:bg-slate-200/90 ring-1 ring-slate-200/80'
                       }`}
                     >
                       <button
                         onClick={() => setSelected(task)}
-                        className="flex-1 text-left flex flex-col gap-1"
+                        className="flex-1 min-w-0 text-left flex flex-col gap-2"
                       >
-                        <div className="flex items-center justify-between gap-2">
-                          <span className="text-xs font-bold text-slate-900 line-clamp-1">
-                            {task.ten_task}
+                        <span
+                          className="text-sm font-bold text-slate-900 line-clamp-3 leading-snug"
+                          title={task.ten_task}
+                        >
+                          {task.ten_task}
+                        </span>
+                        {task.hop_dong_id ? (
+                          <span
+                            className="text-[11px] font-medium text-slate-600 line-clamp-2 leading-snug"
+                            title={hopDongLabel}
+                          >
+                            {hopDongLabel}
                           </span>
-                          {task.hop_dong_id ? (
-                            <span
-                              className="text-[10px] text-slate-600 truncate max-w-[7rem] text-right"
-                              title={contractLabelById(task.hop_dong_id)}
-                            >
-                              {contractLabelById(task.hop_dong_id)}
-                            </span>
-                          ) : null}
-                        </div>
-                        <div className="flex items-center justify-between gap-2">
-                          <div className="flex items-center gap-1">
-                            <div className="w-16 h-2 rounded-full bg-slate-200 overflow-hidden ring-1 ring-slate-300/80">
+                        ) : null}
+                        <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5">
+                          <div className="flex items-center gap-2 flex-1 min-w-[8rem]">
+                            <div className="flex-1 min-w-0 h-2.5 rounded-full bg-slate-200 overflow-hidden ring-1 ring-slate-300/80">
                               <div
                                 className="h-full rounded-full bg-emerald-600 transition-[width] duration-300 ease-out"
                                 style={{ width: `${listPct}%` }}
                               />
                             </div>
-                            <span className="text-[10px] font-bold text-emerald-800 tabular-nums">
+                            <span className="text-[11px] font-bold text-emerald-800 tabular-nums shrink-0 min-w-[2.25rem]">
                               {listPct}%
                             </span>
                           </div>
-                          <span className="text-[10px] font-bold text-slate-700">
+                          <span className="text-[11px] font-bold text-slate-800 shrink-0 max-w-full">
                             {task.trang_thai}
                           </span>
                         </div>
                       </button>
-                      <div className="flex items-center gap-1">
+                      <div className="flex flex-col sm:flex-row items-center gap-1.5 shrink-0 pt-0.5">
                         <button
                           type="button"
                           title="Sửa công việc"
@@ -1066,9 +1201,9 @@ export function QuanLyCongViec() {
                             setTaskModalEditingId(task.id);
                             setIsModalOpen(true);
                           }}
-                          className="w-7 h-7 flex items-center justify-center rounded-full border-2 border-amber-600 bg-amber-100 text-amber-900 hover:bg-amber-200 shadow-sm"
+                          className="w-8 h-8 flex items-center justify-center rounded-full border-2 border-amber-600 bg-amber-100 text-amber-900 hover:bg-amber-200 shadow-sm"
                         >
-                          <Pencil className="w-3.5 h-3.5" aria-hidden />
+                          <Pencil className="w-4 h-4" aria-hidden />
                         </button>
                         <button
                           type="button"
@@ -1103,9 +1238,9 @@ export function QuanLyCongViec() {
                               }
                             })();
                           }}
-                          className="w-7 h-7 flex items-center justify-center rounded-full border-2 border-red-600 bg-red-100 text-red-800 hover:bg-red-200 shadow-sm"
+                          className="w-8 h-8 flex items-center justify-center rounded-full border-2 border-red-600 bg-red-100 text-red-800 hover:bg-red-200 shadow-sm"
                         >
-                          <Trash2 className="w-3.5 h-3.5" aria-hidden />
+                          <Trash2 className="w-4 h-4" aria-hidden />
                         </button>
                       </div>
                     </div>
@@ -1117,7 +1252,7 @@ export function QuanLyCongViec() {
         </div>
 
         {/* Chi tiết công việc (giữa) */}
-        <div className="lg:col-span-6 bg-white border-2 border-slate-400 rounded-xl shadow-lg flex flex-col min-h-0">
+        <div className="lg:col-span-5 bg-white border-2 border-slate-400 rounded-xl shadow-lg flex flex-col min-h-0">
                           <div className="px-5 py-3 border-b-2 border-slate-300 flex items-center justify-between gap-3 flex-wrap">
             <div className="min-w-0 flex-1">
               <h2 className="text-sm font-bold text-slate-900 line-clamp-2">
@@ -1396,8 +1531,11 @@ export function QuanLyCongViec() {
                   </div>
 
                   {detailTabState === 'NOI_DUNG' && (
-                    <div className="mt-3 rounded-xl border border-slate-200 bg-slate-200 px-3 py-3 text-xs text-slate-700 min-h-[80px]">
-                      {selected.mo_ta || 'Chưa có mô tả cho công việc này.'}
+                    <div className="mt-3 rounded-xl border border-slate-200 bg-slate-200 px-3 py-3 text-xs text-slate-700 min-h-[80px] whitespace-pre-line">
+                      {(() => {
+                        const text = formatMoTaDisplay(selected.mo_ta);
+                        return text || 'Chưa có mô tả cho công việc này.';
+                      })()}
                     </div>
                   )}
 
@@ -1500,11 +1638,9 @@ export function QuanLyCongViec() {
                                     <button
                                       type="button"
                                       className="text-[10px] font-bold text-blue-600 hover:underline px-1"
-                                      onClick={() =>
-                                        window.open(row.link.trim(), '_blank')
-                                      }
+                                      onClick={() => setDocPreviewUrl(row.link.trim())}
                                     >
-                                      Mở tab
+                                      Xem modal
                                     </button>
                                   </>
                                 ) : null}
@@ -2177,11 +2313,6 @@ export function QuanLyCongViec() {
                   setShowAddTaskDropdown((prev) => {
                     const next = !prev;
                     if (next) {
-                      setAddTaskTieuForm({
-                        noi_dung_tieu_chuan: '',
-                        trang_thai_tieu_chuan: '',
-                        ghi_chu_tieu_chuan: '',
-                      });
                       setAddCustomTaskTen('');
                       setAddCustomTaskMoTa('');
                     }
@@ -2210,10 +2341,6 @@ export function QuanLyCongViec() {
                       <p className="text-[10px] font-bold text-emerald-800 uppercase tracking-wide">
                         Bước quy trình (tự nhập)
                       </p>
-                      <p className="text-[9px] text-emerald-900/80 leading-snug">
-                        Chỉ ghi vào jsonb <span className="font-bold">ten_task</span> của công việc đang chọn — không tạo
-                        dòng <span className="font-bold">ten_cong_viec</span> mới.
-                      </p>
                       <input
                         type="text"
                         value={addCustomTaskTen}
@@ -2228,49 +2355,6 @@ export function QuanLyCongViec() {
                         placeholder="Mô tả (tuỳ chọn)"
                         className="w-full rounded-lg border border-emerald-200 px-2 py-1.5 text-[11px] bg-white resize-none"
                       />
-                      <div className="rounded-lg border border-emerald-200/80 bg-white p-2 space-y-2">
-                        <p className="text-[9px] font-bold text-slate-600 uppercase">
-                          Tiêu chuẩn (jsonb ten_task)
-                        </p>
-                        <textarea
-                          rows={2}
-                          value={addTaskTieuForm.noi_dung_tieu_chuan}
-                          onChange={(e) =>
-                            setAddTaskTieuForm((p) => ({
-                              ...p,
-                              noi_dung_tieu_chuan: e.target.value,
-                            }))
-                          }
-                          className="w-full rounded border border-slate-200 px-2 py-1 text-[11px]"
-                          placeholder="Nội dung (tuỳ chọn, để trống = dùng mô tả)"
-                        />
-                        <select
-                          value={addTaskTieuForm.trang_thai_tieu_chuan}
-                          onChange={(e) =>
-                            setAddTaskTieuForm((p) => ({
-                              ...p,
-                              trang_thai_tieu_chuan: e.target.value,
-                            }))
-                          }
-                          className="w-full rounded border border-slate-200 px-2 py-1 text-[11px]"
-                        >
-                          <option value="">Chưa đánh giá</option>
-                          <option value="Đạt">Đạt</option>
-                          <option value="Không đạt">Không đạt</option>
-                        </select>
-                        <textarea
-                          rows={2}
-                          value={addTaskTieuForm.ghi_chu_tieu_chuan}
-                          onChange={(e) =>
-                            setAddTaskTieuForm((p) => ({
-                              ...p,
-                              ghi_chu_tieu_chuan: e.target.value,
-                            }))
-                          }
-                          className="w-full rounded border border-slate-200 px-2 py-1 text-[11px]"
-                          placeholder="Ghi chú (jsonb)"
-                        />
-                      </div>
                       <div className="rounded-lg border border-emerald-200/80 bg-white p-2 space-y-2">
                         <div className="flex items-center justify-between gap-2">
                           <p className="text-[9px] font-bold text-slate-600 uppercase">
@@ -2364,13 +2448,8 @@ export function QuanLyCongViec() {
                             if (!detailByTask[parentId]) {
                               setDetailByTask((p) => ({ ...p, [parentId]: detail }));
                             }
-                            const trangThaiTc =
-                              addTaskTieuForm.trang_thai_tieu_chuan.trim() ||
-                              'Chưa đánh giá';
-                            const noiDung =
-                              addTaskTieuForm.noi_dung_tieu_chuan.trim() ||
-                              addCustomTaskMoTa.trim() ||
-                              '';
+                            const trangThaiTc = 'Chưa đánh giá';
+                            const noiDung = addCustomTaskMoTa.trim() || '';
                             const checklistPayload = addCustomChecklistLines
                               .filter((l) => l.noi_dung.trim())
                               .map((l) => ({
@@ -2384,7 +2463,7 @@ export function QuanLyCongViec() {
                                   ten_task: ten,
                                   noi_dung_tieu_chuan: noiDung,
                                   trang_thai: trangThaiTc,
-                                  ghi_chu: addTaskTieuForm.ghi_chu_tieu_chuan.trim(),
+                                  ghi_chu: '',
                                   template_id: null,
                                   tieu_chuan:
                                     checklistPayload.length > 0 ? checklistPayload : undefined,
@@ -2414,11 +2493,11 @@ export function QuanLyCongViec() {
                     </div>
                     <div className="px-3 py-2 border-b border-slate-300 space-y-2 bg-slate-200/70">
                       <p className="text-[10px] font-bold text-slate-600 uppercase tracking-wide">
-                        Khi chọn mẫu — tiêu chuẩn jsonb (đã nhập ở trên vẫn dùng được)
+                        Khi chọn mẫu
                       </p>
                       <p className="text-[9px] text-slate-600 leading-snug">
-                        Tick mẫu bên dưới rồi bấm &quot;Thêm vào quy trình&quot;. Nội dung / trạng thái / ghi chú lấy từ
-                        phần &quot;Bước quy trình (tự nhập)&quot; phía trên; chỉ cập nhật jsonb, không tạo công việc mới.
+                        Tick mẫu bên dưới rồi bấm &quot;Thêm vào quy trình&quot;. Mỗi bước lấy tên, mô tả và checklist từ
+                        mẫu; trạng thái mặc định &quot;Chưa đánh giá&quot;.
                       </p>
                     </div>
                     <div className="px-3 py-1.5 bg-slate-200/80 text-[10px] font-bold text-slate-600 uppercase">
@@ -2491,18 +2570,13 @@ export function QuanLyCongViec() {
                                 .map((t) => t.noi_dung)
                                 .filter(Boolean)
                                 .join('\n');
-                              const noiDung =
-                                addTaskTieuForm.noi_dung_tieu_chuan.trim() ||
-                                autoNoiDung ||
-                                (tpl.mo_ta || '');
-                              const trangThaiTc =
-                                addTaskTieuForm.trang_thai_tieu_chuan.trim() ||
-                                'Chưa đánh giá';
+                              const noiDung = autoNoiDung || (tpl.mo_ta || '');
+                              const trangThaiTc = 'Chưa đánh giá';
                               toAppend.push({
                                 ten_task: tenName,
                                 noi_dung_tieu_chuan: noiDung,
                                 trang_thai: trangThaiTc,
-                                ghi_chu: addTaskTieuForm.ghi_chu_tieu_chuan.trim(),
+                                ghi_chu: '',
                                 tieu_chuan: tpl.tieu_chuan?.length
                                   ? tpl.tieu_chuan.map((t) => ({
                                       noi_dung: t.noi_dung,
@@ -2551,7 +2625,6 @@ export function QuanLyCongViec() {
                 {quyTrinhItemsForSelected.length > 0 ? (
                   <div className="space-y-4">
                     {quyTrinhItemsForSelected.map((item, stepIndex) => {
-                      const totalSteps = quyTrinhItemsForSelected.length;
                       return (
                         <div
                           key={item.id}
@@ -2640,92 +2713,7 @@ export function QuanLyCongViec() {
                               >
                                 {item.ten_task || item.id.slice(0, 8)}
                               </p>
-                              <button
-                                type="button"
-                                title="Xem chi tiết bước"
-                                aria-label="Xem chi tiết bước"
-                                disabled={quyTrinhMutating || !selected?.id}
-                                onClick={() => setQuyTrinhStepViewItemId(item.id)}
-                                className="shrink-0 p-1.5 rounded-md border border-slate-300 bg-white text-slate-700 hover:bg-slate-50 shadow-sm disabled:opacity-40"
-                              >
-                                <Eye className="w-4 h-4" />
-                              </button>
-                              <div className="flex items-center shrink-0 gap-0">
-                                <button
-                                  type="button"
-                                  title="Đưa bước lên trên"
-                                  disabled={
-                                    quyTrinhMutating ||
-                                    !selected?.id ||
-                                    stepIndex <= 0
-                                  }
-                                  onClick={async () => {
-                                    if (!selected?.id) return;
-                                    setQuyTrinhMutating(true);
-                                    try {
-                                      const updated =
-                                        await taskDetailService.moveQuyTrinhItem(
-                                          selected.id,
-                                          item.id,
-                                          'up',
-                                        );
-                                      applyQuyTrinhDetailToUi(updated);
-                                    } catch (err) {
-                                      console.error(
-                                        '[QuanLyCongViec] move quy trình up:',
-                                        err,
-                                      );
-                                      alert(
-                                        err instanceof Error
-                                          ? err.message
-                                          : 'Không thể đổi thứ tự.',
-                                      );
-                                    } finally {
-                                      setQuyTrinhMutating(false);
-                                    }
-                                  }}
-                                  className="p-1 rounded-md text-slate-600 hover:bg-white hover:text-slate-800 disabled:opacity-30 disabled:pointer-events-none"
-                                >
-                                  <ChevronUp className="w-4 h-4" />
-                                </button>
-                                <button
-                                  type="button"
-                                  title="Đưa bước xuống dưới"
-                                  disabled={
-                                    quyTrinhMutating ||
-                                    !selected?.id ||
-                                    stepIndex >= totalSteps - 1
-                                  }
-                                  onClick={async () => {
-                                    if (!selected?.id) return;
-                                    setQuyTrinhMutating(true);
-                                    try {
-                                      const updated =
-                                        await taskDetailService.moveQuyTrinhItem(
-                                          selected.id,
-                                          item.id,
-                                          'down',
-                                        );
-                                      applyQuyTrinhDetailToUi(updated);
-                                    } catch (err) {
-                                      console.error(
-                                        '[QuanLyCongViec] move quy trình down:',
-                                        err,
-                                      );
-                                      alert(
-                                        err instanceof Error
-                                          ? err.message
-                                          : 'Không thể đổi thứ tự.',
-                                      );
-                                    } finally {
-                                      setQuyTrinhMutating(false);
-                                    }
-                                  }}
-                                  className="p-1 rounded-md text-slate-600 hover:bg-white hover:text-slate-800 disabled:opacity-30 disabled:pointer-events-none"
-                                >
-                                  <ChevronDown className="w-4 h-4" />
-                                </button>
-                                <div className="relative shrink-0" data-quy-trinh-step-menu>
+                              <div className="relative shrink-0" data-quy-trinh-step-menu>
                                   <button
                                     type="button"
                                     title="Thao tác bước"
@@ -2734,19 +2722,47 @@ export function QuanLyCongViec() {
                                     disabled={quyTrinhMutating || !selected?.id}
                                     onClick={(e) => {
                                       e.stopPropagation();
-                                      setQuyTrinhStepMenuId((id) =>
-                                        id === item.id ? null : item.id,
-                                      );
+                                      const btn = e.currentTarget;
+                                      setQuyTrinhStepMenuId((id) => {
+                                        if (id === item.id) {
+                                          quyTrinhStepMenuAnchorRef.current = null;
+                                          return null;
+                                        }
+                                        quyTrinhStepMenuAnchorRef.current = btn;
+                                        return item.id;
+                                      });
                                     }}
                                     className="p-1 rounded-md text-slate-600 hover:bg-white hover:text-slate-800 disabled:opacity-40"
                                   >
                                     <MoreHorizontal className="w-4 h-4" />
                                   </button>
-                                  {quyTrinhStepMenuId === item.id && (
-                                    <div
-                                      role="menu"
-                                      className="absolute right-0 top-full mt-1 z-40 min-w-[12rem] rounded-lg border border-slate-200 bg-white py-1 shadow-lg"
-                                    >
+                                  {quyTrinhStepMenuId === item.id &&
+                                    quyTrinhStepMenuBox &&
+                                    createPortal(
+                                      <div
+                                        data-quy-trinh-step-menu
+                                        role="menu"
+                                        className="fixed z-[220] min-w-[12rem] max-h-[min(70vh,320px)] overflow-y-auto overscroll-contain rounded-lg border border-slate-200 bg-white py-1 shadow-xl [scrollbar-gutter:stable]"
+                                        style={{
+                                          top: quyTrinhStepMenuBox.top,
+                                          left: quyTrinhStepMenuBox.left,
+                                          width: quyTrinhStepMenuBox.width,
+                                          maxHeight: quyTrinhStepMenuBox.maxHeight,
+                                        }}
+                                      >
+                                      <button
+                                        type="button"
+                                        role="menuitem"
+                                        disabled={quyTrinhMutating || !selected?.id}
+                                        className="w-full text-left px-3 py-2.5 text-sm hover:bg-slate-200 disabled:opacity-40 flex items-center gap-2 border-b border-slate-200"
+                                        onClick={() => {
+                                          setQuyTrinhStepMenuId(null);
+                                          setQuyTrinhStepViewItemId(item.id);
+                                        }}
+                                      >
+                                        <Eye className="w-4 h-4 shrink-0 text-slate-700" />
+                                        Xem chi tiết bước
+                                      </button>
                                       <button
                                         type="button"
                                         role="menuitem"
@@ -2802,14 +2818,11 @@ export function QuanLyCongViec() {
                                         disabled={quyTrinhMutating || !selected?.id}
                                         className="w-full text-left px-3 py-2.5 text-sm hover:bg-slate-200 disabled:opacity-40 flex items-center gap-2"
                                         onClick={() => {
-                                          const tt = (item.trang_thai || '').trim();
                                           setQuyTrinhStepMenuId(null);
                                           setQuyTrinhEditModal({
                                             itemId: item.id,
                                             ten_task: item.ten_task,
                                             noi_dung_tieu_chuan: item.noi_dung_tieu_chuan,
-                                            trang_thai:
-                                              !tt || tt === 'Chưa đánh giá' ? '' : tt,
                                             ghi_chu: item.ghi_chu,
                                             tieu_chuan_lines: (item.tieu_chuan?.length
                                               ? item.tieu_chuan
@@ -2874,13 +2887,42 @@ export function QuanLyCongViec() {
                                         <Trash2 className="w-4 h-4 shrink-0" />
                                         Xóa bước
                                       </button>
-                                    </div>
+                                    </div>,
+                                    document.body,
                                   )}
                                 </div>
                               </div>
                             </div>
+                            {(() => {
+                              const lineProg = quyTrinhChecklistLineProgress(item);
+                              if (lineProg.total === 0) return null;
+                              return (
+                                <div className="mt-2.5 space-y-1.5 pr-0.5 pl-0.5">
+                                  <div className="flex items-center justify-between gap-2 text-[11px] text-slate-600">
+                                    <span className="font-bold text-slate-700">
+                                      Checklist tiêu chuẩn
+                                    </span>
+                                    <span className="tabular-nums font-bold text-slate-800 shrink-0">
+                                      {lineProg.done}/{lineProg.total} mục đạt · {lineProg.pct}%
+                                    </span>
+                                  </div>
+                                  <div
+                                    className="h-2 rounded-full bg-slate-300/90 overflow-hidden ring-1 ring-slate-400/60"
+                                    role="progressbar"
+                                    aria-valuenow={lineProg.pct}
+                                    aria-valuemin={0}
+                                    aria-valuemax={100}
+                                    aria-label={`Tiến độ checklist bước ${stepIndex + 1}: ${lineProg.done} trên ${lineProg.total} mục đạt`}
+                                  >
+                                    <div
+                                      className="h-full rounded-full bg-emerald-600 transition-[width] duration-300 ease-out"
+                                      style={{ width: `${lineProg.pct}%` }}
+                                    />
+                                  </div>
+                                </div>
+                              );
+                            })()}
                           </div>
-                        </div>
                       );
                     })}
                   </div>
@@ -3029,48 +3071,64 @@ export function QuanLyCongViec() {
                                     disabled={quyTrinhMutating || !selected?.id}
                                     onClick={(e) => {
                                       e.stopPropagation();
-                                      setChecklistLineMenuKey((k) =>
-                                        k === checklistMenuKey ? null : checklistMenuKey,
-                                      );
+                                      const btn = e.currentTarget;
+                                      setChecklistLineMenuKey((k) => {
+                                        if (k === checklistMenuKey) {
+                                          checklistMenuAnchorRef.current = null;
+                                          return null;
+                                        }
+                                        checklistMenuAnchorRef.current = btn;
+                                        return checklistMenuKey;
+                                      });
                                     }}
                                     className="p-1.5 rounded-lg text-slate-600 hover:bg-slate-200 border border-transparent hover:border-slate-200 disabled:opacity-40"
                                   >
                                     <MoreHorizontal className="w-4 h-4" />
                                   </button>
-                                  {checklistMenuOpen && (
-                                    <div
-                                      role="menu"
-                                      className="absolute right-0 top-full mt-1 z-[140] min-w-[10.5rem] rounded-lg border border-slate-200 bg-white py-1 shadow-lg"
-                                    >
-                                      <button
-                                        type="button"
-                                        role="menuitem"
-                                        disabled={quyTrinhMutating || !selected?.id}
-                                        className="w-full text-left px-3 py-2 text-sm font-bold text-emerald-800 hover:bg-emerald-100 disabled:opacity-40"
-                                        onClick={() => runChecklistStatus('Đạt')}
+                                  {checklistMenuOpen &&
+                                    checklistLineMenuBox &&
+                                    createPortal(
+                                      <div
+                                        data-quy-trinh-checklist-line-menu
+                                        role="menu"
+                                        className="fixed z-[220] min-w-[10.5rem] max-h-[min(50vh,280px)] overflow-y-auto overscroll-contain rounded-lg border border-slate-200 bg-white py-1 shadow-xl [scrollbar-gutter:stable]"
+                                        style={{
+                                          top: checklistLineMenuBox.top,
+                                          left: checklistLineMenuBox.left,
+                                          width: checklistLineMenuBox.width,
+                                          maxHeight: checklistLineMenuBox.maxHeight,
+                                        }}
                                       >
-                                        Hoàn thành
-                                      </button>
-                                      <button
-                                        type="button"
-                                        role="menuitem"
-                                        disabled={quyTrinhMutating || !selected?.id}
-                                        className="w-full text-left px-3 py-2 text-sm font-bold text-red-700 hover:bg-red-100 disabled:opacity-40"
-                                        onClick={() => runChecklistStatus('Không đạt')}
-                                      >
-                                        Chưa đạt
-                                      </button>
-                                      <button
-                                        type="button"
-                                        role="menuitem"
-                                        disabled={quyTrinhMutating || !selected?.id}
-                                        className="w-full text-left px-3 py-2 text-sm text-slate-600 hover:bg-slate-200 disabled:opacity-40 border-t border-slate-300"
-                                        onClick={() => runChecklistStatus('Chưa đánh giá')}
-                                      >
-                                        Đặt lại: Chưa đánh giá
-                                      </button>
-                                    </div>
-                                  )}
+                                        <button
+                                          type="button"
+                                          role="menuitem"
+                                          disabled={quyTrinhMutating || !selected?.id}
+                                          className="w-full text-left px-3 py-2 text-sm font-bold text-emerald-800 hover:bg-emerald-100 disabled:opacity-40"
+                                          onClick={() => runChecklistStatus('Đạt')}
+                                        >
+                                          Hoàn thành
+                                        </button>
+                                        <button
+                                          type="button"
+                                          role="menuitem"
+                                          disabled={quyTrinhMutating || !selected?.id}
+                                          className="w-full text-left px-3 py-2 text-sm font-bold text-red-700 hover:bg-red-100 disabled:opacity-40"
+                                          onClick={() => runChecklistStatus('Không đạt')}
+                                        >
+                                          Chưa đạt
+                                        </button>
+                                        <button
+                                          type="button"
+                                          role="menuitem"
+                                          disabled={quyTrinhMutating || !selected?.id}
+                                          className="w-full text-left px-3 py-2 text-sm text-slate-600 hover:bg-slate-200 disabled:opacity-40 border-t border-slate-300"
+                                          onClick={() => runChecklistStatus('Chưa đánh giá')}
+                                        >
+                                          Đặt lại: Chưa đánh giá
+                                        </button>
+                                      </div>,
+                                      document.body,
+                                    )}
                                 </div>
                               </div>
                             </div>
@@ -3134,22 +3192,6 @@ export function QuanLyCongViec() {
                   }
                   className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm resize-none"
                 />
-              </div>
-              <div>
-                <label className="block text-sm font-bold text-slate-600 mb-1">
-                  Trạng thái tiêu chuẩn (bước)
-                </label>
-                <select
-                  value={quyTrinhEditModal.trang_thai}
-                  onChange={(e) =>
-                    setQuyTrinhEditModal((m) => (m ? { ...m, trang_thai: e.target.value } : m))
-                  }
-                  className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm bg-white"
-                >
-                  <option value="">Chưa đánh giá</option>
-                  <option value="Đạt">Đạt</option>
-                  <option value="Không đạt">Không đạt</option>
-                </select>
               </div>
               <div>
                 <label className="block text-sm font-bold text-slate-600 mb-1">Ghi chú</label>
@@ -3277,10 +3319,6 @@ export function QuanLyCongViec() {
                   </ul>
                 )}
               </div>
-
-              <p className="text-xs text-slate-600 leading-relaxed">
-                Lưu vào jsonb <span className="font-bold">ten_task</span> của công việc.
-              </p>
             </div>
             <div className="px-5 py-3 border-t border-slate-200 flex items-center justify-end gap-2 bg-slate-200 shrink-0">
               <button
@@ -3306,7 +3344,6 @@ export function QuanLyCongViec() {
                       {
                         ten_task: ten,
                         noi_dung_tieu_chuan: m.noi_dung_tieu_chuan.trim(),
-                        trang_thai: m.trang_thai.trim() || 'Chưa đánh giá',
                         ghi_chu: m.ghi_chu.trim(),
                         tieu_chuan: m.tieu_chuan_lines,
                       },
@@ -3672,30 +3709,12 @@ export function QuanLyCongViec() {
         </div>
       )}
 
-      {docPreviewUrl && (
-        <div className="fixed inset-0 z-[140] flex items-center justify-center bg-black/70 p-4">
-          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-5xl h-[80vh] flex flex-col overflow-hidden">
-            <div className="px-5 py-3 border-b border-slate-200 flex items-center justify-between">
-              <h2 className="text-sm font-bold text-slate-800 uppercase tracking-wide">
-                Xem tài liệu đính kèm
-              </h2>
-              <button
-                onClick={() => setDocPreviewUrl(null)}
-                className="p-1.5 rounded-lg hover:bg-slate-300 text-slate-600 hover:text-slate-900"
-              >
-                <X className="w-4 h-4" />
-              </button>
-            </div>
-            <div className="flex-1 bg-slate-200">
-              <iframe
-                src={docPreviewUrl}
-                title="Tài liệu đính kèm"
-                className="w-full h-full border-0"
-              />
-            </div>
-          </div>
-        </div>
-      )}
+      <PreviewLinkModal
+        url={docPreviewUrl}
+        onClose={() => setDocPreviewUrl(null)}
+        title="Xem tài liệu đính kèm"
+        zIndexClass="z-[240]"
+      />
     </div>
   );
 }

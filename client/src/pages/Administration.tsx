@@ -4,7 +4,8 @@ import {
   Award,
   Star,
   HelpCircle,
-  FileText
+  FileText,
+  CalendarDays
 } from 'lucide-react';
 import { Link } from 'react-router-dom';
 
@@ -54,6 +55,7 @@ const sections = [
     title: '',
     items: [
       { title: 'Nhân sự', description: 'Quản lý thông tin nhân viên, tuyển dụng, đào tạo.', icon: Users, color: 'text-blue-600', bgColor: 'bg-blue-50', path: '/nhan-su' },
+      { title: 'Lịch làm việc', description: 'Theo dõi ca làm, nghỉ phép, họp và đào tạo theo nhân sự.', icon: CalendarDays, color: 'text-sky-600', bgColor: 'bg-sky-50', path: '/nhan-su/lich-lam-viec' },
       { title: 'Chứng chỉ hành nghề', description: 'Quản lý chứng chỉ, giấy phép hành nghề của nhân viên.', icon: Award, color: 'text-emerald-600', bgColor: 'bg-emerald-50', path: '/hanh-chinh/chung-chi-hanh-nghe' },
       { title: 'Danh sách tài liệu', description: 'Quản lý tài liệu, công văn, quyết định, báo cáo.', icon: FileText, color: 'text-purple-600', bgColor: 'bg-purple-50', path: '/hanh-chinh/danh-sach-tai-lieu' },
     ]
