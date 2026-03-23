@@ -19,6 +19,8 @@ import {
   type TaskTemplateStandard,
   type TaskTemplateStep,
 } from '../../lib/services/taskTemplateService';
+import { ExcelImportExportBar } from '../../components/ExcelImportExportBar';
+import type { ExcelColumnDef } from '../../lib/excelTableTools';
 
 function reorderCacBuoc<T>(list: T[], from: number, to: number): T[] {
   if (from === to || from < 0 || to < 0 || from >= list.length || to >= list.length) {
@@ -76,6 +78,18 @@ export function TaskList() {
     message: string;
     type: 'success' | 'info' | 'warning';
   } | null>(null);
+  const [reloadKey, setReloadKey] = useState(0);
+
+  const taskTemplateExcelColumns: ExcelColumnDef[] = [
+    { key: 'loai_cv', header: 'Loại CV', example: 'Thi công' },
+    { key: 'cv', header: 'CV', example: 'Hạ tầng' },
+    { key: 'task', header: 'Task', example: 'Kiểm tra nền' },
+    { key: 'mo_ta', header: 'Mô tả', example: '' },
+    { key: 'tieu_chuan', header: 'Tiêu chuẩn (một dòng)', example: 'Đạt mật độ' },
+    { key: 'diem', header: 'Điểm tiêu chuẩn', example: '10' },
+    { key: 'buoc_1', header: 'Hành động bước 1', example: 'Đo đạc' },
+    { key: 'ghi_chu_buoc', header: 'Ghi chú bước', example: '' },
+  ];
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [viewingTask, setViewingTask] = useState<TaskTemplateRow | null>(null);
   const [editingTask, setEditingTask] = useState<TaskTemplateRow | null>(null);
@@ -108,7 +122,7 @@ export function TaskList() {
         setLoading(false);
       }
     })();
-  }, []);
+  }, [reloadKey]);
 
   const filteredItems = useMemo(() => {
     const term = searchTerm.trim().toLowerCase();
@@ -298,7 +312,51 @@ export function TaskList() {
             Nơi lưu trữ và thêm mới task độc lập (không liên quan hợp đồng).
           </p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
+          <ExcelImportExportBar
+            columns={taskTemplateExcelColumns}
+            templateFileName="mau-task-template"
+            sheetName="Task"
+            onImport={async (rows) => {
+              const errors: string[] = [];
+              let ok = 0;
+              for (let i = 0; i < rows.length; i++) {
+                const r = rows[i];
+                const loai = (r.loai_cv || '').trim();
+                const cv = (r.cv || '').trim();
+                const task = (r.task || '').trim();
+                if (!loai || !cv || !task) {
+                  errors.push(`Dòng ${i + 2}: thiếu Loại CV / CV / Task`);
+                  continue;
+                }
+                try {
+                  await taskTemplateService.create({
+                    loai_cv: loai,
+                    cv,
+                    task,
+                    mo_ta: r.mo_ta?.trim() || null,
+                    tieu_chuan: [
+                      {
+                        noi_dung: (r.tieu_chuan || '').trim() || '—',
+                        diem: Number(String(r.diem || '0').replace(/,/g, '')) || 0,
+                      },
+                    ],
+                    cac_buoc: [
+                      {
+                        hanh_dong: (r.buoc_1 || '').trim() || '—',
+                        ghi_chu: r.ghi_chu_buoc?.trim() || null,
+                      },
+                    ],
+                  });
+                  ok++;
+                } catch (e: any) {
+                  errors.push(`Dòng ${i + 2}: ${e?.message || 'Lỗi'}`);
+                }
+              }
+              return { ok, errors };
+            }}
+            onDone={() => setReloadKey((k) => k + 1)}
+          />
           <button
             onClick={openAddModal}
             className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-bold hover:bg-blue-700 transition-all shadow-md shadow-blue-500/20 active:scale-95"

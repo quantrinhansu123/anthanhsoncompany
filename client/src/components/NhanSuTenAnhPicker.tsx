@@ -2,7 +2,16 @@ import React, { useState, useRef, useEffect } from 'react';
 import { ChevronDown, User } from 'lucide-react';
 import type { NhanSuOption } from '../lib/formatNhanSu';
 
-function Avatar({ src, name }: { src?: string | null; name: string }) {
+export function NhanSuAvatar({
+    src,
+    name,
+    className = 'w-9 h-9 text-sm',
+}: {
+    src?: string | null;
+    name: string;
+    /** Kích thước + cỡ chữ placeholder, ví dụ w-8 h-8 text-xs */
+    className?: string;
+}) {
     const [err, setErr] = useState(false);
     const initial = name.trim().slice(0, 1).toUpperCase() || '?';
     if (src && !err) {
@@ -10,13 +19,15 @@ function Avatar({ src, name }: { src?: string | null; name: string }) {
             <img
                 src={src}
                 alt=""
-                className="w-9 h-9 rounded-full object-cover border border-slate-200 shrink-0 bg-slate-100"
+                className={`${className} rounded-full object-cover border border-slate-200 shrink-0 bg-slate-100`}
                 onError={() => setErr(true)}
             />
         );
     }
     return (
-        <div className="w-9 h-9 rounded-full bg-slate-200 flex items-center justify-center text-slate-600 text-sm font-bold shrink-0 border border-slate-200">
+        <div
+            className={`${className} rounded-full bg-slate-200 flex items-center justify-center text-slate-600 font-bold shrink-0 border border-slate-200`}
+        >
             {initial}
         </div>
     );
@@ -55,7 +66,7 @@ export function NhanSuTenAnhPicker({ value, onChange, employees, placeholder, cl
             >
                 {selected ? (
                     <>
-                        <Avatar src={selected.anh_nhan_su} name={selected.full_name || ''} />
+                        <NhanSuAvatar src={selected.anh_nhan_su} name={selected.full_name || ''} />
                         <span className="truncate flex-1 text-sm text-slate-800 font-medium">
                             {selected.full_name || '—'}
                         </span>
@@ -95,7 +106,7 @@ export function NhanSuTenAnhPicker({ value, onChange, employees, placeholder, cl
                                     setOpen(false);
                                 }}
                             >
-                                <Avatar src={emp.anh_nhan_su} name={emp.full_name || ''} />
+                                <NhanSuAvatar src={emp.anh_nhan_su} name={emp.full_name || ''} />
                                 <span className="truncate text-sm text-slate-800">{emp.full_name || '—'}</span>
                             </button>
                         </li>

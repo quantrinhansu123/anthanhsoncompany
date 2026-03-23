@@ -68,11 +68,13 @@ export function Layout() {
     themMode: thuChiThemMode,
     themInitialData: thuChiThemInitialData,
     themDefaultType: thuChiThemDefaultType,
+    thuChiCreatePrefill: thuChiThemPrefill,
     closeThemThuChi: closeThuChiThem
   } = useThuChiModal();
   const { 
     isThemOpen: isHopDongThemOpen, 
-    editData: hopDongEditData, 
+    editData: hopDongEditData,
+    contractCreatePrefill: hopDongCreatePrefill,
     closeThemHopDong,
     isDetailOpen: isHopDongDetailOpen,
     contractData: hopDongData,
@@ -230,6 +232,7 @@ export function Layout() {
         isOpen={isHopDongThemOpen}
         onClose={closeThemHopDong}
         editData={hopDongEditData}
+        contractCreatePrefill={hopDongCreatePrefill}
         onSuccess={() => {
             console.log('Contract saved');
             // Refresh list to reflect updated contract fields (including HR responsibility).
@@ -243,6 +246,7 @@ export function Layout() {
         mode={thuChiThemMode}
         initialData={thuChiThemInitialData}
         defaultType={thuChiThemDefaultType}
+        customerScope={thuChiThemPrefill}
         onSuccess={() => {
             console.log('Financial item saved');
             window.location.reload();

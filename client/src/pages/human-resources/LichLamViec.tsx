@@ -191,7 +191,9 @@ export function LichLamViec() {
               Lịch làm việc
             </h2>
             <p className="text-xs text-slate-500 mt-1">
-              Theo dõi ca làm, nghỉ phép, họp và đào tạo theo nhân sự.
+              Theo dõi ca làm, nghỉ phép, họp và đào tạo theo nhân sự. Mỗi mục có trạng thái{' '}
+              <span className="font-semibold text-amber-800">Đang làm</span> (ô lịch và khi mở chi
+              tiết ngày).
             </p>
           </div>
           <div className="flex flex-wrap items-center gap-2">
@@ -309,7 +311,7 @@ export function LichLamViec() {
         )}
 
         {/* Legend */}
-        <div className="px-4 md:px-6 py-3 border-b border-slate-100 flex flex-wrap gap-3 text-[11px] text-slate-600">
+        <div className="px-4 md:px-6 py-3 border-b border-slate-100 flex flex-wrap items-center gap-3 text-[11px] text-slate-600">
           {LOAI_OPTIONS.slice(0, 6).map((o) => (
             <span
               key={o.value}
@@ -318,6 +320,12 @@ export function LichLamViec() {
               {o.label}
             </span>
           ))}
+          <span className="inline-flex items-center gap-1.5 text-slate-500">
+            <span className="inline-flex items-center px-2 py-0.5 rounded-full border font-bold bg-amber-100 text-amber-900 border-amber-300">
+              Đang làm
+            </span>
+            trạng thái công việc
+          </span>
         </div>
 
         {/* Calendar grid */}
@@ -364,12 +372,17 @@ export function LichLamViec() {
                         {list.slice(0, 3).map((ev) => (
                           <div
                             key={ev.id}
-                            className={`text-[10px] md:text-[11px] leading-tight px-1 py-0.5 rounded border truncate ${loaiStyle(
+                            className={`text-[10px] md:text-[11px] leading-tight px-1 py-0.5 rounded border flex items-center gap-1 min-w-0 ${loaiStyle(
                               ev.loai
                             )}`}
-                            title={`${empDisplayName(empById.get(String(ev.nhan_su_id)))} — ${loaiLabel(ev.loai)}`}
+                            title={`${empDisplayName(empById.get(String(ev.nhan_su_id)))} — ${loaiLabel(ev.loai)} · Đang làm`}
                           >
-                            {empDisplayName(empById.get(String(ev.nhan_su_id)))}
+                            <span className="opacity-90 truncate min-w-0 flex-1">
+                              {empDisplayName(empById.get(String(ev.nhan_su_id)))}
+                            </span>
+                            <span className="shrink-0 text-[8px] font-bold text-amber-900 whitespace-nowrap">
+                              ĐL
+                            </span>
                           </div>
                         ))}
                         {list.length > 3 && (
@@ -425,9 +438,14 @@ export function LichLamViec() {
                     className="flex items-start justify-between gap-2 p-3 rounded-lg border border-slate-200 bg-slate-50/80"
                   >
                     <div className="min-w-0">
-                      <p className="text-sm font-semibold text-slate-800 truncate">
-                        {ev.tieu_de?.trim() || loaiLabel(ev.loai)}
-                      </p>
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <p className="text-sm font-semibold text-slate-800 truncate">
+                          {ev.tieu_de?.trim() || loaiLabel(ev.loai)}
+                        </p>
+                        <span className="text-[10px] font-bold px-2 py-0.5 rounded-full border shrink-0 bg-amber-100 text-amber-900 border-amber-300">
+                          Đang làm
+                        </span>
+                      </div>
                       <p className="text-xs text-slate-600">
                         {empDisplayName(empById.get(String(ev.nhan_su_id)))}
                       </p>

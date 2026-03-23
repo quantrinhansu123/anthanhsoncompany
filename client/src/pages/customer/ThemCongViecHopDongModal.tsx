@@ -245,7 +245,7 @@ export function ThemCongViecHopDongModal({ isOpen, onClose, onSuccess }: ThemCon
             const selectedAssigneeNames = (taskForm.nguoi_phu_trach_ids || [])
                 .map((id) => {
                     const emp = employees.find((e) => String(e.id) === String(id));
-                    return emp ? `${emp.code ? `[${emp.code}] ` : ''}${emp.full_name}` : null;
+                    return emp ? `${emp.full_name}` : null;
                 })
                 .filter((v): v is string => Boolean(v));
             
@@ -467,7 +467,7 @@ export function ThemCongViecHopDongModal({ isOpen, onClose, onSuccess }: ThemCon
                                                     )}
                                                 </div>
                                                 <span className="text-sm text-slate-700 truncate font-medium">
-                                                    {emp.code ? `[${emp.code}] ` : ''}{emp.full_name}
+                                                    {emp.full_name}
                                                 </span>
                                             </div>
                                         </label>

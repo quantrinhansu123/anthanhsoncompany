@@ -5,7 +5,8 @@ import {
   HelpCircle,
   CheckCircle,
   X,
-  ClipboardList
+  ClipboardList,
+  CalendarClock
 } from 'lucide-react';
 import { Link } from 'react-router-dom';
 // import { taskService, type TaskRow } from '../lib/services/taskService';
@@ -84,6 +85,7 @@ const sections = [
       { id: 'thu-vien-loi', title: 'Thư viện lỗi', description: 'Quản lý thư viện lỗi, phân loại, xử lý và giải pháp.', icon: BookOpen, color: 'text-blue-600', bgColor: 'bg-blue-50', path: '/quy-trinh/thu-vien-loi' },
       { id: 'task-list', title: 'Danh sách Task', description: 'Xem và chỉnh sửa task theo từng quy trình (dạng folder).', icon: ClipboardList, color: 'text-sky-600', bgColor: 'bg-sky-50', path: '/quy-trinh/task-list' },
       { id: 'quan-ly-cong-viec', title: 'Quản lý công việc', description: 'Giao diện danh sách công việc + chi tiết + quy trình duyệt giống hình mẫu.', icon: ClipboardList, color: 'text-emerald-600', bgColor: 'bg-emerald-50', path: '/quy-trinh/quan-ly-cong-viec' },
+      { id: 'lich-checklist-nhan-su', title: 'Lịch checklist nhân sự', description: 'Tổng kết ngày — giờ — trạng thái từ bảng nhật ký checklist.', icon: CalendarClock, color: 'text-violet-600', bgColor: 'bg-violet-50', path: '/quy-trinh/lich-checklist-nhan-su' },
     ]
   }
 ];

@@ -10,6 +10,8 @@ export interface ContractFile {
 export interface ContractRow {
   id?: string;
   contract_id?: string;
+  /** UUID/PK bảng hop_dong — khớp thu_chi.hop_dong_id khi khác contract_id */
+  hop_dong_row_id?: string | null;
   customer_id?: string | null;
   customer_name?: string | null;
   project_name?: string | null;

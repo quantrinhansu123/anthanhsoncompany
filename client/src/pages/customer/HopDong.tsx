@@ -9,6 +9,9 @@ import { thuChiService } from '../../lib/services/thuChiService';
 import { useHopDongModal } from '../../contexts/HopDongModalContext';
 import type { NguongChiNhanSuLoai } from '../../lib/nguongChiNhanSu';
 import { normalizeNguongLoai, tienQuyDoiNguongChiNhanSu } from '../../lib/nguongChiNhanSu';
+import { ExcelImportExportBar } from '../../components/ExcelImportExportBar';
+import type { ExcelColumnDef } from '../../lib/excelTableTools';
+import { parseMoneyVi } from '../../lib/excelTableTools';
 
 interface Contract {
     id: number;
@@ -80,6 +83,16 @@ export function HopDong() {
     const [selectedHopDongIds, setSelectedHopDongIds] = useState<Set<string>>(new Set());
     const [openFilterDropdown, setOpenFilterDropdown] = useState<'duan' | 'hopdong' | null>(null);
     const [toast, setToast] = useState<{ message: string; type: 'success' | 'info' | 'warning' } | null>(null);
+    const [reloadKey, setReloadKey] = useState(0);
+
+    const hopDongExcelColumns: ExcelColumnDef[] = [
+        { key: 'ten_du_an', header: 'Tên dự án', example: 'Khớp tên dự án hệ thống' },
+        { key: 'so_hop_dong', header: 'Số hợp đồng', example: 'HĐ-01/2025' },
+        { key: 'ten_goi_thau', header: 'Tên gói thầu', example: 'Gói thi công' },
+        { key: 'gia_tri_hd', header: 'Giá trị HĐ', example: '1000000000' },
+        { key: 'gia_tri_qt', header: 'Giá trị quyết toán', example: '1000000000' },
+        { key: 'ngay_ky_hd', header: 'Ngày ký HĐ', example: '2025-01-15' },
+    ];
     const [tasksByContract, setTasksByContract] = useState<Map<string, TaskRow[]>>(new Map());
 
     const formatCurrency = (amount: number) => {
@@ -182,7 +195,7 @@ export function HopDong() {
                 console.error("[HopDong] Error loading data:", error);
             }
         })();
-    }, []);
+    }, [reloadKey]);
 
     // Memoized filtered items
     const filteredItems = useMemo(() => {
@@ -235,14 +248,59 @@ export function HopDong() {
                     <h2 className="text-lg font-bold text-slate-700 uppercase tracking-tight">
                         Quản lý hợp đồng
                     </h2>
-                    <button
-                        type="button"
-                        onClick={() => openThemHopDong()}
-                        className="inline-flex items-center justify-center gap-2 px-4 py-2 text-sm font-bold text-white bg-blue-600 hover:bg-blue-700 rounded-md transition-colors shadow-sm shrink-0"
-                    >
-                        <Plus size={18} />
-                        Thêm hợp đồng
-                    </button>
+                    <div className="flex flex-wrap items-center gap-2">
+                        <ExcelImportExportBar
+                            columns={hopDongExcelColumns}
+                            templateFileName="mau-hop-dong"
+                            sheetName="Hop dong"
+                            onImport={async (rows) => {
+                                const errors: string[] = [];
+                                let ok = 0;
+                                for (let i = 0; i < rows.length; i++) {
+                                    const r = rows[i];
+                                    const tenDuAn = (r.ten_du_an || '').trim();
+                                    const p = projects.find(
+                                        (x) => x.ten_du_an.trim().toLowerCase() === tenDuAn.toLowerCase(),
+                                    );
+                                    if (!tenDuAn || !p) {
+                                        errors.push(
+                                            `Dòng ${i + 2}: không tìm thấy dự án "${tenDuAn || '(trống)'}"`,
+                                        );
+                                        continue;
+                                    }
+                                    try {
+                                        await contractService.create({
+                                            du_an_id: p.id,
+                                            so_hop_dong: r.so_hop_dong?.trim() || null,
+                                            ten_goi_thau: r.ten_goi_thau?.trim() || null,
+                                            gia_tri_hd: parseMoneyVi(r.gia_tri_hd || '0') || null,
+                                            gia_tri_qt: parseMoneyVi(r.gia_tri_qt || '0') || null,
+                                            ngay_ky_hd: r.ngay_ky_hd?.trim() || null,
+                                        });
+                                        ok++;
+                                    } catch (e: any) {
+                                        errors.push(`Dòng ${i + 2}: ${e?.message || 'Lỗi'}`);
+                                    }
+                                }
+                                return { ok, errors };
+                            }}
+                            onDone={() => {
+                                setReloadKey((k) => k + 1);
+                                setToast({
+                                    message: 'Đã xử lý nhập Excel hợp đồng.',
+                                    type: 'success',
+                                });
+                            }}
+                        />
+                        <button
+                            type="button"
+                            onClick={() => openThemHopDong()}
+                            className="inline-flex items-center justify-center gap-2 px-4 py-2 text-sm font-bold text-white bg-blue-600 hover:bg-blue-700 rounded-md transition-colors shadow-sm shrink-0"
+                        >
+                            <Plus size={18} />
+                            Thêm hợp đồng
+                        </button>
+                    </div>
                 </div>
 
                 {/* Tổng hợp — đặt trên cùng để xem nhanh số liệu */}

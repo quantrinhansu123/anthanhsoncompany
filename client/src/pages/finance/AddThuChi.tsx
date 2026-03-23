@@ -20,7 +20,7 @@ import { projectService } from '../../lib/services/projectService';
 import { contractService } from '../../lib/services/contractService';
 import { employeeService } from '../../lib/services/employeeService';
 import type { ContractRow } from '../../lib/services/contractService';
-import { tenLuuNguoiNhan, resolveNguoiNhanId, type NhanSuOption } from '../../lib/formatNhanSu';
+import { type NhanSuOption } from '../../lib/formatNhanSu';
 import { NhanSuTenAnhPicker } from '../../components/NhanSuTenAnhPicker';
 
 type HangMucChi = 'chi_du_an' | 'chi_nhan_su';
@@ -72,8 +72,6 @@ export function AddThuChi() {
         ngayTienVe: new Date().toISOString().split('T')[0],
         soTien: 0,
         noiDung: '',
-        /** Người nộp/nhận — chọn từ nhân sự */
-        nguoiNhanId: '',
         hangMucChi: 'chi_du_an' as HangMucChi,
         file: null as File | null,
         imageUrl: '' as string | null // URL ảnh chứng từ (link)
@@ -180,13 +178,13 @@ export function AddThuChi() {
                 setFormData({
                     duAnId: item.du_an_id || '',
                     hopDongId: item.hop_dong_id || '',
-                    nhanSuId: item.nhan_su_id || '',
+                    nhanSuId:
+                        item.nhan_su_id ? String(item.nhan_su_id) : '',
                     loaiPhieu: item.loai_phieu,
                     tinhTrangPhieu: item.tinh_trang_phieu || 'Tạm ứng',
                     ngayTienVe: item.ngay || new Date().toISOString().split('T')[0],
                     soTien: item.so_tien,
                     noiDung: item.noi_dung || '',
-                    nguoiNhanId: resolveNguoiNhanId(item.nguoi_nhan, emps),
                     hangMucChi: item.hang_muc_chi === 'chi_nhan_su' ? 'chi_nhan_su' : 'chi_du_an',
                     file: null,
                     imageUrl: item.anh_url || null,
@@ -202,6 +200,10 @@ export function AddThuChi() {
     const handleSave = async () => {
         if (!formData.duAnId) {
             setToast({ message: 'Vui lòng chọn dự án', type: 'error' });
+            return;
+        }
+        if (formData.loaiPhieu === 'Phiếu chi' && !String(formData.nhanSuId || '').trim()) {
+            setToast({ message: 'Vui lòng chọn nhân sự cho phiếu chi', type: 'error' });
             return;
         }
 
@@ -223,22 +225,17 @@ export function AddThuChi() {
             // Lấy URL ảnh chứng từ (chỉ lưu link, không upload)
             const imageUrl = formData.imageUrl?.trim() || null;
 
-            const nguoiNhanEmp = formData.nguoiNhanId
-                ? employees.find((e) => e.id === formData.nguoiNhanId)
-                : null;
-            const nguoiNhanStr = nguoiNhanEmp ? tenLuuNguoiNhan(nguoiNhanEmp) : null;
-
             const payload: Partial<ThuChiRow> = {
                 du_an_id: formData.duAnId || null,
                 hop_dong_id: formData.hopDongId || null,
-                // Với phiếu thu, nhan_su_id luôn là null
-                nhan_su_id: formData.loaiPhieu === 'Phiếu thu' ? null : (formData.nhanSuId || null),
+                nhan_su_id:
+                    formData.loaiPhieu === 'Phiếu thu' ? null : String(formData.nhanSuId || '').trim() || null,
                 loai_phieu: formData.loaiPhieu,
                 so_tien: formData.soTien,
                 ngay: formData.ngayTienVe,
                 noi_dung: formData.noiDung || null,
                 tinh_trang_phieu: formData.tinhTrangPhieu || null,
-                nguoi_nhan: nguoiNhanStr,
+                nguoi_nhan: null,
                 hang_muc_chi: formData.loaiPhieu === 'Phiếu chi' ? formData.hangMucChi : null,
                 file_url: fileUrl || null,
                 anh_url: imageUrl || null
@@ -557,26 +554,21 @@ export function AddThuChi() {
                         </div>
                     )}
 
-                    {/* Nhân sự (chi cho ai) - Chỉ hiển thị với Phiếu chi */}
+                    {/* Nhân sự — bắt buộc với Phiếu chi */}
                     {formData.loaiPhieu === 'Phiếu chi' && (
                         <div className="flex flex-col md:flex-row md:items-center gap-4 md:gap-8">
                             <div className="md:w-1/3 md:text-right">
-                                <label className="text-sm font-medium text-slate-500">Nhân sự (chi cho ai)</label>
+                                <label className="text-sm font-medium text-slate-500">
+                                    Nhân sự <span className="text-red-500">*</span>
+                                </label>
                             </div>
-                            <div className="md:w-2/3 relative flex-1">
-                                <select
+                            <div className="md:w-2/3 flex-1">
+                                <NhanSuTenAnhPicker
                                     value={formData.nhanSuId}
-                                    onChange={(e) => setFormData({ ...formData, nhanSuId: e.target.value })}
-                                    className="w-full px-4 py-2.5 bg-white border border-slate-300 rounded-md appearance-none focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 text-slate-700"
-                                >
-                                    <option value="">-- Chọn nhân sự (tùy chọn) --</option>
-                                    {employees.map(emp => (
-                                        <option key={emp.id} value={emp.id}>
-                                            {emp.code ? `[${emp.code}] ` : ''}{emp.full_name}
-                                        </option>
-                                    ))}
-                                </select>
-                                <ChevronDown size={16} className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
+                                    onChange={(id) => setFormData({ ...formData, nhanSuId: id })}
+                                    employees={employees}
+                                    placeholder="Chọn nhân sự"
+                                />
                             </div>
                         </div>
                     )}
@@ -672,23 +664,6 @@ export function AddThuChi() {
                                 value={formData.noiDung}
                                 onChange={(e) => setFormData({ ...formData, noiDung: e.target.value })}
                                 className="w-full px-4 py-3 bg-white border border-slate-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 text-slate-700 resize-none leading-relaxed"
-                            />
-                        </div>
-                    </div>
-
-                    {/* Người nộp / Người nhận — chọn nhân sự (tên + ảnh, không mã) */}
-                    <div className="flex flex-col md:flex-row md:items-center gap-4 md:gap-8">
-                        <div className="md:w-1/3 md:text-right">
-                            <label className="text-sm font-medium text-slate-500">
-                                {formData.loaiPhieu === 'Phiếu thu' ? 'Người nộp' : 'Người nhận'}
-                            </label>
-                        </div>
-                        <div className="md:w-2/3 flex-1">
-                            <NhanSuTenAnhPicker
-                                value={formData.nguoiNhanId}
-                                onChange={(id) => setFormData({ ...formData, nguoiNhanId: id })}
-                                employees={employees}
-                                placeholder={`Chọn nhân sự (${formData.loaiPhieu === 'Phiếu thu' ? 'nộp' : 'nhận'})`}
                             />
                         </div>
                     </div>

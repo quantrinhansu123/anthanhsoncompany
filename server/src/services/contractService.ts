@@ -27,6 +27,8 @@ export const contractService = {
         ...row,
         id: contractId,
         contract_id: contractId,
+        /** PK bảng hop_dong — thường trùng giá trị lưu trong thu_chi.hop_dong_id (khác contract_id). */
+        hop_dong_row_id: row.id,
         project_name: duAn?.ten_du_an || row.project_name || null,
         nhan_su_ten: nhanSuTen,
         nhan_su_code: nhanSuCode,
@@ -60,7 +62,8 @@ export const contractService = {
     return {
       ...row,
       id: contractId,
-      contract_id: contractId
+      contract_id: contractId,
+      hop_dong_row_id: row.id,
     };
   },
 
@@ -97,7 +100,8 @@ export const contractService = {
     return {
       ...row,
       id: contractId,
-      contract_id: contractId
+      contract_id: contractId,
+      hop_dong_row_id: row.id,
     };
   },
 

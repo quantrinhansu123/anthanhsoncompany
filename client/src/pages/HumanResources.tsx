@@ -32,6 +32,8 @@ import { contractService, ContractRow } from '../lib/services/contractService';
 import { thuChiService, ThuChiRow } from '../lib/services/thuChiService';
 import { projectService } from '../lib/services/projectService';
 import { useNhanSuModal } from '../contexts/NhanSuModalContext';
+import { ExcelImportExportBar } from '../components/ExcelImportExportBar';
+import type { ExcelColumnDef } from '../lib/excelTableTools';
 
 export function HumanResources() {
   const navigate = useNavigate();
@@ -44,6 +46,15 @@ export function HumanResources() {
   const [loadingThuChi, setLoadingThuChi] = useState(false);
   const { openChiTietNhanVien } = useNhanSuModal();
   const itemsPerPage = 10;
+
+  const nhanSuExcelColumns: ExcelColumnDef[] = [
+    { key: 'ho_ten', header: 'Họ và tên', example: 'Nguyễn Văn A' },
+    { key: 'ma_nhan_vien', header: 'Mã nhân viên', example: 'Để trống = tự sinh' },
+    { key: 'email', header: 'Email', example: 'a@company.com' },
+    { key: 'sdt', header: 'Số điện thoại', example: '0901234567' },
+    { key: 'phong_ban', header: 'Phòng ban', example: 'Kỹ thuật' },
+    { key: 'chuc_vu', header: 'Chức vụ', example: 'Nhân viên' },
+  ];
 
   // Load employees from Supabase
   useEffect(() => {
@@ -221,6 +232,48 @@ export function HumanResources() {
           </div>
 
           <div className="flex flex-wrap items-center gap-2">
+            <ExcelImportExportBar
+              columns={nhanSuExcelColumns}
+              templateFileName="mau-nhan-su"
+              sheetName="Nhan su"
+              onImport={async (rows) => {
+                const errors: string[] = [];
+                let ok = 0;
+                for (let i = 0; i < rows.length; i++) {
+                  const r = rows[i];
+                  const hoten = (r.ho_ten || '').trim();
+                  if (!hoten) {
+                    errors.push(`Dòng ${i + 2}: thiếu Họ và tên`);
+                    continue;
+                  }
+                  const uuid =
+                    typeof crypto !== 'undefined' && 'randomUUID' in crypto
+                      ? crypto.randomUUID()
+                      : `${Date.now()}-${i}`;
+                  const code = (r.ma_nhan_vien || '').trim() || `NV-${uuid}`.replace(/[^a-zA-Z0-9-]/g, '').slice(0, 48);
+                  try {
+                    await employeeService.create({
+                      code,
+                      full_name: hoten,
+                      name: hoten,
+                      email: r.email?.trim() || undefined,
+                      phone: r.sdt?.trim() || undefined,
+                      sdtNhanVien: r.sdt?.trim() || undefined,
+                      department: r.phong_ban?.trim() || undefined,
+                      phongBan: r.phong_ban?.trim() || undefined,
+                      position: r.chuc_vu?.trim() || undefined,
+                      chucVu: r.chuc_vu?.trim() || undefined,
+                      status: 'active',
+                    });
+                    ok++;
+                  } catch (e: any) {
+                    errors.push(`Dòng ${i + 2}: ${e?.message || 'Lỗi'}`);
+                  }
+                }
+                return { ok, errors };
+              }}
+              onDone={() => loadEmployees()}
+            />
             <Link
               to="/nhan-su/lich-lam-viec"
               className="flex items-center gap-2 px-4 py-2 text-sm font-semibold text-slate-700 bg-white border border-slate-200 hover:bg-slate-50 rounded-md transition-colors shadow-sm"

@@ -1,4 +1,4 @@
-/** Hiển thị & khớp người nhận/nộp từ danh sách nhân sự */
+/** Hiển thị & khớp chuỗi tham chiếu nhân sự (dữ liệu cũ). */
 
 export type NhanSuOption = {
     id: string;
@@ -23,7 +23,7 @@ export function labelNhanSu(emp: NhanSuOption): string {
     return legacyLabelWithCode(emp);
 }
 
-/** Khớp chuỗi đã lưu (nguoi_nhan) với id nhân sự khi mở sửa */
+/** Khớp chuỗi đã lưu với id nhân sự khi mở sửa. */
 export function resolveNguoiNhanId(saved: string | null | undefined, emps: NhanSuOption[]): string {
     const s = (saved || '').trim();
     if (!s) return '';

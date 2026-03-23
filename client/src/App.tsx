@@ -39,6 +39,7 @@ import { DuAn } from './pages/customer/DuAn';
 import { HopDong } from './pages/customer/HopDong';
 import { TaskList } from './pages/process/TaskList';
 import { QuanLyCongViec } from './pages/process/QuanLyCongViec';
+import { LichChecklistNhanSu } from './pages/process/LichChecklistNhanSu';
 
 export default function App() {
   return (
@@ -83,6 +84,7 @@ export default function App() {
             />
             <Route path="quy-trinh/task-list" element={<TaskList />} />
             <Route path="quy-trinh/quan-ly-cong-viec" element={<QuanLyCongViec />} />
+            <Route path="quy-trinh/lich-checklist-nhan-su" element={<LichChecklistNhanSu />} />
             <Route path="tro-ly-ai" element={<AIAssistant />} />
             <Route path="settings" element={<Settings />} />
             <Route path="*" element={<Dashboard />} />

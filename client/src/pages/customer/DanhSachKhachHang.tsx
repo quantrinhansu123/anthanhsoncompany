@@ -20,6 +20,8 @@ import { customerService, type Customer } from '../../lib/services/customerServi
 import { projectService } from '../../lib/services/projectService';
 import { contractService } from '../../lib/services/contractService';
 import { thuChiService, type ThuChiRow } from '../../lib/services/thuChiService';
+import { ExcelImportExportBar } from '../../components/ExcelImportExportBar';
+import type { ExcelColumnDef } from '../../lib/excelTableTools';
 
 // Toast notification component
 function Toast({ message, type, onClose }: { message: string; type: 'success' | 'info' | 'warning'; onClose: () => void }) {
@@ -68,7 +70,20 @@ export function DanhSachKhachHang() {
     const [currentPage, setCurrentPage] = useState(1);
     const [itemsPerPage, setItemsPerPage] = useState(10);
     const [toast, setToast] = useState<{ message: string; type: 'success' | 'info' | 'warning' } | null>(null);
-    
+    const [reloadKey, setReloadKey] = useState(0);
+
+    const khachHangExcelColumns: ExcelColumnDef[] = [
+        { key: 'ten_don_vi', header: 'Tên đơn vị', example: 'Công ty ABC' },
+        { key: 'loai_hinh', header: 'Loại hình', example: 'TNHH' },
+        { key: 'mst', header: 'MST', example: '0123456789' },
+        { key: 'dia_chi', header: 'Địa chỉ', example: 'Hà Nội' },
+        { key: 'nguoi_dai_dien', header: 'Người đại diện', example: 'Nguyễn Văn A' },
+        { key: 'chuc_vu_dai_dien', header: 'Chức vụ đại diện', example: 'Giám đốc' },
+        { key: 'nguoi_lien_he', header: 'Người liên hệ', example: 'Trần Thị B' },
+        { key: 'chuc_vu_lien_he', header: 'Chức vụ liên hệ', example: 'Kế toán' },
+        { key: 'sdt_lien_he', header: 'SĐT liên hệ', example: '0901234567' },
+    ];
+
     const { openDuAnModal } = useDuAnModal();
     const { openChiTietKhachHang, openThemKhachHang, openDelete } = useKhachHangModal();
 
@@ -219,7 +234,7 @@ export function DanhSachKhachHang() {
                     <h1 className="text-[16px] font-bold text-slate-700 uppercase">Danh sách khách hàng</h1>
                 </div>
 
-                <div className="px-6 py-4 flex justify-between items-center border-b border-slate-200 bg-white">
+                <div className="px-6 py-4 flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:justify-between sm:items-center border-b border-slate-200 bg-white">
                     <div className="relative w-full max-w-[400px]">
                         <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
                             <Search className="h-4 w-4 text-slate-400" />
@@ -233,13 +248,50 @@ export function DanhSachKhachHang() {
                         />
                     </div>
 
-                    <button
-                        onClick={handleAddClick}
-                        className="btn-primary flex items-center gap-2 px-4 py-2 bg-[#9333EA] hover:bg-purple-700 text-white text-sm font-medium rounded-md shadow-sm"
-                    >
-                        <Plus size={16} />
-                        Thêm khách hàng
-                    </button>
+                    <div className="flex flex-wrap items-center gap-2">
+                        <ExcelImportExportBar
+                            columns={khachHangExcelColumns}
+                            templateFileName="mau-khach-hang"
+                            sheetName="Khach hang"
+                            onImport={async (rows) => {
+                                const errors: string[] = [];
+                                let ok = 0;
+                                for (let i = 0; i < rows.length; i++) {
+                                    const r = rows[i];
+                                    const ten = (r.ten_don_vi || '').trim();
+                                    if (!ten) {
+                                        errors.push(`Dòng ${i + 2}: thiếu Tên đơn vị`);
+                                        continue;
+                                    }
+                                    try {
+                                        await customerService.create({
+                                            ten_don_vi: ten,
+                                            loai_hinh: r.loai_hinh?.trim() || undefined,
+                                            mst: r.mst?.trim() || undefined,
+                                            dia_chi: r.dia_chi?.trim() || undefined,
+                                            nguoi_dai_dien: r.nguoi_dai_dien?.trim() || undefined,
+                                            chuc_vu_dai_dien: r.chuc_vu_dai_dien?.trim() || undefined,
+                                            nguoi_lien_he: r.nguoi_lien_he?.trim() || undefined,
+                                            chuc_vu_lien_he: r.chuc_vu_lien_he?.trim() || undefined,
+                                            sdt_lien_he: r.sdt_lien_he?.trim() || undefined,
+                                        });
+                                        ok++;
+                                    } catch (e: any) {
+                                        errors.push(`Dòng ${i + 2}: ${e?.message || 'Lỗi'}`);
+                                    }
+                                }
+                                return { ok, errors };
+                            }}
+                            onDone={() => setReloadKey((k) => k + 1)}
+                        />
+                        <button
+                            onClick={handleAddClick}
+                            className="btn-primary flex items-center gap-2 px-4 py-2 bg-[#9333EA] hover:bg-purple-700 text-white text-sm font-medium rounded-md shadow-sm"
+                        >
+                            <Plus size={16} />
+                            Thêm khách hàng
+                        </button>
+                    </div>
                 </div>
 
                 <div className="w-full overflow-x-auto bg-white">

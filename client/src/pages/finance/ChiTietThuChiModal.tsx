@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { X, Eye, FileText, Calendar, DollarSign, User, Briefcase, Clock, Layout } from 'lucide-react';
 import { PreviewLinkModal } from '../../components/PreviewLinkModal';
+import { NhanSuAvatar } from '../../components/NhanSuTenAnhPicker';
 
 interface Props {
     isOpen: boolean;
@@ -18,7 +19,7 @@ export function ChiTietThuChiModal({ isOpen, onClose, item }: Props) {
     return (
         <>
             {isOpen && item && (
-                <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/40 p-4 backdrop-blur-sm animate-in fade-in duration-200">
+                <div className="fixed inset-0 z-[75] flex items-center justify-center bg-black/40 p-4 backdrop-blur-sm animate-in fade-in duration-200">
                     <div className="bg-white rounded-2xl shadow-xl w-full max-w-4xl overflow-hidden animate-in zoom-in-95 duration-200 max-h-[90vh] flex flex-col border border-slate-100">
                         {/* Header */}
                         <div className="px-6 py-5 border-b border-slate-100 flex justify-between items-center bg-white/80 backdrop-blur-md sticky top-0 z-10">
@@ -109,28 +110,25 @@ export function ChiTietThuChiModal({ isOpen, onClose, item }: Props) {
                                         </h3>
                                         
                                         <div className="space-y-4">
-                                            <div className="flex items-center justify-between group">
-                                                <div className="flex items-center gap-3">
-                                                    <div className="w-8 h-8 rounded-lg bg-indigo-50 flex items-center justify-center text-indigo-500 group-hover:bg-indigo-100 transition-colors">
-                                                        <User size={16} />
-                                                    </div>
-                                                    <div className="text-sm text-slate-500">
-                                                        {item.type === 'Phiếu thu' ? 'Người nộp:' : 'Người nhận:'}
-                                                    </div>
-                                                </div>
-                                                <div className="text-sm font-bold text-slate-800 text-right max-w-[55%]">
-                                                    {item.person || item.nguoi_nhan || '(Trống)'}
-                                                </div>
-                                            </div>
-
-                                            <div className="flex items-center justify-between group">
-                                                <div className="flex items-center gap-3">
+                                            <div className="flex items-center justify-between group gap-3">
+                                                <div className="flex items-center gap-3 shrink-0">
                                                     <div className="w-8 h-8 rounded-lg bg-blue-50 flex items-center justify-center text-blue-500 group-hover:bg-blue-100 transition-colors">
                                                         <User size={16} />
                                                     </div>
-                                                    <div className="text-sm text-slate-500">Nhân sự phụ trách:</div>
+                                                    <div className="text-sm text-slate-500">
+                                                        {item.type === 'Phiếu chi' ? 'Nhân sự:' : 'Nhân sự phụ trách:'}
+                                                    </div>
                                                 </div>
-                                                <div className="text-sm font-bold text-slate-800">{item.nhan_su_display || '(Chưa phân bổ)'}</div>
+                                                <div className="flex items-center gap-2 min-w-0 justify-end">
+                                                    <NhanSuAvatar
+                                                        src={item.nhan_su_anh}
+                                                        name={item.nhan_su_display || item.nhan_su_ten || ''}
+                                                        className="w-9 h-9 text-sm"
+                                                    />
+                                                    <span className="text-sm font-bold text-slate-800 truncate">
+                                                        {item.nhan_su_display || item.nhan_su_ten || '(Chưa chọn)'}
+                                                    </span>
+                                                </div>
                                             </div>
 
                                             <div className="flex items-center justify-between group">

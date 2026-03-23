@@ -1,12 +1,39 @@
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { X, User, FileText, Link as LinkIcon, ExternalLink, Trash2, Plus, Info, ChevronDown } from 'lucide-react';
-import { contractService, ContractFile } from '../../lib/services/contractService';
+import { contractService, ContractFile, type ContractRow } from '../../lib/services/contractService';
 import type { NguongChiNhanSuLoai } from '../../lib/nguongChiNhanSu';
 import { normalizeNguongLoai, tienQuyDoiNguongChiNhanSu } from '../../lib/nguongChiNhanSu';
 import { projectService } from '../../lib/services/projectService';
 import { employeeService } from '../../lib/services/employeeService';
 import { thuChiService } from '../../lib/services/thuChiService';
 import { PreviewLinkModal } from '../../components/PreviewLinkModal';
+import type { ContractCreatePrefill } from '../../contexts/HopDongModalContext';
+
+function normCustomerKey(s: string | null | undefined): string {
+    return String(s || '')
+        .trim()
+        .replace(/\s+/g, ' ')
+        .toLowerCase()
+        .normalize('NFC');
+}
+
+type ProjectRow = {
+    id: string;
+    ten_du_an: string;
+    customer_id?: string | null;
+    ten_khach_hang?: string | null;
+    customer_name?: string | null;
+};
+
+function filterProjectsByCustomer(rows: ProjectRow[], customerId: string, tenDonVi?: string): ProjectRow[] {
+    const cid = String(customerId).trim();
+    const nameKey = normCustomerKey(tenDonVi);
+    return rows.filter((p) => {
+        if (String(p.customer_id ?? '').trim() === cid) return true;
+        const label = normCustomerKey(p.ten_khach_hang || p.customer_name || '');
+        return nameKey.length > 0 && label.length > 0 && label === nameKey;
+    });
+}
 
 interface Contract {
     id?: number;
@@ -34,6 +61,8 @@ interface ThemHopDongModalProps {
     isOpen: boolean;
     onClose: () => void;
     editData: Contract | null;
+    /** Khi mở từ Chi tiết khách hàng — gắn khách + lọc dự án */
+    contractCreatePrefill?: ContractCreatePrefill | null;
     onSuccess: () => void;
 }
 
@@ -46,8 +75,8 @@ const FILE_TYPES = [
     'File_PLHD'
 ] as const;
 
-export function ThemHopDongModal({ isOpen, onClose, editData, onSuccess }: ThemHopDongModalProps) {
-    const [projects, setProjects] = useState<Array<{ id: string; ten_du_an: string }>>([]);
+export function ThemHopDongModal({ isOpen, onClose, editData, contractCreatePrefill = null, onSuccess }: ThemHopDongModalProps) {
+    const [projects, setProjects] = useState<Array<{ id: string; ten_du_an: string; customer_id?: string | null }>>([]);
     const [employees, setEmployees] = useState<Array<{ id: string; full_name: string; code: string; anh_nhan_su?: string; position?: string }>>([]);
     const [loaiDichVuOptions, setLoaiDichVuOptions] = useState<string[]>([]);
     const [isSaving, setIsSaving] = useState(false);
@@ -86,7 +115,15 @@ export function ThemHopDongModal({ isOpen, onClose, editData, onSuccess }: ThemH
                     employeeService.getAll(),
                     contractService.getAll(),
                 ]);
-                setProjects(projectList.map(p => ({ id: p.id, ten_du_an: p.ten_du_an })));
+                setProjects(
+                    projectList.map((p) => ({
+                        id: p.id,
+                        ten_du_an: p.ten_du_an,
+                        customer_id: p.customer_id ?? null,
+                        ten_khach_hang: p.ten_khach_hang ?? null,
+                        customer_name: p.customer_name ?? null,
+                    })),
+                );
                 setEmployees(employeeList.map(emp => ({
                     id: emp.id.toString(),
                     full_name: emp.full_name || emp.name || emp.hoTen || '',
@@ -111,6 +148,45 @@ export function ThemHopDongModal({ isOpen, onClose, editData, onSuccess }: ThemH
             loadInitialData();
         }
     }, [isOpen]);
+
+    const projectsForSelect = useMemo((): ProjectRow[] => {
+        if (editData) return projects;
+        const pre = contractCreatePrefill;
+        if (!pre?.customer_id) return projects;
+        if (pre.projects_for_customer !== undefined) {
+            return pre.projects_for_customer.map((p) => ({
+                id: String(p.id),
+                ten_du_an: p.ten_du_an || '',
+                customer_id: pre.customer_id,
+            }));
+        }
+        return filterProjectsByCustomer(projects, pre.customer_id, pre.ten_don_vi);
+    }, [projects, editData, contractCreatePrefill]);
+
+    /** Đồng bộ dropdown dự án khách: gỡ lựa chọn sai, tự chọn nếu chỉ còn 1 dự án. */
+    useEffect(() => {
+        if (!isOpen || editData || !contractCreatePrefill?.customer_id) return;
+        setFormData((prev) => {
+            const list = projectsForSelect;
+            if (list.length === 0) {
+                return prev.projectId ? { ...prev, projectId: '' } : prev;
+            }
+            const inList = list.some((p) => p.id === prev.projectId);
+            const nextId = inList ? prev.projectId : list.length === 1 ? list[0].id : '';
+            if (nextId === prev.projectId) return prev;
+            return { ...prev, projectId: nextId };
+        });
+    }, [isOpen, editData, contractCreatePrefill?.customer_id, projectsForSelect]);
+
+    const isCustomerContractCreate =
+        !editData && Boolean(contractCreatePrefill?.customer_id);
+    /** Không báo “chưa có dự án” khi đang chờ API dự án (trừ khi chi tiết KH đã gửi danh sách rõ ràng). */
+    const prefillHasExplicitProjectList =
+        contractCreatePrefill?.projects_for_customer !== undefined;
+    const noProjectsForCustomer =
+        isCustomerContractCreate &&
+        projectsForSelect.length === 0 &&
+        (prefillHasExplicitProjectList || projects.length > 0);
 
     useEffect(() => {
         if (editData) {
@@ -230,6 +306,12 @@ export function ThemHopDongModal({ isOpen, onClose, editData, onSuccess }: ThemH
     };
 
     const handleSave = async () => {
+        if (noProjectsForCustomer) {
+            alert(
+                'Khách hàng chưa có dự án trong hệ thống. Hãy thêm dự án ở tab Dự án (chi tiết khách hàng hoặc trang Dự án), sau đó tạo hợp đồng.',
+            );
+            return;
+        }
         if (!formData.soHopDong || !formData.tenGoiThau || !formData.projectId) {
             alert('Vui lòng điền đầy đủ các thông tin bắt buộc (Số HĐ, Tên gói thầu, Dự án)');
             return;
@@ -245,9 +327,12 @@ export function ThemHopDongModal({ isOpen, onClose, editData, onSuccess }: ThemH
                     : Number(formData.nguongChiNhanSu) || 0;
             const fileStatus = calculateFileStatus(contractFiles);
 
-            const payload = {
+            const payload: Partial<ContractRow> = {
                 du_an_id: formData.projectId || null,
-                project_name: projects.find(p => p.id === formData.projectId)?.ten_du_an || null,
+                project_name:
+                    projectsForSelect.find((p) => p.id === formData.projectId)?.ten_du_an
+                    ?? projects.find((p) => p.id === formData.projectId)?.ten_du_an
+                    ?? null,
                 nhan_su_ids: formData.nhanSuIds,
                 nhan_su_id: formData.nhanSuIds?.[0] || null,
                 so_hop_dong: formData.soHopDong,
@@ -262,6 +347,12 @@ export function ThemHopDongModal({ isOpen, onClose, editData, onSuccess }: ThemH
                 files: contractFiles,
                 ngay_update: new Date().toISOString().slice(0, 10),
             };
+
+            if (!editData?.uuid && contractCreatePrefill?.customer_id) {
+                payload.customer_id = String(contractCreatePrefill.customer_id);
+                const ten = contractCreatePrefill.ten_don_vi?.trim();
+                if (ten) payload.ten_day_du_chu_dau_tu = ten;
+            }
 
             if (editData?.uuid) {
                 const allThuChi = await thuChiService.getAll();
@@ -304,6 +395,12 @@ export function ThemHopDongModal({ isOpen, onClose, editData, onSuccess }: ThemH
                             {editData ? 'Chỉnh sửa hợp đồng' : 'Thêm hợp đồng mới'}
                         </h2>
                         <p className="text-xs text-slate-500 mt-0.5">Vui lòng điền các thông tin chi tiết dưới đây</p>
+                        {!editData && contractCreatePrefill?.ten_don_vi?.trim() ? (
+                            <p className="text-xs text-purple-700 mt-1.5 font-medium">
+                                Đang tạo hợp đồng cho khách:{' '}
+                                <span className="font-bold">{contractCreatePrefill.ten_don_vi.trim()}</span>
+                            </p>
+                        ) : null}
                     </div>
                     <button onClick={onClose} className="p-1.5 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-lg transition-colors">
                         <X size={20} />
@@ -324,14 +421,28 @@ export function ThemHopDongModal({ isOpen, onClose, editData, onSuccess }: ThemH
                                 <select
                                     value={formData.projectId}
                                     onChange={(e) => setFormData({ ...formData, projectId: e.target.value })}
-                                    disabled={!!editData}
+                                    disabled={!!editData || noProjectsForCustomer}
                                     className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-purple-500/20 focus:border-purple-500 transition-all bg-white disabled:bg-slate-50 disabled:text-slate-500"
                                 >
-                                    <option value="">-- Chọn dự án --</option>
-                                    {projects.map((p) => (
+                                    <option value="">
+                                        {noProjectsForCustomer
+                                            ? '— Khách chưa có dự án —'
+                                            : '-- Chọn dự án --'}
+                                    </option>
+                                    {projectsForSelect.map((p) => (
                                         <option key={p.id} value={p.id}>{p.ten_du_an}</option>
                                     ))}
                                 </select>
+                                {noProjectsForCustomer ? (
+                                    <p className="text-xs text-amber-800 mt-1.5 font-medium">
+                                        Khách hàng này chưa có dự án. Thêm dự án ở tab <strong>Dự án</strong> trong
+                                        chi tiết khách hàng, rồi mở lại thêm hợp đồng.
+                                    </p>
+                                ) : isCustomerContractCreate && projectsForSelect.length > 0 ? (
+                                    <p className="text-xs text-slate-500 mt-1">
+                                        {projectsForSelect.length} dự án của khách — chọn dự án để gắn hợp đồng.
+                                    </p>
+                                ) : null}
                             </div>
 
                             <div>
@@ -619,7 +730,7 @@ export function ThemHopDongModal({ isOpen, onClose, editData, onSuccess }: ThemH
                     </button>
                     <button 
                         onClick={handleSave} 
-                        disabled={isSaving} 
+                        disabled={isSaving || noProjectsForCustomer} 
                         className="px-8 py-2 bg-purple-600 rounded-lg text-sm font-extrabold text-white hover:bg-purple-700 disabled:opacity-50 shadow-md shadow-purple-200 transition-all active:scale-95"
                     >
                         {isSaving ? (
