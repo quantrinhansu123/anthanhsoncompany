@@ -27,6 +27,7 @@ import { ThemCongViecHopDongModal } from '../pages/customer/ThemCongViecHopDongM
 import { NghiemThuCongViecModal } from '../pages/customer/NghiemThuCongViecModal';
 import { XacNhanXoaHopDongModal } from '../pages/customer/XacNhanXoaHopDongModal';
 import { customerService } from '../lib/services/customerService';
+import { LoadingExportOverlay } from './LoadingExportOverlay';
 
 export function Layout() {
   const [sidebarOpen, setSidebarOpen] = useState(true);
@@ -82,7 +83,8 @@ export function Layout() {
     isAddTaskOpen, closeAddTask,
     isNghiemThuOpen, selectedTask, closeNghiemThu,
     isDeleteOpen, contractToDelete, closeDelete,
-    openThemHopDong
+    openThemHopDong,
+    isExporting
   } = useHopDongModal();
   
   // Hide watermark on chatbot page and iframe pages
@@ -319,6 +321,7 @@ export function Layout() {
             window.location.reload();
         }}
       />
+      {isExporting && <LoadingExportOverlay />}
     </div>
   );
 }

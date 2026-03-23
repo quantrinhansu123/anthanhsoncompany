@@ -1,4 +1,5 @@
 import React, { useEffect, useState, useMemo } from 'react';
+import { createPortal } from 'react-dom';
 import { Search, Plus, Eye, Edit, Trash2, X, ChevronDown, FileText, FolderOpen, PlusCircle, User, CheckCircle, BarChart3, Briefcase, Calendar } from 'lucide-react';
 import { useSearchParams } from 'react-router-dom';
 import { contractService, ContractRow, ContractFile } from '../../lib/services/contractService';
@@ -33,6 +34,11 @@ interface Contract {
     nhanSuIds?: string[];
     nhanSuTen?: string | null;
     nhanSuCode?: string | null;
+    tenDayDuChuDauTu?: string | null;
+    daiDienBenA?: string | null;
+    chucVuDaiDienA?: string | null;
+    mst?: string | null;
+    diaChiTaiThoiDiemKy?: string | null;
 }
 
 interface ProjectGroup {
@@ -41,32 +47,59 @@ interface ProjectGroup {
     contracts: Contract[];
 }
 
-function Toast({ message, type, onClose }: { message: string; type: 'success' | 'info' | 'warning'; onClose: () => void }) {
+function Toast({ message, type, onClose, action }: {
+    message: string;
+    type: 'success' | 'info' | 'warning';
+    onClose: () => void;
+    action?: { label: string; onClick: () => void }
+}) {
     useEffect(() => {
+        // Don't auto-close if there's an action (like opening a doc)
+        if (action) return;
+
         const timer = setTimeout(onClose, 3000);
         return () => clearTimeout(timer);
-    }, [onClose]);
+    }, [onClose, action]);
 
     const bgColor = type === 'success' ? 'bg-emerald-500' : type === 'warning' ? 'bg-amber-500' : 'bg-blue-500';
     const Icon = type === 'success' ? CheckCircle : type === 'warning' ? Trash2 : PlusCircle;
 
-    return (
-        <div className={`fixed top-5 right-5 z-[100] ${bgColor} text-white px-4 py-3 rounded-xl shadow-lg flex items-center gap-3 animate-in slide-in-from-right-4`}>
+    return createPortal(
+        <div className={`fixed top-5 right-5 z-[10000] ${bgColor} text-white px-4 py-3 rounded-xl shadow-lg flex items-center gap-3 animate-in fade-in slide-in-from-right-4`}>
             <Icon size={18} />
-            <span className="text-sm font-medium">{message}</span>
-            <button onClick={onClose} className="ml-2 hover:bg-white/20 rounded p-0.5 transition-colors">
-                <X size={14} />
+            <div className="flex flex-col gap-1">
+                <span className="text-sm font-medium">{message}</span>
+                {action && (
+                    <button
+                        onClick={(e) => {
+                            e.stopPropagation();
+                            action.onClick();
+                        }}
+                        className="text-[11px] font-bold bg-white/20 hover:bg-white/30 px-2 py-1 rounded border border-white/30 transition-colors w-fit"
+                    >
+                        {action.label}
+                    </button>
+                )}
+            </div>
+            <button onClick={onClose} className="ml-2 hover:opacity-70 p-1 rounded-full hover:bg-white/10 transition-colors">
+                <X size={16} />
             </button>
-        </div>
+        </div>,
+        document.body
     );
 }
 
 export function HopDong() {
     const [searchParams] = useSearchParams();
     const filterFromUrl = searchParams.get('project');
-    
-    const { openThemHopDong, openChiTietHopDong, openDelete } = useHopDongModal();
-    
+
+    const {
+        openThemHopDong,
+        openChiTietHopDong,
+        openDelete,
+        setIsExporting
+    } = useHopDongModal();
+
     const [items, setItems] = useState<ProjectGroup[]>([]);
     const [projects, setProjects] = useState<Array<{ id: string; ten_du_an: string }>>([]);
     const [employees, setEmployees] = useState<Array<{ id: string; full_name: string; code: string; anh_nhan_su?: string | null }>>([]);
@@ -74,12 +107,16 @@ export function HopDong() {
     const [viewMode, setViewMode] = useState<'table' | 'folder'>('table');
     const [selectedFolderProjectId, setSelectedFolderProjectId] = useState<number | null>(null);
     const [expandedProjects, setExpandedProjects] = useState<number[]>([]);
-    
+
     // Filter states
     const [selectedDuAnIds, setSelectedDuAnIds] = useState<Set<string>>(new Set());
     const [selectedHopDongIds, setSelectedHopDongIds] = useState<Set<string>>(new Set());
     const [openFilterDropdown, setOpenFilterDropdown] = useState<'duan' | 'hopdong' | null>(null);
-    const [toast, setToast] = useState<{ message: string; type: 'success' | 'info' | 'warning' } | null>(null);
+    const [toast, setToast] = useState<{
+        message: string;
+        type: 'success' | 'info' | 'warning';
+        action?: { label: string; onClick: () => void }
+    } | null>(null);
     const [tasksByContract, setTasksByContract] = useState<Map<string, TaskRow[]>>(new Map());
 
     const formatCurrency = (amount: number) => {
@@ -160,6 +197,11 @@ export function HopDong() {
                             nhanSuIds: (c as any).nhan_su_ids || (c.nhan_su_id ? [c.nhan_su_id] : []),
                             nhanSuTen: c.nhan_su_ten || null,
                             nhanSuCode: c.nhan_su_code || null,
+                            tenDayDuChuDauTu: c.ten_day_du_chu_dau_tu || null,
+                            daiDienBenA: c.dai_dien_ben_a || null,
+                            chucVuDaiDienA: c.chuc_vu_dai_dien_a || null,
+                            mst: c.mst || null,
+                            diaChiTaiThoiDiemKy: c.dia_chi_tai_thoi_diem_ky || null,
                         };
                     }),
                 }));
@@ -189,7 +231,7 @@ export function HopDong() {
         const searchLower = searchTerm.toLowerCase();
         return items.filter(project => {
             if (filterFromUrl && project.projectName !== filterFromUrl) return false;
-            
+
             if (selectedDuAnIds.size > 0) {
                 const projId = projects.find(p => p.ten_du_an === project.projectName)?.id;
                 if (!projId || !selectedDuAnIds.has(projId)) return false;
@@ -198,12 +240,12 @@ export function HopDong() {
         }).map(project => ({
             ...project,
             contracts: project.contracts.filter(c => {
-                const matchesSearch = !searchTerm || 
+                const matchesSearch = !searchTerm ||
                     c.soHopDong.toLowerCase().includes(searchLower) ||
                     c.tenGoiThau.toLowerCase().includes(searchLower) ||
                     c.loaiDichVu.toLowerCase().includes(searchLower) ||
                     project.projectName.toLowerCase().includes(searchLower);
-                
+
                 const matchesContract = selectedHopDongIds.size === 0 || (c.uuid && selectedHopDongIds.has(c.uuid));
                 return matchesSearch && matchesContract;
             })
@@ -225,9 +267,50 @@ export function HopDong() {
         return Math.round((completed / tasks.length) * 100);
     };
 
+    const handleExportGoogleDocs = async (contract: Contract, projectName: string) => {
+        try {
+            setIsExporting(true);
+            console.log('[HopDong] Preparing export for contract:', { contract, projectName });
+            setToast({ message: 'Đang chuẩn bị dữ liệu xuất...', type: 'info' });
+
+            const payload = {
+                ...contract,
+                projectName,
+            };
+
+            console.log('[HopDong] Payload to send:', payload);
+            const result = await contractService.exportToGoogleDocs(payload);
+
+            if (result && result.success && result.documentUrl) {
+                setToast({
+                    message: 'Xuất file thành công!',
+                    type: 'success',
+                    action: {
+                        label: 'Mở tài liệu',
+                        onClick: () => window.open(result.documentUrl, '_blank')
+                    }
+                });
+            } else {
+                setToast({ message: 'Yêu cầu xuất file đã được gửi!', type: 'success' });
+            }
+        } catch (error: any) {
+            console.error('[HopDong] Export error:', error);
+            setToast({ message: error.message || 'Lỗi khi xuất file', type: 'warning' });
+        } finally {
+            setIsExporting(false);
+        }
+    };
+
     return (
         <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500 pb-10">
-            {toast && <Toast message={toast.message} type={toast.type} onClose={() => setToast(null)} />}
+            {toast && (
+                <Toast
+                    message={toast.message}
+                    type={toast.type}
+                    action={toast.action}
+                    onClose={() => setToast(null)}
+                />
+            )}
 
             <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
                 {/* Header — cùng nhịp với trang Nhân sự */}
@@ -452,6 +535,7 @@ export function HopDong() {
                                                     </td>
                                                     <td className="py-2 px-1 pr-3 md:pr-5 text-center">
                                                         <div className="flex items-center justify-center gap-0.5 opacity-70 group-hover:opacity-100 transition-opacity">
+                                                            <button type="button" onClick={() => handleExportGoogleDocs(c, group.projectName)} className="p-1.5 text-slate-600 hover:bg-emerald-50 hover:text-emerald-700 rounded-md" title="Xuất Google Docs"><FileText size={12} /></button>
                                                             <button type="button" onClick={() => openChiTietHopDong(c)} className="p-1.5 text-slate-600 hover:bg-blue-50 hover:text-blue-700 rounded-md" title="Xem chi tiết"><Eye size={12} /></button>
                                                             <button type="button" onClick={() => openThemHopDong(c)} className="p-1.5 text-slate-600 hover:bg-amber-50 hover:text-amber-800 rounded-md" title="Sửa"><Edit size={12} /></button>
                                                             <button type="button" onClick={() => openDelete({ id: c.id, uuid: c.uuid, soHopDong: c.soHopDong })} className="p-1.5 text-slate-600 hover:bg-red-50 hover:text-red-700 rounded-md" title="Xóa"><Trash2 size={12} /></button>
@@ -522,11 +606,12 @@ export function HopDong() {
                                                                 <span className="font-bold text-slate-800 line-clamp-1 text-xs leading-tight">{c.tenGoiThau}</span>
                                                             </div>
                                                             <div className="flex gap-0 opacity-0 group-hover:opacity-100 transition-opacity shrink-0">
+                                                                <button type="button" onClick={(e) => { e.stopPropagation(); handleExportGoogleDocs(c, selected.projectName); }} className="p-1 text-slate-500 hover:bg-emerald-50 hover:text-emerald-700 rounded" title="Xuất Google Docs"><FileText size={11} /></button>
                                                                 <button type="button" onClick={(e) => { e.stopPropagation(); openThemHopDong(c); }} className="p-1 text-slate-500 hover:bg-amber-50 hover:text-amber-800 rounded" title="Sửa"><Edit size={11} /></button>
                                                                 <button type="button" onClick={(e) => { e.stopPropagation(); openDelete({ id: c.id, uuid: c.uuid, soHopDong: c.soHopDong }); }} className="p-1 text-slate-500 hover:bg-red-50 hover:text-red-700 rounded" title="Xóa"><Trash2 size={11} /></button>
                                                             </div>
                                                         </div>
-                                                        
+
                                                         <div className="grid grid-cols-3 gap-1.5 mb-2">
                                                             <div className="px-1.5 py-1 bg-slate-50 rounded border border-slate-100 min-w-0">
                                                                 <div className="text-[8px] font-semibold text-slate-500 uppercase">QT</div>

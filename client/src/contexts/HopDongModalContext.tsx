@@ -70,6 +70,10 @@ interface HopDongModalContextType {
     contractToDelete: ContractToDelete | null;
     openDelete: (data: ContractToDelete) => void;
     closeDelete: () => void;
+
+    // Export Loading
+    isExporting: boolean;
+    setIsExporting: (isExporting: boolean) => void;
 }
 
 const HopDongModalContext = createContext<HopDongModalContextType | undefined>(undefined);
@@ -90,6 +94,8 @@ export function HopDongModalProvider({ children }: { children: ReactNode }) {
 
     const [isDeleteOpen, setIsDeleteOpen] = useState(false);
     const [contractToDelete, setContractToDelete] = useState<ContractToDelete | null>(null);
+
+    const [isExporting, setIsExporting] = useState(false);
 
     const openThemHopDong = (data?: HopDong) => {
         setEditData(data || null);
@@ -168,6 +174,8 @@ export function HopDongModalProvider({ children }: { children: ReactNode }) {
                 contractToDelete,
                 openDelete,
                 closeDelete,
+                isExporting,
+                setIsExporting,
             }}
         >
             {children}

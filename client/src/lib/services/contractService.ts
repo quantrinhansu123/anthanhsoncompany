@@ -64,5 +64,16 @@ export const contractService = {
   async delete(id: string): Promise<boolean> {
     return api.delete(`/contracts/${id}`);
   },
+
+  async exportToGoogleDocs(payload: any): Promise<any> {
+    console.log('[contractService] Exporting via backend proxy...', payload);
+
+    // Call our own backend instead of direct Google Script URL
+    // This allows us to handle CORS and get the JSON response back
+    const response = await api.post('/contracts/export-google-docs', payload);
+
+    console.log('[contractService] Export result:', response);
+    return response;
+  },
 };
 

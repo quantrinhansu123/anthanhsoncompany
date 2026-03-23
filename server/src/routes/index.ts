@@ -59,4 +59,35 @@ router.post('/contracts', contractController.create);
 router.put('/contracts/:id', contractController.update);
 router.delete('/contracts/:id', contractController.delete);
 
+// Google Docs Export Proxy
+router.post('/contracts/export-google-docs', async (req, res) => {
+  try {
+    const scriptUrl = process.env.GOOGLE_APPS_SCRIPT_URL;
+    if (!scriptUrl) {
+      return res.status(500).json({ error: 'GOOGLE_APPS_SCRIPT_URL not configured on server' });
+    }
+
+    console.log('[Server Proxy] Sending to Google...', scriptUrl);
+    const response = await fetch(scriptUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(req.body),
+    });
+
+    console.log('[Server Proxy] Google Response Status:', response.status);
+    const text = await response.text();
+    console.log('[Server Proxy] Google Response Body:', text);
+
+    try {
+      const data = JSON.parse(text);
+      res.json(data);
+    } catch (parseErr) {
+      console.error('[Server Proxy] Failed to parse JSON:', text);
+      res.status(500).json({ error: 'Failed to parse response from Google', details: text });
+    }
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 export default router;
