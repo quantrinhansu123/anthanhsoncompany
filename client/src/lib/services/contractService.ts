@@ -77,5 +77,9 @@ export const contractService = {
     console.log('[contractService] Export result:', response);
     return response;
   },
+
+  async bulkImport(rows: any[]): Promise<{ created: number; updated: number; errors: string[] }> {
+    return api.post('/contracts/bulk-import', { rows });
+  },
 };
 

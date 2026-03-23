@@ -58,6 +58,18 @@ router.get('/contracts', contractController.getAll);
 router.post('/contracts', contractController.create);
 router.put('/contracts/:id', contractController.update);
 router.delete('/contracts/:id', contractController.delete);
+router.post('/contracts/bulk-import', async (req, res) => {
+  try {
+    const { rows } = req.body;
+    if (!Array.isArray(rows)) {
+      return res.status(400).json({ error: 'rows must be an array' });
+    }
+    const result = await contractService.bulkImport(rows);
+    res.json(result);
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
 
 // Google Docs Export Proxy
 router.post('/contracts/export-google-docs', async (req, res) => {

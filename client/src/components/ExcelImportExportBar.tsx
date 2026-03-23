@@ -3,6 +3,7 @@ import { Download, Upload, Loader2 } from 'lucide-react';
 import {
     type ExcelColumnDef,
     downloadExcelTemplate,
+    downloadExcelData,
     parseExcelToRows,
 } from '../lib/excelTableTools';
 
@@ -10,6 +11,8 @@ export type ExcelImportResult = { ok: number; errors: string[] };
 
 type Props = {
     columns: ExcelColumnDef[];
+    /** Mảng dữ liệu cần xuất ra (nếu có sẽ là nút Tải file Excel có dữ liệu) */
+    data?: any[];
     /** Tên file tải về, không bắt buộc .xlsx */
     templateFileName: string;
     /** Tên sheet trong file Excel */
@@ -24,6 +27,7 @@ type Props = {
 
 export function ExcelImportExportBar({
     columns,
+    data,
     templateFileName,
     sheetName = 'Du lieu',
     onImport,
@@ -37,7 +41,11 @@ export function ExcelImportExportBar({
 
     const handleDownload = () => {
         setMsg(null);
-        downloadExcelTemplate(columns, templateFileName, sheetName);
+        if (data && data.length > 0) {
+            downloadExcelData(columns, data, templateFileName, sheetName);
+        } else {
+            downloadExcelTemplate(columns, templateFileName, sheetName);
+        }
     };
 
     const handlePickFile = () => {
@@ -78,7 +86,7 @@ export function ExcelImportExportBar({
                 className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold border border-slate-200 rounded-lg bg-white text-slate-700 hover:bg-slate-50 disabled:opacity-50"
             >
                 <Download size={14} />
-                Tải mẫu Excel
+                {data && data.length > 0 ? 'Tải file Excel' : 'Tải mẫu Excel'}
             </button>
             <input
                 ref={inputRef}

@@ -34,6 +34,29 @@ export function downloadExcelTemplate(
     XLSX.writeFile(wb, name);
 }
 
+/** Tải file .xlsx kèm dữ liệu thực tế: hàng 1 = tiêu đề, từ hàng 2 = dữ liệu. */
+export function downloadExcelData(
+    columns: ExcelColumnDef[],
+    data: Record<string, any>[],
+    filename: string,
+    sheetName = 'Du lieu',
+): void {
+    const headerRow = columns.map((c) => c.header);
+    const dataRows = data.map((row) => {
+        return columns.map((col) => {
+            const val = row[col.key];
+            return val === null || val === undefined ? '' : val;
+        });
+    });
+    
+    const ws = XLSX.utils.aoa_to_sheet([headerRow, ...dataRows]);
+    const wb = XLSX.utils.book_new();
+    const safeSheet = sheetName.slice(0, 31).replace(/[:\\/?*[\]]/g, '_');
+    XLSX.utils.book_append_sheet(wb, ws, safeSheet || 'Sheet1');
+    const name = filename.toLowerCase().endsWith('.xlsx') ? filename : `${filename}.xlsx`;
+    XLSX.writeFile(wb, name);
+}
+
 /**
  * Đọc sheet đầu tiên: map theo tiêu đề cột (chuẩn hóa không dấu, thường).
  * Bỏ qua hàng trống.

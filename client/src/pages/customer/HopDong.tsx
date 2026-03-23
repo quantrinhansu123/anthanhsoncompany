@@ -123,14 +123,24 @@ export function HopDong() {
     const [reloadKey, setReloadKey] = useState(0);
 
     const hopDongExcelColumns: ExcelColumnDef[] = [
-        { key: 'ten_du_an', header: 'Tên dự án', example: 'Khớp tên dự án hệ thống' },
+        { key: 'project_name', header: 'Tên dự án', example: 'Khớp tên dự án hệ thống' },
         { key: 'so_hop_dong', header: 'Số hợp đồng', example: 'HĐ-01/2025' },
         { key: 'ten_goi_thau', header: 'Tên gói thầu', example: 'Gói thi công' },
+        { key: 'ngay_ky_hd', header: 'Ngày ký HĐ', example: '2025-01-15' },
         { key: 'gia_tri_hd', header: 'Giá trị HĐ', example: '1000000000' },
         { key: 'gia_tri_qt', header: 'Giá trị quyết toán', example: '1000000000' },
-        { key: 'ngay_ky_hd', header: 'Ngày ký HĐ', example: '2025-01-15' },
+        { key: 'trang_thai', header: 'Trạng thái', example: 'Đang thực hiện' },
+        { key: 'ten_day_du_chu_dau_tu', header: 'Chủ đầu tư', example: 'Công ty ABC' },
+        { key: 'mst', header: 'MST chủ đầu tư', example: '0123456789' },
+        { key: 'dia_chi_tai_thoi_diem_ky', header: 'Địa chỉ CĐT', example: 'Hà Nội' },
+        { key: 'dai_dien_ben_a', header: 'Đại diện bên A', example: 'Nguyễn Văn A' },
+        { key: 'chuc_vu_dai_dien_a', header: 'Chức vụ đại diện A', example: 'Giám đốc' },
+        { key: 'nguoi_dai_dien_ky', header: 'Người đại diện ký', example: 'Trần Văn B' },
+        { key: 'loai_cong_trinh', header: 'Loại công trình', example: 'Dân dụng' },
+        { key: 'cap_cong_trinh', header: 'Cấp công trình', example: 'Cấp 1' },
     ];
     const [tasksByContract, setTasksByContract] = useState<Map<string, TaskRow[]>>(new Map());
+    const [allContracts, setAllContracts] = useState<any[]>([]);
 
     const formatCurrency = (amount: number) => {
         if (amount === 0) return '0';
@@ -219,6 +229,7 @@ export function HopDong() {
                     }),
                 }));
 
+                setAllContracts(contractRows);
                 setItems(projectGroups);
                 setExpandedProjects(projectGroups.map(p => p.id));
 
@@ -334,38 +345,31 @@ export function HopDong() {
                     <div className="flex flex-wrap items-center gap-2">
                         <ExcelImportExportBar
                             columns={hopDongExcelColumns}
+                            data={[...allContracts].sort((a, b) => {
+                                const pA = a.project_name || '';
+                                const pB = b.project_name || '';
+                                if (pA !== pB) return pA.localeCompare(pB);
+                                return (a.so_hop_dong || '').localeCompare(b.so_hop_dong || '');
+                            })}
                             templateFileName="mau-hop-dong"
                             sheetName="Hop dong"
                             onImport={async (rows) => {
-                                const errors: string[] = [];
-                                let ok = 0;
-                                for (let i = 0; i < rows.length; i++) {
-                                    const r = rows[i];
-                                    const tenDuAn = (r.ten_du_an || '').trim();
-                                    const p = projects.find(
-                                        (x) => x.ten_du_an.trim().toLowerCase() === tenDuAn.toLowerCase(),
-                                    );
-                                    if (!tenDuAn || !p) {
-                                        errors.push(
-                                            `Dòng ${i + 2}: không tìm thấy dự án "${tenDuAn || '(trống)'}"`,
-                                        );
-                                        continue;
-                                    }
-                                    try {
-                                        await contractService.create({
-                                            du_an_id: p.id,
-                                            so_hop_dong: r.so_hop_dong?.trim() || null,
-                                            ten_goi_thau: r.ten_goi_thau?.trim() || null,
-                                            gia_tri_hd: parseMoneyVi(r.gia_tri_hd || '0') || null,
-                                            gia_tri_qt: parseMoneyVi(r.gia_tri_qt || '0') || null,
-                                            ngay_ky_hd: r.ngay_ky_hd?.trim() || null,
-                                        });
-                                        ok++;
-                                    } catch (e: any) {
-                                        errors.push(`Dòng ${i + 2}: ${e?.message || 'Lỗi'}`);
-                                    }
+                                try {
+                                    // Map Excel keys to database fields and parse numbers
+                                    const processedRows = rows.map(r => ({
+                                        ...r,
+                                        gia_tri_hd: parseMoneyVi(r.gia_tri_hd || '0'),
+                                        gia_tri_qt: parseMoneyVi(r.gia_tri_qt || '0'),
+                                    }));
+                                    
+                                    const result = await contractService.bulkImport(processedRows);
+                                    return {
+                                        ok: result.created + result.updated,
+                                        errors: result.errors
+                                    };
+                                } catch (e: any) {
+                                    return { ok: 0, errors: [e?.message || 'Lỗi kết nối server'] };
                                 }
-                                return { ok, errors };
                             }}
                             onDone={() => {
                                 setReloadKey((k) => k + 1);
