@@ -25,10 +25,14 @@ import {
 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { useThuChiModal } from '../../contexts/ThuChiModalContext';
+import { NhanSuAvatar } from '../../components/NhanSuTenAnhPicker';
 import { thuChiService, ThuChiRow } from '../../lib/services/thuChiService';
 import { employeeService } from '../../lib/services/employeeService';
 import { projectService } from '../../lib/services/projectService';
 import { contractService } from '../../lib/services/contractService';
+import { ExcelImportExportBar } from '../../components/ExcelImportExportBar';
+import type { ExcelColumnDef } from '../../lib/excelTableTools';
+import { parseMoneyVi } from '../../lib/excelTableTools';
 
 interface ToastProps {
     message: string;
@@ -72,7 +76,9 @@ export function ThuChiNhanSu() {
     const [currentPage, setCurrentPage] = useState(1);
     const [employees, setEmployees] = useState<Array<{ id: string; full_name: string; code: string }>>([]);
     const [projects, setProjects] = useState<Array<{ id: string; ten_du_an: string; customer_name?: string | null; ten_khach_hang?: string | null }>>([]);
-    const [contracts, setContracts] = useState<Array<{ id: string; so_hop_dong: string | null; du_an_id: string | null }>>([]);
+    const [contracts, setContracts] = useState<
+        Array<{ id: string; hop_dong_row_id?: string | null; so_hop_dong: string | null; du_an_id: string | null }>
+    >([]);
     
     // Filter states - sử dụng mảng để có thể chọn nhiều
     const [selectedNhanSuIds, setSelectedNhanSuIds] = useState<string[]>([]);
@@ -93,6 +99,17 @@ export function ThuChiNhanSu() {
 
     const { openChiTietThuChi, openDelete, openThemThuChi } = useThuChiModal();
 
+    const thuChiNsExcelColumns: ExcelColumnDef[] = [
+        { key: 'so_tien', header: 'Số tiền', example: '3000000' },
+        { key: 'ngay', header: 'Ngày', example: '2025-03-01' },
+        { key: 'ten_du_an', header: 'Tên dự án', example: 'Khớp tên dự án' },
+        { key: 'so_hop_dong', header: 'Số hợp đồng', example: 'Để trống nếu Chi dự án' },
+        { key: 'hang_muc_chi', header: 'Hạng mục chi', example: 'Chi dự án hoặc Chi nhân sự' },
+        { key: 'ten_nhan_su', header: 'Tên nhân sự', example: 'Bắt buộc' },
+        { key: 'noi_dung', header: 'Nội dung', example: '' },
+        { key: 'tinh_trang', header: 'Tình trạng phiếu', example: 'Tạm ứng' },
+    ];
+
     // Load employees, projects, contracts
     useEffect(() => {
         (async () => {
@@ -108,11 +125,14 @@ export function ThuChiNhanSu() {
                 setProjects(projectList.map(p => ({ id: p.id, ten_du_an: p.ten_du_an, customer_name: p.customer_name ?? null, ten_khach_hang: (p as any).ten_khach_hang ?? null })));
                 
                 const contractList = await contractService.getAll();
-                setContracts(contractList.map(c => ({ 
-                    id: c.id, 
-                    so_hop_dong: c.so_hop_dong, 
-                    du_an_id: c.du_an_id || null 
-                })));
+                setContracts(
+                    contractList.map((c) => ({
+                        id: c.id,
+                        hop_dong_row_id: c.hop_dong_row_id ?? c.id,
+                        so_hop_dong: c.so_hop_dong,
+                        du_an_id: c.du_an_id || null,
+                    })),
+                );
             } catch (error) {
                 console.error('Error loading data:', error);
             }
@@ -172,7 +192,7 @@ export function ThuChiNhanSu() {
             });
 
             // Map data để hiển thị
-            const mappedData = filteredData.map(item => ({
+            const mappedData = filteredData.map((item) => ({
                 ...item,
                 code: item.id.substring(0, 8).toUpperCase(), // Mã chứng từ từ ID
                 date: item.ngay ? new Date(item.ngay).toLocaleDateString('vi-VN') : '',
@@ -180,10 +200,9 @@ export function ThuChiNhanSu() {
                 type: item.loai_phieu,
                 amount: new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND' }).format(item.so_tien),
                 description: item.noi_dung || '',
-                person: item.nguoi_nhan || 'Ngân hàng / Đối tác',
                 ten_du_an: item.ten_du_an || '(Chưa có dự án)',
-                nhan_su_display: item.nhan_su_ten ? (item.nhan_su_code ? `[${item.nhan_su_code}] ${item.nhan_su_ten}` : item.nhan_su_ten) : null,
-                customer_name: item.du_an_id ? (projectCustomerMap.get(item.du_an_id) || null) : null
+                nhan_su_display: item.nhan_su_ten || null,
+                customer_name: item.du_an_id ? projectCustomerMap.get(item.du_an_id) || null : null,
             }));
             setItems(mappedData);
         } catch (err: any) {
@@ -576,6 +595,80 @@ export function ThuChiNhanSu() {
                                 </div>
                             </div>
 
+                            <ExcelImportExportBar
+                                className="flex flex-wrap"
+                                columns={thuChiNsExcelColumns}
+                                templateFileName="mau-phieu-chi-nhan-su"
+                                sheetName="Phieu chi"
+                                onImport={async (rows) => {
+                                    const errors: string[] = [];
+                                    let ok = 0;
+                                    for (let i = 0; i < rows.length; i++) {
+                                        const r = rows[i];
+                                        const tenDuAn = (r.ten_du_an || '').trim();
+                                        const proj = projects.find(
+                                            (p) => p.ten_du_an.trim().toLowerCase() === tenDuAn.toLowerCase(),
+                                        );
+                                        if (!tenDuAn || !proj) {
+                                            errors.push(`Dòng ${i + 2}: không tìm thấy dự án`);
+                                            continue;
+                                        }
+                                        const soTien = parseMoneyVi(r.so_tien || '0');
+                                        if (soTien <= 0) {
+                                            errors.push(`Dòng ${i + 2}: Số tiền không hợp lệ`);
+                                            continue;
+                                        }
+                                        const tn = (r.ten_nhan_su || '').trim();
+                                        const emp = employees.find(
+                                            (e) =>
+                                                (e.full_name || '').trim().toLowerCase() === tn.toLowerCase(),
+                                        );
+                                        if (!tn || !emp) {
+                                            errors.push(`Dòng ${i + 2}: thiếu/không khớp Tên nhân sự`);
+                                            continue;
+                                        }
+                                        const hm = (r.hang_muc_chi || '').toLowerCase();
+                                        const hangMuc = hm.includes('nhân') ? 'chi_nhan_su' : 'chi_du_an';
+                                        const soHd = (r.so_hop_dong || '').trim();
+                                        let hopDongId: string | null = null;
+                                        if (soHd) {
+                                            const c = contracts.find(
+                                                (x) =>
+                                                    String(x.du_an_id || '') === String(proj.id) &&
+                                                    (x.so_hop_dong || '').trim().toLowerCase() ===
+                                                        soHd.toLowerCase(),
+                                            );
+                                            if (!c) {
+                                                errors.push(`Dòng ${i + 2}: không tìm thấy HĐ "${soHd}" thuộc dự án`);
+                                                continue;
+                                            }
+                                            hopDongId = String(c.hop_dong_row_id || c.id);
+                                        } else if (hangMuc === 'chi_nhan_su') {
+                                            errors.push(`Dòng ${i + 2}: Chi nhân sự cần Số hợp đồng`);
+                                            continue;
+                                        }
+                                        try {
+                                            await thuChiService.create({
+                                                loai_phieu: 'Phiếu chi',
+                                                so_tien: soTien,
+                                                ngay: r.ngay?.trim() || new Date().toISOString().split('T')[0],
+                                                du_an_id: proj.id,
+                                                hop_dong_id: hopDongId,
+                                                noi_dung: r.noi_dung?.trim() || null,
+                                                hang_muc_chi: hangMuc,
+                                                nhan_su_id: emp.id,
+                                                nguoi_nhan: null,
+                                                tinh_trang_phieu: r.tinh_trang?.trim() || 'Tạm ứng',
+                                            });
+                                            ok++;
+                                        } catch (e: any) {
+                                            errors.push(`Dòng ${i + 2}: ${e?.message || 'Lỗi'}`);
+                                        }
+                                    }
+                                    return { ok, errors };
+                                }}
+                                onDone={() => loadRecords()}
+                            />
                             <button
                                 onClick={handleAddClick}
                                 className="flex items-center gap-2 px-4 py-2 text-sm font-bold text-white bg-blue-600 hover:bg-blue-700 rounded-md transition-colors shadow-sm ripple"
@@ -816,7 +909,6 @@ export function ThuChiNhanSu() {
                                                 </div>
                                             )}
                                         </th>
-                                        <th className="p-4 whitespace-nowrap">Người nộp/nhận</th>
                                         <th className="p-4 whitespace-nowrap relative">
                                             <div className="flex items-center justify-between gap-2">
                                                 <span>Nhân sự</span>
@@ -904,11 +996,19 @@ export function ThuChiNhanSu() {
                                                 <td className="p-4 text-slate-600">
                                                     {item.description || '(Trống)'}
                                                 </td>
-                                                <td className="p-4 text-slate-600">
-                                                    {item.person || '(Trống)'}
-                                                </td>
                                                 <td className="p-4 text-slate-600 text-sm font-medium">
-                                                    {item.nhan_su_display || '(Trống)'}
+                                                    {item.nhan_su_display ? (
+                                                        <div className="flex items-center gap-2 min-w-0">
+                                                            <NhanSuAvatar
+                                                                src={item.nhan_su_anh}
+                                                                name={item.nhan_su_display}
+                                                                className="w-8 h-8 text-xs"
+                                                            />
+                                                            <span className="truncate">{item.nhan_su_display}</span>
+                                                        </div>
+                                                    ) : (
+                                                        '(Trống)'
+                                                    )}
                                                 </td>
                                                 <td className="p-4">
                                                     {item.anh_url ? (
@@ -951,7 +1051,7 @@ export function ThuChiNhanSu() {
                                         ))
                                     ) : (
                                         <tr>
-                                            <td colSpan={11} className="p-8 text-center text-slate-500">
+                                            <td colSpan={10} className="p-8 text-center text-slate-500">
                                                 <div className="flex flex-col items-center gap-2">
                                                     <p className="text-sm font-medium">Không có phiếu chi nào</p>
                                                     <p className="text-xs text-slate-400">Vui lòng thêm phiếu chi mới</p>

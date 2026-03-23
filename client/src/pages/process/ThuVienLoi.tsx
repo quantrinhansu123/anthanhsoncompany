@@ -42,6 +42,8 @@ interface ErrorRecord {
 }
 
 import { thuVienLoiService } from '../../lib/services/thuVienLoiService';
+import { ExcelImportExportBar } from '../../components/ExcelImportExportBar';
+import type { ExcelColumnDef } from '../../lib/excelTableTools';
 
 // --- Sub-components ---
 const MucDoBadge = ({ mucDo }: { mucDo: ErrorRecord['mucDoQuanTrong'] }) => {
@@ -125,6 +127,25 @@ export function ThuVienLoi() {
     const [currentPage, setCurrentPage] = useState(1);
     const [itemsPerPage, setItemsPerPage] = useState(10);
     const [toast, setToast] = useState<{ message: string, type: 'success' | 'error' | 'info' } | null>(null);
+    const [reloadKey, setReloadKey] = useState(0);
+
+    const thuVienLoiExcelColumns: ExcelColumnDef[] = [
+        { key: 'stt', header: 'STT', example: '1' },
+        { key: 'noi_dung_kiem_tra', header: 'Nội dung kiểm tra', example: 'Mô tả lỗi / hạng mục' },
+        { key: 'checklist_id', header: 'Mã checklist', example: '' },
+        { key: 'chuyen_nganh', header: 'Chuyên ngành', example: 'Hạ tầng' },
+        { key: 'bo_mon', header: 'Bộ môn', example: '' },
+        { key: 'hang_muc', header: 'Hạng mục', example: '' },
+        { key: 'hang_muc_kiem_tra', header: 'Hạng mục kiểm tra', example: '' },
+        { key: 'dien_giai', header: 'Diễn giải kiểm tra', example: '' },
+        { key: 'cach_kiem_tra', header: 'Cách kiểm tra nhanh', example: '' },
+        { key: 'tieu_chuan', header: 'Tiêu chuẩn', example: '' },
+        { key: 'trong_cham', header: 'Trọng châm', example: '0' },
+        { key: 'muc_do', header: 'Mức độ quan trọng', example: 'Trung bình' },
+        { key: 'canh_bao', header: 'Cảnh báo lỗi', example: 'Vàng' },
+        { key: 'ghi_chu', header: 'Ghi chú kỹ thuật', example: '' },
+        { key: 'hinh_anh', header: 'Hình ảnh minh họa (URL)', example: '' },
+    ];
 
     // Modal States
     const [isModalOpen, setIsModalOpen] = useState(false);
@@ -195,7 +216,7 @@ export function ThuVienLoi() {
                 setToast({ message: 'Lỗi khi tải dữ liệu: ' + (e instanceof Error ? e.message : String(e)), type: 'error' });
             }
         })();
-    }, []);
+    }, [reloadKey]);
 
     // Lấy danh sách unique values cho các filter
     const uniqueTieuChuan = useMemo(() => {
@@ -446,7 +467,50 @@ export function ThuVienLoi() {
                         <h1 className="text-xl font-bold text-slate-800 uppercase tracking-tight">Thư viện lỗi Checklist</h1>
                         <p className="text-sm text-slate-500">Quản lý các lỗi thường gặp và định nghĩa mức độ quan trọng</p>
                     </div>
-                    <div className="flex items-center gap-2">
+                    <div className="flex flex-wrap items-center gap-2">
+                        <ExcelImportExportBar
+                            columns={thuVienLoiExcelColumns}
+                            templateFileName="mau-thu-vien-loi"
+                            sheetName="Thu vien loi"
+                            onImport={async (rows) => {
+                                const errors: string[] = [];
+                                let ok = 0;
+                                for (let i = 0; i < rows.length; i++) {
+                                    const r = rows[i];
+                                    const nd = (r.noi_dung_kiem_tra || '').trim();
+                                    if (!nd) {
+                                        errors.push(`Dòng ${i + 2}: thiếu Nội dung kiểm tra`);
+                                        continue;
+                                    }
+                                    try {
+                                        await thuVienLoiService.create({
+                                            stt: r.stt ? Number(String(r.stt).replace(/,/g, '')) : null,
+                                            noi_dung_kiem_tra: nd,
+                                            checklist_id: r.checklist_id?.trim() || null,
+                                            chuyen_nganh: r.chuyen_nganh?.trim() || null,
+                                            bo_mon: r.bo_mon?.trim() || null,
+                                            hang_muc: r.hang_muc?.trim() || null,
+                                            hang_muc_kiem_tra: r.hang_muc_kiem_tra?.trim() || null,
+                                            dien_giai_kiem_tra: r.dien_giai?.trim() || null,
+                                            cach_kiem_tra_nhanh: r.cach_kiem_tra?.trim() || null,
+                                            tieu_chuan: r.tieu_chuan?.trim() || null,
+                                            trong_cham: r.trong_cham?.trim()
+                                                ? Number(String(r.trong_cham).replace(/,/g, '.'))
+                                                : null,
+                                            muc_do_quan_trong: r.muc_do?.trim() || null,
+                                            canh_bao_loi: r.canh_bao?.trim() || null,
+                                            ghi_chu_ky_thuat: r.ghi_chu?.trim() || null,
+                                            hinh_anh_minh_hoa: r.hinh_anh?.trim() || null,
+                                        });
+                                        ok++;
+                                    } catch (e: any) {
+                                        errors.push(`Dòng ${i + 2}: ${e?.message || 'Lỗi'}`);
+                                    }
+                                }
+                                return { ok, errors };
+                            }}
+                            onDone={() => setReloadKey((k) => k + 1)}
+                        />
                         <button
                             onClick={exportToCSV}
                             className="flex items-center gap-2 px-4 py-2 bg-white border border-slate-200 rounded-lg text-sm font-medium text-slate-700 hover:bg-slate-50 transition-colors shadow-sm"

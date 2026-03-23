@@ -8,6 +8,9 @@ import { contractService, ContractRow } from '../../lib/services/contractService
 import { employeeService } from '../../lib/services/employeeService';
 import { thuChiService, ThuChiRow } from '../../lib/services/thuChiService';
 import { taskService } from '../../lib/services/taskService';
+import { ExcelImportExportBar } from '../../components/ExcelImportExportBar';
+import type { ExcelColumnDef } from '../../lib/excelTableTools';
+import { customerService } from '../../lib/services/customerService';
 
 // Toast component
 function Toast({ message, type, onClose }: { message: string; type: 'success' | 'info' | 'warning'; onClose: () => void }) {
@@ -37,6 +40,14 @@ export function DuAn() {
 
     const [activeTab, setActiveTab] = useState('info');
     const [toast, setToast] = useState<{ message: string; type: 'success' | 'info' | 'warning' } | null>(null);
+    const [reloadKey, setReloadKey] = useState(0);
+
+    const duAnExcelColumns: ExcelColumnDef[] = [
+        { key: 'ten_du_an', header: 'Tên dự án', example: 'Dự án đường A' },
+        { key: 'ten_khach_hang', header: 'Tên khách hàng', example: 'Công ty X (khớp danh sách KH)' },
+        { key: 'trang_thai', header: 'Trạng thái', example: 'Đang thực hiện' },
+        { key: 'tien_do', header: 'Tiến độ %', example: '0' },
+    ];
     const [searchTerm, setSearchTerm] = useState('');
     const navigate = useNavigate();
     const location = useLocation();
@@ -325,7 +336,7 @@ export function DuAn() {
             });
             setItems(mapped);
         })();
-    }, []);
+    }, [reloadKey]);
 
     const handleSaveProject = async (data: any) => {
         console.log('[DuAn] handleSaveProject called with data:', data);
@@ -645,17 +656,68 @@ export function DuAn() {
 
                 {/* Header */}
                 <div className="px-6 py-4 border-b border-slate-200 bg-white space-y-3">
-                    <div className="flex justify-between items-center">
+                    <div className="flex flex-col gap-3 sm:flex-row sm:justify-between sm:items-center">
                         <h1 className="text-[16px] font-bold text-slate-700 uppercase">
                             Dự án
                         </h1>
-                        <button
-                            onClick={handleAddClick}
-                            className="flex items-center gap-2 px-4 py-2 bg-[#9333EA] hover:bg-purple-700 text-white text-sm font-medium rounded-md transition-colors shadow-sm"
-                        >
-                            <Plus size={16} />
-                            Thêm dự án
-                        </button>
+                        <div className="flex flex-wrap items-center gap-2">
+                            <ExcelImportExportBar
+                                columns={duAnExcelColumns}
+                                templateFileName="mau-du-an"
+                                sheetName="Du an"
+                                onImport={async (rows) => {
+                                    const errors: string[] = [];
+                                    let ok = 0;
+                                    let customers: { id: string; ten_don_vi: string }[] = [];
+                                    try {
+                                        const list = await customerService.getAll();
+                                        customers = (list || []).map((c: any) => ({
+                                            id: String(c.id),
+                                            ten_don_vi: (c.ten_don_vi || '').trim().toLowerCase(),
+                                        }));
+                                    } catch {
+                                        /* vẫn tạo dự án theo tên KH dạng text */
+                                    }
+                                    for (let i = 0; i < rows.length; i++) {
+                                        const r = rows[i];
+                                        const tenDuAn = (r.ten_du_an || '').trim();
+                                        if (!tenDuAn) {
+                                            errors.push(`Dòng ${i + 2}: thiếu Tên dự án`);
+                                            continue;
+                                        }
+                                        const tenKh = (r.ten_khach_hang || '').trim();
+                                        let customerId: string | null = null;
+                                        if (tenKh && customers.length) {
+                                            const hit = customers.find(
+                                                (c) => c.ten_don_vi === tenKh.toLowerCase(),
+                                            );
+                                            if (hit) customerId = hit.id;
+                                        }
+                                        try {
+                                            await projectService.create({
+                                                ten_du_an: tenDuAn,
+                                                status: (r.trang_thai || 'Đang thực hiện').trim(),
+                                                progress: Number(String(r.tien_do || '0').replace(/,/g, '')) || 0,
+                                                customer_id: customerId,
+                                                ten_khach_hang: tenKh || null,
+                                            });
+                                            ok++;
+                                        } catch (e: any) {
+                                            errors.push(`Dòng ${i + 2}: ${e?.message || 'Lỗi'}`);
+                                        }
+                                    }
+                                    return { ok, errors };
+                                }}
+                                onDone={() => setReloadKey((k) => k + 1)}
+                            />
+                            <button
+                                onClick={handleAddClick}
+                                className="flex items-center gap-2 px-4 py-2 bg-[#9333EA] hover:bg-purple-700 text-white text-sm font-medium rounded-md transition-colors shadow-sm"
+                            >
+                                <Plus size={16} />
+                                Thêm dự án
+                            </button>
+                        </div>
                     </div>
 
                     {/* Lọc theo tên Khách hàng / Dự án */}

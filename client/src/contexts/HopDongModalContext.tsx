@@ -1,5 +1,13 @@
 import React, { createContext, useContext, useState, ReactNode } from 'react';
 
+/** Khi tạo HĐ mới từ Chi tiết khách hàng — gắn customer_id + tên chủ đầu tư. */
+export interface ContractCreatePrefill {
+  customer_id: string;
+  ten_don_vi?: string;
+  /** Dự án thuộc khách (giống tab Dự án trong chi tiết). Rỗng = khách chưa có dự án. */
+  projects_for_customer?: Array<{ id: string; ten_du_an: string }>;
+}
+
 interface HopDong {
     id: number;
     uuid?: string;
@@ -38,7 +46,8 @@ interface HopDongModalContextType {
     // Add/Edit Contract
     isThemOpen: boolean;
     editData: HopDong | null;
-    openThemHopDong: (data?: HopDong) => void;
+    contractCreatePrefill: ContractCreatePrefill | null;
+    openThemHopDong: (data?: HopDong | null, prefill?: ContractCreatePrefill | null) => void;
     closeThemHopDong: () => void;
 
     // Contract Detail
@@ -81,6 +90,7 @@ const HopDongModalContext = createContext<HopDongModalContextType | undefined>(u
 export function HopDongModalProvider({ children }: { children: ReactNode }) {
     const [isThemOpen, setIsThemOpen] = useState(false);
     const [editData, setEditData] = useState<HopDong | null>(null);
+    const [contractCreatePrefill, setContractCreatePrefill] = useState<ContractCreatePrefill | null>(null);
 
     const [isDetailOpen, setIsDetailOpen] = useState(false);
     const [contractData, setContractData] = useState<HopDong | null>(null);
@@ -97,14 +107,16 @@ export function HopDongModalProvider({ children }: { children: ReactNode }) {
 
     const [isExporting, setIsExporting] = useState(false);
 
-    const openThemHopDong = (data?: HopDong) => {
-        setEditData(data || null);
+    const openThemHopDong = (data?: HopDong | null, prefill?: ContractCreatePrefill | null) => {
+        setEditData(data != null ? data : null);
+        setContractCreatePrefill(prefill ?? null);
         setIsThemOpen(true);
     };
 
     const closeThemHopDong = () => {
         setIsThemOpen(false);
         setEditData(null);
+        setContractCreatePrefill(null);
     };
 
     const openChiTietHopDong = (data: HopDong) => {
@@ -151,6 +163,7 @@ export function HopDongModalProvider({ children }: { children: ReactNode }) {
             value={{
                 isThemOpen,
                 editData,
+                contractCreatePrefill,
                 openThemHopDong,
                 closeThemHopDong,
                 isDetailOpen,

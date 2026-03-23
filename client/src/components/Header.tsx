@@ -36,7 +36,12 @@ export function Header({ onMenuClick, isOpen = true, isMobile = false }: HeaderP
     'phieu-hanh-chinh': 'Phiếu hành chính',
     'cham-diem-kpi': 'Chấm điểm KPI',
     'diem-cong-tru': 'Điểm cộng trừ',
-    'thiet-lap-cong-luong': 'Thiết lập công lương'
+    'thiet-lap-cong-luong': 'Thiết lập công lương',
+    'quy-trinh': 'Quy trình',
+    'lich-checklist-nhan-su': 'Lịch checklist nhân sự',
+    'quan-ly-cong-viec': 'Quản lý công việc',
+    'thu-vien-loi': 'Thư viện lỗi',
+    'task-list': 'Danh sách Task'
   };
 
   useEffect(() => {

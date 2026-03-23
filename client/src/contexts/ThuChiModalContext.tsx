@@ -1,5 +1,12 @@
 import React, { createContext, useContext, useState, ReactNode } from 'react';
 
+/** Khi lập phiếu từ Chi tiết KH — chỉ chọn dự án của khách đó. */
+export interface ThuChiCreatePrefill {
+    customer_id: string;
+    ten_don_vi?: string;
+    projects_for_customer?: Array<{ id: string; ten_du_an: string }>;
+}
+
 interface ThuChiModalContextType {
     // Chi tiết chứng từ
     isDetailOpen: boolean;
@@ -18,7 +25,13 @@ interface ThuChiModalContextType {
     themMode: 'add' | 'edit';
     themInitialData: any;
     themDefaultType: 'Phiếu thu' | 'Phiếu chi' | undefined;
-    openThemThuChi: (mode: 'add' | 'edit', data?: any, defaultType?: 'Phiếu thu' | 'Phiếu chi') => void;
+    thuChiCreatePrefill: ThuChiCreatePrefill | null;
+    openThemThuChi: (
+        mode: 'add' | 'edit',
+        data?: any,
+        defaultType?: 'Phiếu thu' | 'Phiếu chi',
+        prefill?: ThuChiCreatePrefill | null,
+    ) => void;
     closeThemThuChi: () => void;
 }
 
@@ -34,6 +47,7 @@ export function ThuChiModalProvider({ children }: { children: ReactNode }) {
     const [themMode, setThemMode] = useState<'add' | 'edit'>('add');
     const [themInitialData, setThemInitialData] = useState<any>(null);
     const [themDefaultType, setThemDefaultType] = useState<'Phiếu thu' | 'Phiếu chi' | undefined>(undefined);
+    const [thuChiCreatePrefill, setThuChiCreatePrefill] = useState<ThuChiCreatePrefill | null>(null);
 
     const openChiTietThuChi = (item: any) => {
         setThuChiData(item);
@@ -55,10 +69,16 @@ export function ThuChiModalProvider({ children }: { children: ReactNode }) {
         setItemToDelete(null);
     };
 
-    const openThemThuChi = (mode: 'add' | 'edit', data?: any, defaultType?: 'Phiếu thu' | 'Phiếu chi') => {
+    const openThemThuChi = (
+        mode: 'add' | 'edit',
+        data?: any,
+        defaultType?: 'Phiếu thu' | 'Phiếu chi',
+        prefill?: ThuChiCreatePrefill | null,
+    ) => {
         setThemMode(mode);
         setThemInitialData(data || null);
         setThemDefaultType(defaultType);
+        setThuChiCreatePrefill(prefill ?? null);
         setIsThemOpen(true);
     };
 
@@ -66,6 +86,7 @@ export function ThuChiModalProvider({ children }: { children: ReactNode }) {
         setIsThemOpen(false);
         setThemInitialData(null);
         setThemDefaultType(undefined);
+        setThuChiCreatePrefill(null);
     };
 
     return (
@@ -83,6 +104,7 @@ export function ThuChiModalProvider({ children }: { children: ReactNode }) {
                 themMode,
                 themInitialData,
                 themDefaultType,
+                thuChiCreatePrefill,
                 openThemThuChi,
                 closeThemThuChi
             }}

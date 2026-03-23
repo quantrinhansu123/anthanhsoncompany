@@ -23,6 +23,7 @@ import {
   GripVertical,
   MoreHorizontal,
   Eye,
+  ClipboardList,
 } from 'lucide-react';
 import {
   taskService,
@@ -35,6 +36,7 @@ import {
   type TaskTemplateRow,
 } from '../../lib/services/taskTemplateService';
 import { contractService } from '../../lib/services/contractService';
+import { projectService, type Project } from '../../lib/services/projectService';
 import { employeeService } from '../../lib/services/employeeService';
 import {
   thuVienLoiService,
@@ -47,6 +49,10 @@ import {
   type TaskDetailDocument,
   type TaskDetailHistory,
 } from '../../lib/services/taskDetailService';
+import {
+  congViecNhatKyService,
+  type CongViecNhatKyRow,
+} from '../../lib/services/congViecNhatKyService';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { PreviewLinkModal } from '../../components/PreviewLinkModal';
 
@@ -222,6 +228,54 @@ function taskMatchesAssigneeFilter(
   return false;
 }
 
+/** Giá trị select: `task:<id>` hoặc `step:<taskId>:<quyTrinhItemId>` */
+function parseChecklistTaskSelection(value: string): {
+  taskId: string;
+  quyTrinhItemId: string | null;
+} | null {
+  const v = value.trim();
+  if (!v) return null;
+  if (v.startsWith('task:')) {
+    return { taskId: v.slice(5).trim(), quyTrinhItemId: null };
+  }
+  if (v.startsWith('step:')) {
+    const parts = v.split(':');
+    if (parts.length < 3) return null;
+    const taskId = parts[1];
+    const quyTrinhItemId = parts.slice(2).join(':');
+    if (!taskId || !quyTrinhItemId) return null;
+    return { taskId, quyTrinhItemId };
+  }
+  return { taskId: v, quyTrinhItemId: null };
+}
+
+function buildChecklistNoiDung(
+  job: TaskRow,
+  quyTrinhItemId: string | null,
+): string {
+  const parent = (job.ten_task || '').trim() || '(Công việc)';
+  if (!quyTrinhItemId) return parent;
+  const items = job.ten_task_detail?.quy_trinh_items || [];
+  const item = items.find((x) => x.id === quyTrinhItemId);
+  const step = (item?.ten_task || '').trim() || 'Bước quy trình';
+  return `${parent} › ${step}`;
+}
+
+/** Id nhân sự gán cho dự án (QLDA / Thực hiện / mảng) */
+function collectProjectPhuTrachIds(p: Project | null | undefined): Set<string> {
+  const s = new Set<string>();
+  if (!p) return s;
+  const add = (x: string | null | undefined) => {
+    const t = String(x ?? '').trim();
+    if (t) s.add(t);
+  };
+  add(p.manager_id as string | undefined);
+  add(p.executor_id as string | undefined);
+  (p.manager_ids || []).forEach((x) => add(x));
+  (p.executor_ids || []).forEach((x) => add(x));
+  return s;
+}
+
 function taskNgayKetThucInRange(task: TaskRow, tu: string, den: string): boolean {
   const hasTu = tu.trim().length > 0;
   const hasDen = den.trim().length > 0;
@@ -268,8 +322,16 @@ export function QuanLyCongViec() {
   const [searchParams] = useSearchParams();
   const taskIdFromUrl = searchParams.get('taskId');
   const [contracts, setContracts] = useState<
-    Array<{ id: string; so_hop_dong: string; ten_goi_thau: string }>
+    Array<{
+      id: string;
+      so_hop_dong: string;
+      ten_goi_thau: string;
+      du_an_id: string | null;
+      /** Người phụ trách của chính hợp đồng (multi) */
+      nhan_su_ids?: string[] | null;
+    }>
   >([]);
+  const [projects, setProjects] = useState<Project[]>([]);
   const [isModalOpen, setIsModalOpen] = useState(false);
   /** `null` = thêm mới; có giá trị = đang sửa công việc (id hiển thị trong list = task_id hoặc id chi tiết) */
   const [taskModalEditingId, setTaskModalEditingId] = useState<string | null>(null);
@@ -299,8 +361,17 @@ export function QuanLyCongViec() {
   const [thuVienLoiList, setThuVienLoiList] = useState<ThuVienLoiRow[]>([]);
   const [selectedEmployeeIds, setSelectedEmployeeIds] = useState<string[]>([]);
   const [detailTabState, setDetailTabState] = useState<
-    'NOI_DUNG' | 'BINH_LUAN' | 'TAI_LIEU' | 'LICH_SU' | 'LOI_GHI_NHAN'
+    'NOI_DUNG' | 'BINH_LUAN' | 'TAI_LIEU' | 'LICH_SU' | 'LOI_GHI_NHAN' | 'CHECKLIST'
   >('NOI_DUNG');
+  const [checklistByTask, setChecklistByTask] = useState<
+    Record<string, CongViecNhatKyRow[]>
+  >({});
+  const [checklistLoading, setChecklistLoading] = useState(false);
+  const [checklistSaving, setChecklistSaving] = useState(false);
+  const [checklistDraftNhanSu, setChecklistDraftNhanSu] = useState('');
+  /** `task:…` hoặc `step:…` — khớp `nguoi_phu_trach` với nhân sự */
+  const [checklistDraftTaskId, setChecklistDraftTaskId] = useState('');
+  const [checklistDraftGhiChu, setChecklistDraftGhiChu] = useState('');
   /** Giá trị option = chuỗi thật hoặc `__EMPTY__` nếu trống */
   const [loiCascadeChuyen, setLoiCascadeChuyen] = useState('');
   const [loiCascadeBoMon, setLoiCascadeBoMon] = useState('');
@@ -683,10 +754,14 @@ export function QuanLyCongViec() {
     (async () => {
       try {
         setLoading(true);
-        const [data, contractsData, employeesData, templatesData, thuVienData] =
+        const [data, contractsData, projectsData, employeesData, templatesData, thuVienData] =
           await Promise.all([
             taskDetailService.getAllAsTasks(),
             contractService.getAll(),
+            projectService.getAll().catch((err) => {
+              console.warn('[QuanLyCongViec] projects:', err);
+              return [] as Project[];
+            }),
             employeeService.getAll(),
             taskTemplateService.getAll(),
             thuVienLoiService.getAll().catch((err) => {
@@ -696,11 +771,20 @@ export function QuanLyCongViec() {
           ]);
         setThuVienLoiList(thuVienData || []);
         setTasks(data || []);
+        setProjects(projectsData || []);
         setContracts(
           (contractsData || []).map((c) => ({
-            id: c.id,
+            id: c.id!,
             so_hop_dong: c.so_hop_dong || '',
             ten_goi_thau: c.ten_goi_thau || '',
+            du_an_id: c.du_an_id != null ? String(c.du_an_id) : null,
+            nhan_su_ids: Array.isArray((c as any).nhan_su_ids)
+              ? (c as any).nhan_su_ids
+                  .map((x: any) => String(x))
+                  .filter(Boolean)
+              : (c as any).nhan_su_id
+                ? [(c as any).nhan_su_id].map((x: any) => String(x)).filter(Boolean)
+                : [],
           })),
         );
         setEmployees(
@@ -846,6 +930,39 @@ export function QuanLyCongViec() {
     })();
   }, [selected?.id]);
 
+  useEffect(() => {
+    setChecklistDraftNhanSu('');
+    setChecklistDraftTaskId('');
+    setChecklistDraftGhiChu('');
+  }, [selected?.id]);
+
+  useEffect(() => {
+    if (!selected?.id) return;
+    const detailId = detailByTask[selected.id]?.id;
+    if (!detailId) return;
+    let cancelled = false;
+    setChecklistLoading(true);
+    congViecNhatKyService
+      .listByCongViecChiTietId(detailId)
+      .then((rows) => {
+        if (!cancelled) {
+          setChecklistByTask((p) => ({ ...p, [selected.id]: rows }));
+        }
+      })
+      .catch((err) => {
+        console.error('[QuanLyCongViec] checklist load:', err);
+        if (!cancelled) {
+          setChecklistByTask((p) => ({ ...p, [selected.id]: [] }));
+        }
+      })
+      .finally(() => {
+        if (!cancelled) setChecklistLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [selected?.id, detailByTask[selected?.id || '']?.id]);
+
   const getStatusBadge = (status?: string) => {
     switch (status) {
       case 'Chờ duyệt':
@@ -895,6 +1012,48 @@ export function QuanLyCongViec() {
     const pending = list.filter((t) => isTrangThaiChoDuyet(t.trang_thai)).length;
     return { all, doing, done, pending };
   }, [tasksAfterAssigneeAndDate]);
+
+  /** Checklist — chỉ nhân sự nằm trong người phụ trách của chính hợp đồng */
+  const checklistEmployeesPhuTrachDuAn = useMemo(() => {
+    const raw = (selected?.nguoi_phu_trach || '').trim();
+    if (!raw) return [];
+
+    const tokens = raw
+      .split(',')
+      .map((x) => x.trim())
+      .filter(Boolean);
+    if (tokens.length === 0) return [];
+
+    const allowedByKey = new Set(
+      tokens.map((t) => String(t)),
+    );
+
+    return employees.filter((e) => {
+      const id = String((e as any).id ?? '');
+      return allowedByKey.has(e.full_name) || allowedByKey.has(e.code) || allowedByKey.has(id);
+    });
+  }, [selected?.nguoi_phu_trach, employees]);
+
+  /** Tab Lịch sử: gộp đầu việc checklist + sự kiện hệ thống, mới nhất trước */
+  const lichSuTimelineItems = useMemo(() => {
+    if (!selected?.id) return [];
+    const checklist = checklistByTask[selected.id] || [];
+    const hist = (detailByTask[selected.id]?.lich_su || []) as TaskDetailHistory[];
+    type Merged =
+      | { kind: 'checklist'; time: number; row: CongViecNhatKyRow }
+      | { kind: 'system'; time: number; h: TaskDetailHistory };
+    const items: Merged[] = [];
+    for (const row of checklist) {
+      const t = row.created_at ? new Date(row.created_at).getTime() : 0;
+      items.push({ kind: 'checklist', time: t, row });
+    }
+    hist.forEach((h) => {
+      const t = h.time ? new Date(h.time).getTime() : 0;
+      items.push({ kind: 'system', time: t, h });
+    });
+    items.sort((a, b) => b.time - a.time);
+    return items;
+  }, [selected?.id, checklistByTask, detailByTask]);
 
   const selectedNgayThongKe = useMemo(() => {
     if (!selected) {
@@ -1600,6 +1759,7 @@ export function QuanLyCongViec() {
                       { id: 'TAI_LIEU', label: 'TÀI LIỆU' },
                       { id: 'LOI_GHI_NHAN', label: 'GHI NHẬN LỖI' },
                       { id: 'LICH_SU', label: 'LỊCH SỬ' },
+                      { id: 'CHECKLIST', label: 'CHECKLIST' },
                     ].map((tab) => (
                       <button
                         key={tab.id}
@@ -1638,7 +1798,13 @@ export function QuanLyCongViec() {
                         )}
                         {tab.id === 'LICH_SU' && (
                           <span className="ml-1 inline-flex items-center justify-center rounded-full bg-slate-300 text-slate-700 text-[9px] px-1.5">
-                            {(detailByTask[selected.id]?.lich_su || []).length}
+                            {(detailByTask[selected.id]?.lich_su || []).length +
+                              (checklistByTask[selected.id]?.length ?? 0)}
+                          </span>
+                        )}
+                        {tab.id === 'CHECKLIST' && (
+                          <span className="ml-1 inline-flex items-center justify-center rounded-full bg-emerald-100 text-emerald-900 text-[9px] px-1.5">
+                            {checklistByTask[selected.id]?.length ?? 0}
                           </span>
                         )}
                       </button>
@@ -2322,45 +2488,407 @@ export function QuanLyCongViec() {
                   {detailTabState === 'LICH_SU' && (
                     <div className="mt-3 rounded-xl border border-slate-200 bg-slate-200 px-3 py-3 text-xs text-slate-700 min-h-[80px]">
                       <p className="text-[10px] text-slate-600 mb-2">
-                        Ghi lại khi tạo công việc, thêm hoặc sửa bước quy trình và các thao tác liên quan.
+                        Gồm <span className="font-semibold text-emerald-900">đầu việc checklist</span> (nhật
+                        ký theo nhân sự) và{' '}
+                        <span className="font-semibold text-slate-800">lịch sử thao tác</span> (tạo/sửa công
+                        việc, quy trình…). Sắp xếp theo thời gian, mới nhất trước.
                       </p>
-                      {(detailByTask[selected.id]?.lich_su || []).length === 0 ? (
+                      {checklistLoading && lichSuTimelineItems.length === 0 ? (
+                        <p className="text-[11px] text-slate-500 py-2">Đang tải nhật ký…</p>
+                      ) : lichSuTimelineItems.length === 0 ? (
                         <p className="text-[11px] text-slate-500 italic py-2">
-                          Chưa có sự kiện lịch sử.
+                          Chưa có checklist hay sự kiện lịch sử.
                         </p>
                       ) : (
-                        <ul className="space-y-2 max-h-[min(360px,50vh)] overflow-y-auto pr-0.5">
-                          {(
-                            [...(detailByTask[selected.id]?.lich_su || [])] as TaskDetailHistory[]
-                          )
-                            .slice()
-                            .sort(
-                              (a, b) =>
-                                new Date(b.time).getTime() - new Date(a.time).getTime(),
-                            )
-                            .map((h, hi) => (
+                        <ul className="space-y-2 max-h-[min(420px,55vh)] overflow-y-auto pr-0.5">
+                          {lichSuTimelineItems.map((entry, idx) =>
+                            entry.kind === 'checklist' ? (
                               <li
-                                key={`${h.time}-${hi}`}
-                                className="rounded-lg border border-slate-200 bg-white px-2.5 py-2 shadow-sm"
+                                key={`ck-${entry.row.id}`}
+                                className="rounded-lg border border-emerald-200 bg-white px-2.5 py-2 shadow-sm"
                               >
-                                <div className="flex items-start justify-between gap-2">
-                                  <span className="text-[11px] font-bold text-slate-800">
-                                    {h.ten || 'Sự kiện'}
+                                <div className="flex items-start justify-between gap-2 flex-wrap">
+                                  <span className="inline-flex items-center gap-1.5">
+                                    <span className="text-[9px] font-bold uppercase tracking-wide text-emerald-800 bg-emerald-100 border border-emerald-300 px-1.5 py-0.5 rounded">
+                                      Checklist
+                                    </span>
+                                    <span className="text-[11px] font-bold text-slate-900">
+                                      {entry.row.nhan_su_ten || '—'}
+                                    </span>
+                                    <span
+                                      className={`text-[9px] font-bold px-1.5 py-0.5 rounded-full border ${
+                                        entry.row.trang_thai === 'Hoàn thành'
+                                          ? 'bg-emerald-50 text-emerald-900 border-emerald-300'
+                                          : 'bg-amber-50 text-amber-900 border-amber-300'
+                                      }`}
+                                    >
+                                      {entry.row.trang_thai || 'Đang làm'}
+                                    </span>
                                   </span>
                                   <span className="text-[10px] text-slate-500 shrink-0">
-                                    {h.time
-                                      ? new Date(h.time).toLocaleString('vi-VN')
+                                    {entry.row.created_at
+                                      ? new Date(entry.row.created_at).toLocaleString('vi-VN')
                                       : '—'}
                                   </span>
                                 </div>
-                                <p className="text-[11px] text-slate-700 mt-1">{h.hanh_vi}</p>
-                                {h.ghi_chu ? (
-                                  <p className="text-[10px] text-slate-600 mt-1 border-t border-slate-300 pt-1">
-                                    {h.ghi_chu}
+                                <p className="text-[11px] text-slate-800 mt-1.5 font-medium leading-snug">
+                                  {entry.row.noi_dung}
+                                </p>
+                                {entry.row.ghi_chu?.trim() ? (
+                                  <p className="text-[10px] text-slate-600 mt-1 border-t border-slate-100 pt-1">
+                                    Ghi chú: {entry.row.ghi_chu}
+                                  </p>
+                                ) : null}
+                                {entry.row.completed_at ? (
+                                  <p className="text-[10px] text-emerald-800 mt-1">
+                                    Hoàn thành:{' '}
+                                    {new Date(entry.row.completed_at).toLocaleString('vi-VN')}
                                   </p>
                                 ) : null}
                               </li>
-                            ))}
+                            ) : (
+                              <li
+                                key={`ls-${idx}-${entry.h.time}`}
+                                className="rounded-lg border border-slate-200 bg-white px-2.5 py-2 shadow-sm"
+                              >
+                                <div className="flex items-start justify-between gap-2">
+                                  <span className="inline-flex items-center gap-1.5 min-w-0">
+                                    <span className="text-[9px] font-bold uppercase tracking-wide text-slate-600 bg-slate-100 border border-slate-300 px-1.5 py-0.5 rounded shrink-0">
+                                      Thao tác
+                                    </span>
+                                    <span className="text-[11px] font-bold text-slate-800 truncate">
+                                      {entry.h.ten || 'Sự kiện'}
+                                    </span>
+                                  </span>
+                                  <span className="text-[10px] text-slate-500 shrink-0">
+                                    {entry.h.time
+                                      ? new Date(entry.h.time).toLocaleString('vi-VN')
+                                      : '—'}
+                                  </span>
+                                </div>
+                                <p className="text-[11px] text-slate-700 mt-1">{entry.h.hanh_vi}</p>
+                                {entry.h.ghi_chu ? (
+                                  <p className="text-[10px] text-slate-600 mt-1 border-t border-slate-300 pt-1">
+                                    {entry.h.ghi_chu}
+                                  </p>
+                                ) : null}
+                              </li>
+                            ),
+                          )}
+                        </ul>
+                      )}
+                    </div>
+                  )}
+
+                  {detailTabState === 'CHECKLIST' && selected && (
+                    <div className="mt-3 rounded-xl border border-slate-200 bg-slate-200 px-3 py-3 text-xs text-slate-700 space-y-3">
+                      <div className="flex items-start gap-2">
+                        <ClipboardList className="w-4 h-4 text-emerald-800 shrink-0 mt-0.5" />
+                        <div>
+                          <p className="text-[11px] font-bold text-slate-900">
+                            Nhật ký công việc theo nhân sự
+                          </p>
+                          <p className="text-[10px] text-slate-600 mt-0.5">
+                            Phần việc/bước quy trình thuộc <span className="font-semibold">công việc đang chọn</span>{' '}
+                            (không phụ thuộc thứ tự chọn nhân sự). Trạng thái mặc định &quot;Đang làm&quot;, duyệt
+                            khi xong.
+                          </p>
+                        </div>
+                      </div>
+
+                      <div className="rounded-lg border border-slate-200 bg-white p-2.5 space-y-2 shadow-sm">
+                        <div className="grid grid-cols-1 md:grid-cols-3 gap-2 md:gap-3 md:items-end">
+                          <div className="flex flex-col gap-1 min-w-0">
+                            <label className="block text-[10px] font-bold text-slate-600">
+                              Nhân sự (phụ trách dự án)
+                            </label>
+                            <select
+                              value={checklistDraftNhanSu}
+                              onChange={(e) => setChecklistDraftNhanSu(e.target.value)}
+                              disabled={checklistEmployeesPhuTrachDuAn.length === 0}
+                              className="w-full rounded-lg border border-slate-200 px-2 py-1.5 text-[11px] bg-white focus:outline-none focus:ring-2 focus:ring-emerald-700/30 disabled:bg-slate-100 disabled:text-slate-400"
+                            >
+                              <option value="">
+                                {checklistEmployeesPhuTrachDuAn.length === 0
+                                  ? '— Chưa có QLDA/Thực hiện trên dự án —'
+                                  : '— Chọn nhân sự —'}
+                              </option>
+                              {checklistEmployeesPhuTrachDuAn.map((e) => (
+                                <option key={String(e.id)} value={String(e.id)}>
+                                  {e.full_name || e.code || String(e.id)}
+                                </option>
+                              ))}
+                            </select>
+                            {checklistEmployeesPhuTrachDuAn.length === 0 ? (
+                              <p className="text-[10px] text-amber-800 leading-snug">
+                                Chưa có “Người phụ trách” cho công việc đang chọn. Vui lòng gán nhân sự ở phần
+                                trên.
+                              </p>
+                            ) : null}
+                          </div>
+                          <div className="flex flex-col gap-1 min-w-0">
+                            <label className="block text-[10px] font-bold text-slate-600">
+                              Nội dung công việc đã làm
+                            </label>
+                            <select
+                              value={checklistDraftTaskId}
+                              onChange={(e) => setChecklistDraftTaskId(e.target.value)}
+                              disabled={!detailByTask[selected.id]?.id}
+                              className="w-full rounded-lg border border-slate-200 px-2 py-1.5 text-[11px] bg-white focus:outline-none focus:ring-2 focus:ring-emerald-700/30 disabled:bg-slate-100 disabled:text-slate-400"
+                            >
+                              <option value="">
+                                {!detailByTask[selected.id]?.id
+                                  ? '— Đang tải chi tiết công việc… —'
+                                  : '— Chọn phần việc / bước quy trình —'}
+                              </option>
+                              {(() => {
+                                const t = selected;
+                                const detailRow = detailByTask[t.id];
+                                const steps =
+                                  detailRow?.ten_task_detail?.quy_trinh_items ||
+                                  t.ten_task_detail?.quy_trinh_items ||
+                                  [];
+                                const labelParent =
+                                  detailRow?.ten_task_detail?.ten_task?.trim() ||
+                                  t.ten_task?.trim() ||
+                                  '(Chưa đặt tên công việc)';
+                                return (
+                                  <>
+                                    <option value={`task:${t.id}`}>
+                                      Cả công việc · {labelParent}
+                                    </option>
+                                    {steps.map((qi) => (
+                                      <option
+                                        key={qi.id}
+                                        value={`step:${t.id}:${qi.id}`}
+                                      >
+                                        └ {qi.ten_task?.trim() || 'Bước quy trình'}
+                                      </option>
+                                    ))}
+                                  </>
+                                );
+                              })()}
+                            </select>
+                          </div>
+                          <div className="flex flex-col gap-1 min-w-0 md:min-h-[4.5rem]">
+                            <label className="block text-[10px] font-bold text-slate-600">
+                              Ghi chú
+                            </label>
+                            <textarea
+                              value={checklistDraftGhiChu}
+                              onChange={(e) => setChecklistDraftGhiChu(e.target.value)}
+                              rows={2}
+                              placeholder="Tuỳ chọn…"
+                              className="w-full flex-1 rounded-lg border border-slate-200 px-2 py-1.5 text-[11px] bg-white focus:outline-none focus:ring-2 focus:ring-emerald-700/30 resize-y min-h-[2.75rem] md:min-h-[2.75rem]"
+                            />
+                          </div>
+                        </div>
+                        <div className="flex justify-end">
+                          <button
+                            type="button"
+                            disabled={
+                              checklistSaving ||
+                              !checklistDraftNhanSu.trim() ||
+                              !checklistDraftTaskId.trim() ||
+                              !detailByTask[selected.id]?.id
+                            }
+                            onClick={async () => {
+                              const detailId = detailByTask[selected.id]?.id;
+                              if (!detailId) return;
+                              const parsed = parseChecklistTaskSelection(
+                                checklistDraftTaskId,
+                              );
+                              if (!parsed?.taskId) {
+                                alert('Chọn công việc hoặc bước quy trình.');
+                                return;
+                              }
+                              if (parsed.taskId !== selected.id) {
+                                alert('Nội dung phải thuộc công việc đang mở.');
+                                return;
+                              }
+                              const dRow = detailByTask[selected.id];
+                              const jobForLabel: TaskRow = {
+                                ...selected,
+                                ten_task_detail:
+                                  dRow?.ten_task_detail ?? selected.ten_task_detail ?? null,
+                              };
+                              const emp = employees.find(
+                                (x) => String(x.id) === String(checklistDraftNhanSu),
+                              );
+                              setChecklistSaving(true);
+                              try {
+                                const row = await congViecNhatKyService.insert({
+                                  cong_viec_chi_tiet_id: detailId,
+                                  nhan_su_id: checklistDraftNhanSu,
+                                  nhan_su_ten:
+                                    emp?.full_name || emp?.code || checklistDraftNhanSu,
+                                  noi_dung: buildChecklistNoiDung(
+                                    jobForLabel,
+                                    parsed.quyTrinhItemId,
+                                  ),
+                                  task_id: parsed.taskId,
+                                  quy_trinh_item_id: parsed.quyTrinhItemId,
+                                  ghi_chu: checklistDraftGhiChu.trim() || null,
+                                });
+                                setChecklistByTask((prev) => ({
+                                  ...prev,
+                                  [selected.id]: [row, ...(prev[selected.id] || [])],
+                                }));
+                                setChecklistDraftTaskId('');
+                                setChecklistDraftGhiChu('');
+                              } catch (err) {
+                                console.error('[QuanLyCongViec] checklist insert:', err);
+                                alert(
+                                  err instanceof Error
+                                    ? err.message
+                                    : 'Không lưu được. Chạy SQL add_cong_viec_nhat_ky_nhan_su.sql và add_cong_viec_nhat_ky_nhan_su_v2.sql trên Supabase.',
+                                );
+                              } finally {
+                                setChecklistSaving(false);
+                              }
+                            }}
+                            className="px-3 py-1.5 rounded-lg bg-emerald-800 text-white text-[11px] font-bold hover:bg-emerald-950 disabled:opacity-50"
+                          >
+                            {checklistSaving ? 'Đang lưu...' : 'Ghi nhận'}
+                          </button>
+                        </div>
+                      </div>
+
+                      {checklistLoading ? (
+                        <p className="text-[11px] text-slate-600 py-4 text-center">
+                          Đang tải nhật ký…
+                        </p>
+                      ) : (checklistByTask[selected.id] || []).length === 0 ? (
+                        <p className="text-[11px] text-slate-500 italic py-3 text-center">
+                          Chưa có dòng nhật ký nào.
+                        </p>
+                      ) : (
+                        <ul className="space-y-2 max-h-[min(360px,50vh)] overflow-y-auto pr-0.5">
+                          {(checklistByTask[selected.id] || []).map((row) => {
+                            const done = row.trang_thai === 'Hoàn thành';
+                            return (
+                              <li
+                                key={row.id}
+                                className="rounded-lg border border-slate-200 bg-white px-2.5 py-2 shadow-sm"
+                              >
+                                <div className="flex items-start justify-between gap-2">
+                                  <div className="min-w-0 flex-1 space-y-1">
+                                    <div className="flex flex-wrap items-center gap-1.5">
+                                      <p className="text-[11px] font-bold text-slate-900">
+                                        {row.nhan_su_ten || '—'}
+                                      </p>
+                                      <span
+                                        className={`text-[9px] font-bold px-1.5 py-0.5 rounded-full border ${
+                                          done
+                                            ? 'bg-emerald-100 text-emerald-900 border-emerald-300'
+                                            : 'bg-amber-100 text-amber-900 border-amber-300'
+                                        }`}
+                                      >
+                                        {row.trang_thai || 'Đang làm'}
+                                      </span>
+                                    </div>
+                                    <p className="text-[10px] text-slate-600">
+                                      <span className="text-slate-500">Tạo:</span>{' '}
+                                      {row.created_at
+                                        ? new Date(row.created_at).toLocaleString('vi-VN')
+                                        : '—'}
+                                    </p>
+                                    <p className="text-[10px] text-slate-600">
+                                      <span className="text-slate-500">Hoàn thành:</span>{' '}
+                                      {row.completed_at
+                                        ? new Date(row.completed_at).toLocaleString('vi-VN')
+                                        : '—'}
+                                    </p>
+                                    <p className="text-[11px] text-slate-800 whitespace-pre-wrap leading-snug">
+                                      {row.noi_dung}
+                                    </p>
+                                    {row.ghi_chu?.trim() ? (
+                                      <p className="text-[10px] text-slate-600 border-t border-slate-100 pt-1 mt-1">
+                                        <span className="font-semibold text-slate-700">
+                                          Ghi chú:
+                                        </span>{' '}
+                                        {row.ghi_chu}
+                                      </p>
+                                    ) : null}
+                                  </div>
+                                  <div className="flex flex-col gap-1 shrink-0">
+                                    {!done ? (
+                                      <button
+                                        type="button"
+                                        title="Duyệt hoàn thành"
+                                        disabled={checklistSaving}
+                                        onClick={async () => {
+                                          setChecklistSaving(true);
+                                          try {
+                                            const updated =
+                                              await congViecNhatKyService.markComplete(
+                                                row.id,
+                                              );
+                                            setChecklistByTask((prev) => ({
+                                              ...prev,
+                                              [selected.id]: (prev[selected.id] || []).map(
+                                                (r) =>
+                                                  r.id === updated.id ? updated : r,
+                                              ),
+                                            }));
+                                          } catch (err) {
+                                            console.error(
+                                              '[QuanLyCongViec] checklist complete:',
+                                              err,
+                                            );
+                                            alert(
+                                              err instanceof Error
+                                                ? err.message
+                                                : 'Không cập nhật được. Chạy SQL v2 trên Supabase.',
+                                            );
+                                          } finally {
+                                            setChecklistSaving(false);
+                                          }
+                                        }}
+                                        className="inline-flex items-center gap-1 px-2 py-1 rounded-md bg-emerald-700 text-white text-[10px] font-bold hover:bg-emerald-800 disabled:opacity-40"
+                                      >
+                                        <CheckCircle2 className="w-3 h-3" />
+                                        Hoàn thành
+                                      </button>
+                                    ) : null}
+                                    <button
+                                      type="button"
+                                      title="Xóa dòng"
+                                      disabled={checklistSaving}
+                                      onClick={async () => {
+                                        if (!window.confirm('Xóa dòng nhật ký này?')) return;
+                                        setChecklistSaving(true);
+                                        try {
+                                          await congViecNhatKyService.delete(row.id);
+                                          setChecklistByTask((prev) => ({
+                                            ...prev,
+                                            [selected.id]: (prev[selected.id] || []).filter(
+                                              (r) => r.id !== row.id,
+                                            ),
+                                          }));
+                                        } catch (err) {
+                                          console.error(
+                                            '[QuanLyCongViec] checklist delete:',
+                                            err,
+                                          );
+                                          alert(
+                                            err instanceof Error
+                                              ? err.message
+                                              : 'Không xóa được.',
+                                          );
+                                        } finally {
+                                          setChecklistSaving(false);
+                                        }
+                                      }}
+                                      className="p-1 rounded text-slate-500 hover:text-red-600 disabled:opacity-40 self-end"
+                                    >
+                                      <Trash2 className="w-3.5 h-3.5" />
+                                    </button>
+                                  </div>
+                                </div>
+                              </li>
+                            );
+                          })}
                         </ul>
                       )}
                     </div>

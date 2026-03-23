@@ -4,15 +4,46 @@ import { thuChiService } from '../../lib/services/thuChiService';
 import { projectService } from '../../lib/services/projectService';
 import { contractService, type ContractRow } from '../../lib/services/contractService';
 import { employeeService } from '../../lib/services/employeeService';
-import { tenLuuNguoiNhan, resolveNguoiNhanId, type NhanSuOption } from '../../lib/formatNhanSu';
+import { type NhanSuOption } from '../../lib/formatNhanSu';
 import { NhanSuTenAnhPicker } from '../../components/NhanSuTenAnhPicker';
 import {
     normalizeNguongLoai,
     tienQuyDoiNguongChiNhanSu,
     type NguongChiNhanSuLoai,
 } from '../../lib/nguongChiNhanSu';
+import type { ThuChiCreatePrefill } from '../../contexts/ThuChiModalContext';
 
 type HangMucChi = 'chi_du_an' | 'chi_nhan_su';
+
+function normCustomerKey(s: string | null | undefined): string {
+    return String(s || '')
+        .trim()
+        .replace(/\s+/g, ' ')
+        .toLowerCase()
+        .normalize('NFC');
+}
+
+type ProjectOpt = {
+    id: string;
+    ten_du_an: string;
+    customer_id?: string | null;
+    ten_khach_hang?: string | null;
+    customer_name?: string | null;
+};
+
+function contractSelValue(c: ContractRow): string {
+    return String(c.hop_dong_row_id || c.id || '').trim();
+}
+
+function filterProjectsByCustomer(rows: ProjectOpt[], customerId: string, tenDonVi?: string): ProjectOpt[] {
+    const cid = String(customerId).trim();
+    const nameKey = normCustomerKey(tenDonVi);
+    return rows.filter((p) => {
+        if (String(p.customer_id ?? '').trim() === cid) return true;
+        const label = normCustomerKey(p.ten_khach_hang || p.customer_name || '');
+        return nameKey.length > 0 && label.length > 0 && label === nameKey;
+    });
+}
 
 interface Props {
     isOpen: boolean;
@@ -21,9 +52,18 @@ interface Props {
     mode: 'add' | 'edit';
     initialData?: any;
     defaultType?: 'Phiếu thu' | 'Phiếu chi';
+    customerScope?: ThuChiCreatePrefill | null;
 }
 
-export function ThemThuChiModal({ isOpen, onClose, onSuccess, mode, initialData, defaultType }: Props) {
+export function ThemThuChiModal({
+    isOpen,
+    onClose,
+    onSuccess,
+    mode,
+    initialData,
+    defaultType,
+    customerScope = null,
+}: Props) {
     const [isSaving, setIsSaving] = useState(false);
     const [projects, setProjects] = useState<any[]>([]);
     const [contracts, setContracts] = useState<ContractRow[]>([]);
@@ -36,14 +76,44 @@ export function ThemThuChiModal({ isOpen, onClose, onSuccess, mode, initialData,
         ngayTienVe: new Date().toISOString().split('T')[0],
         soTien: 0,
         noiDung: '',
-        nguoiNhanId: '',
+        nhanSuId: '',
         hangMucChi: 'chi_du_an' as HangMucChi,
     });
 
-    const selectedContract = useMemo(
-        () => contracts.find((c) => c.id === formData.hopDongId),
-        [contracts, formData.hopDongId],
-    );
+    const projectsForSelect = useMemo((): Array<{ id: string; ten_du_an: string }> => {
+        const scope = customerScope;
+        if (!scope?.customer_id) {
+            return projects.map((p: ProjectOpt) => ({ id: p.id, ten_du_an: p.ten_du_an }));
+        }
+        if (scope.projects_for_customer !== undefined) {
+            return scope.projects_for_customer.map((p) => ({
+                id: String(p.id),
+                ten_du_an: p.ten_du_an || '',
+            }));
+        }
+        return filterProjectsByCustomer(projects as ProjectOpt[], scope.customer_id, scope.ten_don_vi).map(
+            (p) => ({ id: p.id, ten_du_an: p.ten_du_an }),
+        );
+    }, [projects, customerScope]);
+
+    const contractsForSelect = useMemo(() => {
+        const du = String(formData.duAnId || '').trim();
+        if (!du) return [];
+        return contracts.filter((c) => String(c.du_an_id ?? '').trim() === du);
+    }, [contracts, formData.duAnId]);
+
+    const selectedContract = useMemo(() => {
+        const hid = String(formData.hopDongId || '').trim();
+        if (!hid) return undefined;
+        return contracts.find(
+            (c) => String(c.id || '') === hid || String(c.hop_dong_row_id || '') === hid,
+        );
+    }, [contracts, formData.hopDongId]);
+
+    const scopedNoProjects =
+        Boolean(customerScope?.customer_id) &&
+        customerScope?.projects_for_customer !== undefined &&
+        projectsForSelect.length === 0;
 
     const nguongTien = useMemo(() => {
         if (!selectedContract) return 0;
@@ -62,10 +132,11 @@ export function ThemThuChiModal({ isOpen, onClose, onSuccess, mode, initialData,
             try {
                 const all = await thuChiService.getAll();
                 if (cancelled) return;
+                const hid = String(formData.hopDongId || '').trim();
                 let sum = all
                     .filter(
                         (r) =>
-                            (r.hop_dong_id || '') === formData.hopDongId &&
+                            String(r.hop_dong_id ?? '').trim() === hid &&
                             r.loai_phieu === 'Phiếu chi' &&
                             r.hang_muc_chi === 'chi_nhan_su',
                     )
@@ -74,7 +145,7 @@ export function ThemThuChiModal({ isOpen, onClose, onSuccess, mode, initialData,
                     const cur = all.find((r) => r.id === initialData.id);
                     if (
                         cur &&
-                        (cur.hop_dong_id || '') === formData.hopDongId &&
+                        String(cur.hop_dong_id ?? '').trim() === hid &&
                         cur.hang_muc_chi === 'chi_nhan_su'
                     ) {
                         sum -= Number(cur.so_tien) || 0;
@@ -95,12 +166,32 @@ export function ThemThuChiModal({ isOpen, onClose, onSuccess, mode, initialData,
         let cancelled = false;
         (async () => {
             try {
-                const emps = await loadData();
+                const { emps, contracts: loadedContracts } = await loadData();
                 if (cancelled) return;
                 if (initialData) {
+                    let duAnId = initialData.du_an_id || '';
+                    let hopDongId = initialData.hop_dong_id || '';
+                    if (!duAnId && hopDongId) {
+                        const ct = loadedContracts.find(
+                            (c) =>
+                                String(c.id || '') === String(hopDongId) ||
+                                String(c.hop_dong_row_id || '') === String(hopDongId),
+                        );
+                        if (ct?.du_an_id) duAnId = String(ct.du_an_id);
+                    }
+                    if (hopDongId) {
+                        const ctHd = loadedContracts.find(
+                            (c) =>
+                                String(c.id || '') === String(hopDongId) ||
+                                String(c.hop_dong_row_id || '') === String(hopDongId),
+                        );
+                        if (ctHd) {
+                            hopDongId = String(ctHd.hop_dong_row_id || ctHd.id || hopDongId);
+                        }
+                    }
                     setFormData({
-                        duAnId: initialData.du_an_id || '',
-                        hopDongId: initialData.hop_dong_id || '',
+                        duAnId,
+                        hopDongId,
                         loaiPhieu: initialData.type || initialData.loai_phieu || 'Phiếu thu',
                         ngayTienVe:
                             initialData.date || initialData.ngay || new Date().toISOString().split('T')[0],
@@ -113,10 +204,10 @@ export function ThemThuChiModal({ isOpen, onClose, onSuccess, mode, initialData,
                                           .replace(/[^\d]/g, ''),
                                   ),
                         noiDung: initialData.description || initialData.noi_dung || '',
-                        nguoiNhanId: resolveNguoiNhanId(
-                            initialData.nguoi_nhan || initialData.person,
-                            emps,
-                        ),
+                        nhanSuId:
+                            (initialData.type || initialData.loai_phieu) === 'Phiếu chi'
+                                ? String(initialData.nhan_su_id || '').trim()
+                                : '',
                         hangMucChi:
                             initialData.hang_muc_chi === 'chi_nhan_su' ? 'chi_nhan_su' : 'chi_du_an',
                     });
@@ -128,7 +219,6 @@ export function ThemThuChiModal({ isOpen, onClose, onSuccess, mode, initialData,
                         ngayTienVe: new Date().toISOString().split('T')[0],
                         soTien: 0,
                         noiDung: '',
-                        nguoiNhanId: '',
                         hangMucChi: 'chi_du_an',
                     });
                 }
@@ -141,7 +231,54 @@ export function ThemThuChiModal({ isOpen, onClose, onSuccess, mode, initialData,
         };
     }, [isOpen, initialData, defaultType]);
 
-    const loadData = async (): Promise<NhanSuOption[]> => {
+    /** Thêm phiếu từ KH: gỡ dự án sai, tự chọn nếu chỉ 1 dự án; hợp đồng theo dự án. */
+    useEffect(() => {
+        if (!isOpen || mode !== 'add' || !customerScope?.customer_id || projects.length === 0) return;
+        setFormData((prev) => {
+            let du = prev.duAnId;
+            if (du && !projectsForSelect.some((p) => String(p.id) === String(du))) du = '';
+            if (!du && projectsForSelect.length === 1) du = String(projectsForSelect[0].id);
+            const duTrim = String(du || '').trim();
+            const list = duTrim
+                ? contracts.filter((c) => String(c.du_an_id ?? '').trim() === duTrim)
+                : [];
+            let hop = prev.hopDongId;
+            if (
+                hop &&
+                !list.some(
+                    (c) =>
+                        String(c.id || '') === String(hop) ||
+                        String(c.hop_dong_row_id || '') === String(hop),
+                )
+            ) {
+                hop = '';
+            }
+            if (du === prev.duAnId && hop === prev.hopDongId) return prev;
+            return { ...prev, duAnId: du, hopDongId: hop };
+        });
+    }, [isOpen, mode, customerScope, projects.length, projectsForSelect, contracts]);
+
+    /** Chưa chọn dự án thì không giữ hợp đồng; đổi dự án thì bỏ HĐ không thuộc dự án. */
+    useEffect(() => {
+        if (!isOpen) return;
+        const du = String(formData.duAnId || '').trim();
+        setFormData((prev) => {
+            if (!du && prev.hopDongId) return { ...prev, hopDongId: '' };
+            if (!du) return prev;
+            const ok = contractsForSelect.some(
+                (c) =>
+                    String(c.id || '') === String(prev.hopDongId) ||
+                    String(c.hop_dong_row_id || '') === String(prev.hopDongId),
+            );
+            if (ok || !prev.hopDongId) return prev;
+            return { ...prev, hopDongId: '' };
+        });
+    }, [isOpen, formData.duAnId, contractsForSelect]);
+
+    const loadData = async (): Promise<{
+        emps: NhanSuOption[];
+        contracts: ContractRow[];
+    }> => {
         const [pList, cList, empList] = await Promise.all([
             projectService.getAll(),
             contractService.getAll(),
@@ -156,7 +293,7 @@ export function ThemThuChiModal({ isOpen, onClose, onSuccess, mode, initialData,
             anh_nhan_su: emp.anh_nhan_su || null,
         }));
         setEmployees(emps);
-        return emps;
+        return { emps, contracts: cList };
     };
 
     const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) => {
@@ -172,19 +309,32 @@ export function ThemThuChiModal({ isOpen, onClose, onSuccess, mode, initialData,
 
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
+        if (formData.loaiPhieu === 'Phiếu chi' && !String(formData.nhanSuId || '').trim()) {
+            alert('Vui lòng chọn nhân sự cho phiếu chi.');
+            return;
+        }
         setIsSaving(true);
         try {
-            const nguoiEmp = formData.nguoiNhanId
-                ? employees.find((e) => e.id === formData.nguoiNhanId)
+            const hid = String(formData.hopDongId || '').trim();
+            const hopContract = hid
+                ? contracts.find(
+                      (c) =>
+                          String(c.id || '') === hid ||
+                          String(c.hop_dong_row_id || '') === hid,
+                  )
                 : null;
+            const hopDongPayload = hopContract
+                ? String(hopContract.hop_dong_row_id || hopContract.id || '').trim() || null
+                : hid || null;
             const payload = {
                 du_an_id: formData.duAnId || null,
-                hop_dong_id: formData.hopDongId || null,
+                hop_dong_id: hopDongPayload,
                 loai_phieu: formData.loaiPhieu,
                 so_tien: formData.soTien,
                 ngay: formData.ngayTienVe,
                 noi_dung: formData.noiDung || null,
-                nguoi_nhan: nguoiEmp ? tenLuuNguoiNhan(nguoiEmp) : null,
+                nhan_su_id: formData.loaiPhieu === 'Phiếu chi' ? String(formData.nhanSuId).trim() || null : null,
+                nguoi_nhan: null,
                 hang_muc_chi: formData.loaiPhieu === 'Phiếu chi' ? formData.hangMucChi : null,
             };
 
@@ -237,6 +387,14 @@ export function ThemThuChiModal({ isOpen, onClose, onSuccess, mode, initialData,
                                 {mode === 'edit' ? 'Cập nhật chứng từ' : 'Lập phiếu mới'}
                             </h2>
                             <p className="text-xs text-slate-500">Thông tin chứng từ tài chính chi tiết</p>
+                            {customerScope?.ten_don_vi?.trim() ? (
+                                <p className="text-xs text-indigo-700 font-medium mt-1">
+                                    Phiếu cho khách:{' '}
+                                    <span className="font-bold">{customerScope.ten_don_vi.trim()}</span>
+                                    {' — '}
+                                    chỉ chọn dự án của khách này.
+                                </p>
+                            ) : null}
                         </div>
                     </div>
                     <button onClick={onClose} className="p-2 hover:bg-slate-100 rounded-xl text-slate-400 hover:text-slate-600 transition-colors">
@@ -259,6 +417,7 @@ export function ThemThuChiModal({ isOpen, onClose, onSuccess, mode, initialData,
                                             ...prev,
                                             loaiPhieu: v,
                                             hangMucChi: v === 'Phiếu chi' ? prev.hangMucChi : 'chi_du_an',
+                                            nhanSuId: v === 'Phiếu thu' ? '' : prev.nhanSuId,
                                         }));
                                     }}
                                     className="w-full px-4 py-3 bg-white border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500/10 focus:border-indigo-500 text-sm text-slate-800 transition-all hover:border-slate-300 shadow-sm"
@@ -312,14 +471,30 @@ export function ThemThuChiModal({ isOpen, onClose, onSuccess, mode, initialData,
                                                 hopDongId: '',
                                             }))
                                         }
-                                        className="w-full pl-11 pr-4 py-3 bg-white border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500/10 focus:border-indigo-500 text-sm text-slate-800 transition-all hover:border-slate-300 shadow-sm"
+                                        disabled={scopedNoProjects}
+                                        className="w-full pl-11 pr-4 py-3 bg-white border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500/10 focus:border-indigo-500 text-sm text-slate-800 transition-all hover:border-slate-300 shadow-sm disabled:bg-slate-50 disabled:text-slate-500"
                                     >
-                                        <option value="">— Không thuộc dự án —</option>
-                                        {projects.map(p => (
-                                            <option key={p.id} value={p.id}>{p.ten_du_an}</option>
+                                        <option value="">
+                                            {scopedNoProjects
+                                                ? '— Khách chưa có dự án —'
+                                                : '— Chọn dự án —'}
+                                        </option>
+                                        {projectsForSelect.map((p) => (
+                                            <option key={p.id} value={p.id}>
+                                                {p.ten_du_an}
+                                            </option>
                                         ))}
                                     </select>
                                 </div>
+                                {scopedNoProjects ? (
+                                    <p className="text-[11px] text-amber-800 font-medium ml-1">
+                                        Thêm dự án ở tab Dự án (chi tiết khách hàng) trước khi lập phiếu.
+                                    </p>
+                                ) : (
+                                    <p className="text-[11px] text-slate-400 ml-1">
+                                        Hợp đồng chỉ hiển thị sau khi chọn dự án.
+                                    </p>
+                                )}
                             </div>
 
                             <div className="space-y-1.5 md:col-span-1">
@@ -330,15 +505,25 @@ export function ThemThuChiModal({ isOpen, onClose, onSuccess, mode, initialData,
                                         name="hopDongId"
                                         value={formData.hopDongId}
                                         onChange={handleChange}
-                                        className="w-full pl-11 pr-4 py-3 bg-white border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500/10 focus:border-indigo-500 text-sm text-slate-800 transition-all hover:border-slate-300 shadow-sm"
+                                        disabled={scopedNoProjects || !String(formData.duAnId || '').trim()}
+                                        className="w-full pl-11 pr-4 py-3 bg-white border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500/10 focus:border-indigo-500 text-sm text-slate-800 transition-all hover:border-slate-300 shadow-sm disabled:bg-slate-50 disabled:text-slate-500"
                                     >
-                                        <option value="">— Không thuộc hợp đồng —</option>
-                                        {contracts
-                                            .filter(c => !formData.duAnId || c.du_an_id === formData.duAnId)
-                                            .map(c => (
-                                                <option key={c.id || ''} value={c.id || ''}>{c.so_hop_dong}</option>
-                                            ))
-                                        }
+                                        <option value="">
+                                            {!String(formData.duAnId || '').trim()
+                                                ? '— Chọn dự án trước —'
+                                                : contractsForSelect.length === 0
+                                                  ? '— Không có HĐ cho dự án này —'
+                                                  : '— Không gắn hợp đồng —'}
+                                        </option>
+                                        {contractsForSelect.map((c) => {
+                                            const v = contractSelValue(c);
+                                            if (!v) return null;
+                                            return (
+                                                <option key={v} value={v}>
+                                                    {c.so_hop_dong || c.ten_goi_thau || v}
+                                                </option>
+                                            );
+                                        })}
                                     </select>
                                 </div>
                             </div>
@@ -478,18 +663,20 @@ export function ThemThuChiModal({ isOpen, onClose, onSuccess, mode, initialData,
                                 </div>
                             )}
 
-                            <div className="space-y-1.5 md:col-span-2">
-                                <label className="text-[11px] font-bold text-slate-500 uppercase tracking-wider ml-1">
-                                    {formData.loaiPhieu === 'Phiếu thu' ? 'Người nộp' : 'Người nhận'} (nhân sự)
-                                </label>
-                                <NhanSuTenAnhPicker
-                                    value={formData.nguoiNhanId}
-                                    onChange={(id) => setFormData((prev) => ({ ...prev, nguoiNhanId: id }))}
-                                    employees={employees}
-                                    placeholder={`Chọn nhân sự (${formData.loaiPhieu === 'Phiếu thu' ? 'nộp' : 'nhận'})`}
-                                    className="rounded-xl border border-slate-200 shadow-sm [&_button]:rounded-xl [&_button]:py-2.5 [&_button]:border-slate-200"
-                                />
-                            </div>
+                            {formData.loaiPhieu === 'Phiếu chi' && (
+                                <div className="space-y-1.5 md:col-span-2">
+                                    <label className="text-[11px] font-bold text-slate-500 uppercase tracking-wider ml-1">
+                                        Nhân sự <span className="text-red-500">*</span>
+                                    </label>
+                                    <NhanSuTenAnhPicker
+                                        value={formData.nhanSuId}
+                                        onChange={(id) => setFormData((prev) => ({ ...prev, nhanSuId: id }))}
+                                        employees={employees}
+                                        placeholder="Chọn nhân sự"
+                                        className="rounded-xl border border-slate-200 shadow-sm [&_button]:rounded-xl [&_button]:py-2.5 [&_button]:border-slate-200"
+                                    />
+                                </div>
+                            )}
 
                             <div className="space-y-1.5 md:col-span-2">
                                 <label className="text-[11px] font-bold text-slate-500 uppercase tracking-wider ml-1">Nội dung / Diễn giải</label>

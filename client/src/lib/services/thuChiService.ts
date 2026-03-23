@@ -25,7 +25,8 @@ export interface ThuChiRow {
   ten_du_an?: string | null;
   so_hop_dong?: string | null;
   nhan_su_ten?: string | null; // Tên nhân sự từ join
-  nhan_su_code?: string | null; // Mã nhân sự từ join
+  nhan_su_code?: string | null; // Mã nhân sự từ join (chỉ dùng nội bộ / lọc)
+  nhan_su_anh?: string | null; // Ảnh nhân sự từ join
 }
 
 export const thuChiService = {
@@ -68,11 +69,12 @@ export const thuChiService = {
 
       // Load nhân sự để map
       const employees = await employeeService.getAll();
-      const employeeMap = new Map<string, { name: string; code: string }>();
+      const employeeMap = new Map<string, { name: string; code: string; anh: string | null }>();
       employees.forEach(emp => {
         const name = emp.full_name || emp.name || emp.hoTen || '';
         const code = emp.code || '';
-        employeeMap.set(emp.id.toString(), { name, code });
+        const anh = emp.anh_nhan_su || null;
+        employeeMap.set(emp.id.toString(), { name, code, anh });
       });
 
       // Map dữ liệu để lấy ten_du_an, so_hop_dong và thông tin nhân sự
@@ -84,6 +86,7 @@ export const thuChiService = {
           so_hop_dong: row.hop_dong_id ? (contractMap.get(row.hop_dong_id) || null) : null,
           nhan_su_ten: employee?.name || null,
           nhan_su_code: employee?.code || null,
+          nhan_su_anh: employee?.anh ?? null,
           ngay_tien_ve: row.ngay || null, // Alias cho ngay
         };
       }) as ThuChiRow[];

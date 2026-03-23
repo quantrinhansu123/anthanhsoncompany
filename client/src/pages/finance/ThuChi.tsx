@@ -37,6 +37,9 @@ import { employeeService } from '../../lib/services/employeeService';
 import { customerService, type Customer } from '../../lib/services/customerService';
 import { useThuChiModal } from '../../contexts/ThuChiModalContext';
 import { normalizeNguongLoai, tienQuyDoiNguongChiNhanSu } from '../../lib/nguongChiNhanSu';
+import { ExcelImportExportBar } from '../../components/ExcelImportExportBar';
+import type { ExcelColumnDef } from '../../lib/excelTableTools';
+import { parseMoneyVi } from '../../lib/excelTableTools';
 
 interface ToastProps {
     message: string;
@@ -119,6 +122,17 @@ export function ThuChi() {
     const itemsPerPage = 10;
     const [toast, setToast] = useState<{ message: string, type: 'success' | 'error' | 'info' } | null>(null);
 
+    const thuChiExcelColumns: ExcelColumnDef[] = [
+        { key: 'loai_phieu', header: 'Loại phiếu', example: 'Phiếu thu hoặc Phiếu chi' },
+        { key: 'so_tien', header: 'Số tiền', example: '5000000' },
+        { key: 'ngay', header: 'Ngày', example: '2025-03-01' },
+        { key: 'ten_du_an', header: 'Tên dự án', example: 'Khớp tên dự án' },
+        { key: 'noi_dung', header: 'Nội dung', example: 'Ghi chú' },
+        { key: 'hang_muc_chi', header: 'Hạng mục chi', example: 'Chi dự án / Chi nhân sự (phiếu chi)' },
+        { key: 'ten_nhan_su', header: 'Tên nhân sự', example: 'Bắt buộc nếu Phiếu chi' },
+        { key: 'tinh_trang', header: 'Tình trạng phiếu', example: 'Tạm ứng' },
+    ];
+
     const { openChiTietThuChi, openDelete, openThemThuChi } = useThuChiModal();
     const handleEditClick = (item: any) => {
         openThemThuChi('edit', item);
@@ -187,28 +201,30 @@ export function ThuChi() {
                 projectInfoMap.set(p.id, { ten_du_an: p.ten_du_an || null, customer_id: p.customer_id || null, customer_name: p.customer_name || null });
             });
 
-            const mappedData = data.map(item => ({
-                ...item,
-                code: item.id.substring(0, 8).toUpperCase(), // Mã chứng từ từ ID
-                date: item.ngay ? new Date(item.ngay).toLocaleDateString('vi-VN') : '',
-                dateTime: item.created_at ? new Date(item.created_at).toLocaleString('vi-VN') : '', // Ngày giờ ghi nhận
-                type: item.loai_phieu,
-                amount: new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND' }).format(item.so_tien),
-                description: item.noi_dung || '',
-                hang_muc_display:
-                    item.loai_phieu === 'Phiếu chi'
-                        ? item.hang_muc_chi === 'chi_du_an'
-                            ? 'Chi dự án'
-                            : item.hang_muc_chi === 'chi_nhan_su'
-                              ? 'Chi nhân sự'
-                              : '—'
-                        : '—',
-                person: item.nguoi_nhan || '',
-                ten_du_an: item.ten_du_an || projectInfoMap.get(item.du_an_id || '')?.ten_du_an || '(Chưa có dự án)',
-                customer_id: projectInfoMap.get(item.du_an_id || '')?.customer_id || null,
-                customer_name: projectInfoMap.get(item.du_an_id || '')?.customer_name || null,
-                nhan_su_display: item.nhan_su_ten ? (item.nhan_su_code ? `[${item.nhan_su_code}] ${item.nhan_su_ten}` : item.nhan_su_ten) : null
-            }));
+            const mappedData = data.map((item) => {
+                const nhanSuDisplay = item.nhan_su_ten || null;
+                return {
+                    ...item,
+                    code: item.id.substring(0, 8).toUpperCase(), // Mã chứng từ từ ID
+                    date: item.ngay ? new Date(item.ngay).toLocaleDateString('vi-VN') : '',
+                    dateTime: item.created_at ? new Date(item.created_at).toLocaleString('vi-VN') : '', // Ngày giờ ghi nhận
+                    type: item.loai_phieu,
+                    amount: new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND' }).format(item.so_tien),
+                    description: item.noi_dung || '',
+                    hang_muc_display:
+                        item.loai_phieu === 'Phiếu chi'
+                            ? item.hang_muc_chi === 'chi_du_an'
+                                ? 'Chi dự án'
+                                : item.hang_muc_chi === 'chi_nhan_su'
+                                  ? 'Chi nhân sự'
+                                  : '—'
+                            : '—',
+                    ten_du_an: item.ten_du_an || projectInfoMap.get(item.du_an_id || '')?.ten_du_an || '(Chưa có dự án)',
+                    customer_id: projectInfoMap.get(item.du_an_id || '')?.customer_id || null,
+                    customer_name: projectInfoMap.get(item.du_an_id || '')?.customer_name || null,
+                    nhan_su_display: nhanSuDisplay,
+                };
+            });
             setItems(mappedData);
         } catch (err: any) {
             setError(err.message || 'Có lỗi xảy ra khi tải dữ liệu');
@@ -823,6 +839,83 @@ export function ThuChi() {
                                 </div>
                             </div>
 
+                            <ExcelImportExportBar
+                                className="flex flex-wrap"
+                                columns={thuChiExcelColumns}
+                                templateFileName="mau-thu-chi"
+                                sheetName="Thu chi"
+                                onImport={async (rows) => {
+                                    const errors: string[] = [];
+                                    let ok = 0;
+                                    for (let i = 0; i < rows.length; i++) {
+                                        const r = rows[i];
+                                        const loai = (r.loai_phieu || '').trim();
+                                        if (loai !== 'Phiếu thu' && loai !== 'Phiếu chi') {
+                                            errors.push(`Dòng ${i + 2}: Loại phiếu phải là "Phiếu thu" hoặc "Phiếu chi"`);
+                                            continue;
+                                        }
+                                        if (activeTab === 'thu' && loai !== 'Phiếu thu') {
+                                            errors.push(`Dòng ${i + 2}: đang tab Phiếu thu — chỉ nhập dòng Phiếu thu`);
+                                            continue;
+                                        }
+                                        if (activeTab === 'chi' && loai !== 'Phiếu chi') {
+                                            errors.push(`Dòng ${i + 2}: đang tab Phiếu chi — chỉ nhập dòng Phiếu chi`);
+                                            continue;
+                                        }
+                                        const tenDuAn = (r.ten_du_an || '').trim();
+                                        const proj = projects.find(
+                                            (p) => p.ten_du_an.trim().toLowerCase() === tenDuAn.toLowerCase(),
+                                        );
+                                        if (!tenDuAn || !proj) {
+                                            errors.push(`Dòng ${i + 2}: không tìm thấy dự án "${tenDuAn || '(trống)'}"`);
+                                            continue;
+                                        }
+                                        const soTien = parseMoneyVi(r.so_tien || '0');
+                                        if (soTien <= 0) {
+                                            errors.push(`Dòng ${i + 2}: Số tiền không hợp lệ`);
+                                            continue;
+                                        }
+                                        let nhanSuId: string | null = null;
+                                        if (loai === 'Phiếu chi') {
+                                            const tn = (r.ten_nhan_su || '').trim();
+                                            const emp = employees.find(
+                                                (e) =>
+                                                    (e.full_name || '').trim().toLowerCase() === tn.toLowerCase(),
+                                            );
+                                            if (!tn || !emp) {
+                                                errors.push(`Dòng ${i + 2}: thiếu/không khớp Tên nhân sự`);
+                                                continue;
+                                            }
+                                            nhanSuId = emp.id;
+                                        }
+                                        const hm = (r.hang_muc_chi || '').toLowerCase();
+                                        const hangMuc =
+                                            loai === 'Phiếu chi'
+                                                ? hm.includes('nhân')
+                                                    ? 'chi_nhan_su'
+                                                    : 'chi_du_an'
+                                                : null;
+                                        try {
+                                            await thuChiService.create({
+                                                loai_phieu: loai,
+                                                so_tien: soTien,
+                                                ngay: r.ngay?.trim() || new Date().toISOString().split('T')[0],
+                                                du_an_id: proj.id,
+                                                noi_dung: r.noi_dung?.trim() || null,
+                                                hang_muc_chi: hangMuc,
+                                                nhan_su_id: nhanSuId,
+                                                nguoi_nhan: null,
+                                                tinh_trang_phieu: r.tinh_trang?.trim() || 'Tạm ứng',
+                                            });
+                                            ok++;
+                                        } catch (e: any) {
+                                            errors.push(`Dòng ${i + 2}: ${e?.message || 'Lỗi'}`);
+                                        }
+                                    }
+                                    return { ok, errors };
+                                }}
+                                onDone={() => loadRecords()}
+                            />
                             <button
                                 type="button"
                                 onClick={handleAddClick}
