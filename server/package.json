@@ -6,7 +6,8 @@
   "scripts": {
     "dev": "nodemon --exec tsx src/run-local.ts",
     "start": "tsx src/run-local.ts",
-    "build": "tsc"
+    "build": "tsc",
+    "db:clear": "tsx src/scripts/clear-db.ts"
   },
   "keywords": [],
   "author": "",

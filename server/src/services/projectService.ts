@@ -1,19 +1,33 @@
 import { getSupabase } from '../config/supabase';
 
 export const projectService = {
-  async getAll() {
-    const { data, error } = await getSupabase()
+  async getAll(options: { page?: number; pageSize?: number; search?: string } = {}) {
+    const { page, pageSize, search } = options;
+    const supabase = getSupabase();
+    
+    let query = supabase
       .from('du_an')
       .select(`
         *,
         manager:manager_id(id, full_name, name, hoTen, code, anh_nhan_su),
         executor:executor_id(id, full_name, name, hoTen, code, anh_nhan_su)
-      `)
-      .order('created_at', { ascending: false });
+      `, { count: 'exact' });
+
+    if (search) {
+      query = query.ilike('ten_du_an', `%${search}%`);
+    }
+
+    if (page !== undefined && pageSize !== undefined) {
+      const from = (page - 1) * pageSize;
+      const to = from + pageSize - 1;
+      query = query.range(from, to);
+    }
+
+    const { data, error, count } = await query.order('created_at', { ascending: false });
     
     if (error) throw error;
     
-    return (data || []).map((row: any) => {
+    const rows = (data || []).map((row: any) => {
       const manager = row.manager;
       const executor = row.executor;
       
@@ -34,6 +48,11 @@ export const projectService = {
         executor_img: executorImg
       };
     });
+
+    return {
+      data: rows,
+      total: count || 0
+    };
   },
 
   async getById(id: string) {
@@ -80,5 +99,22 @@ export const projectService = {
     
     if (error) throw error;
     return true;
+  },
+
+  async getByNames(names: string[]) {
+    if (!names || names.length === 0) return [];
+    
+    // Tìm kiếm dự án theo danh sách tên (dùng mảng names)
+    const { data, error } = await getSupabase()
+      .from('du_an')
+      .select(`
+        id, ten_du_an,
+        manager:manager_id(id, full_name, name, hoTen, code, anh_nhan_su),
+        executor:executor_id(id, full_name, name, hoTen, code, anh_nhan_su)
+      `)
+      .in('ten_du_an', names);
+    
+    if (error) throw error;
+    return data || [];
   }
 };

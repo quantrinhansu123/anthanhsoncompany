@@ -51,8 +51,15 @@ export interface ContractRow {
 }
 
 export const contractService = {
-  async getAll(): Promise<ContractRow[]> {
-    return api.get('/contracts');
+  async getAll(options: { page?: number; pageSize?: number; search?: string } = {}): Promise<any> {
+    const params = new URLSearchParams();
+    if (options.page) params.append('page', options.page.toString());
+    if (options.pageSize) params.append('pageSize', options.pageSize.toString());
+    if (options.search) params.append('search', options.search);
+    
+    const queryString = params.toString();
+    const res = await api.get(`/contracts${queryString ? `?${queryString}` : ''}`);
+    return res;
   },
 
   async create(payload: Partial<ContractRow>): Promise<ContractRow | null> {

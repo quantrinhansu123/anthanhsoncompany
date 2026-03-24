@@ -78,5 +78,10 @@ export const projectService = {
   async delete(id: string): Promise<boolean> {
     return api.delete(`/projects/${id}`);
   },
+
+  async getByNames(names: string[]): Promise<Project[]> {
+    if (!names || names.length === 0) return [];
+    return api.post('/projects/by-names', { names });
+  },
 };
 

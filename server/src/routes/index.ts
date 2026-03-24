@@ -34,6 +34,15 @@ const contractController = createGenericController(contractService);
 
 // Projects
 router.get('/projects', projectController.getAll);
+router.post('/projects/by-names', async (req, res) => {
+  try {
+    const { names } = req.body;
+    const data = await projectService.getByNames(names);
+    res.json(data);
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
 router.get('/projects/:id', projectController.getById);
 router.post('/projects', projectController.create);
 router.put('/projects/:id', projectController.update);

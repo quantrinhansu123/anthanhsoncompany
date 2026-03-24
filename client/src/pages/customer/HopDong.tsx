@@ -1,18 +1,25 @@
 import React, { useEffect, useState, useMemo } from 'react';
 import { createPortal } from 'react-dom';
-import { Search, Plus, Eye, Edit, Trash2, X, ChevronDown, FileText, FolderOpen, PlusCircle, User, CheckCircle, BarChart3, Briefcase, Calendar } from 'lucide-react';
+import { Search, Plus, Eye, Edit, Trash2, X, ChevronDown, FileText, FolderOpen, PlusCircle, User, CheckCircle, BarChart3, Briefcase, Calendar, Loader2 } from 'lucide-react';
 import { useSearchParams } from 'react-router-dom';
 import { contractService, ContractRow, ContractFile } from '../../lib/services/contractService';
 import { projectService } from '../../lib/services/projectService';
 import { taskService, TaskRow } from '../../lib/services/taskService';
 import { employeeService } from '../../lib/services/employeeService';
 import { thuChiService } from '../../lib/services/thuChiService';
+import { customerService } from '../../lib/services/customerService';
 import { useHopDongModal } from '../../contexts/HopDongModalContext';
 import type { NguongChiNhanSuLoai } from '../../lib/nguongChiNhanSu';
 import { normalizeNguongLoai, tienQuyDoiNguongChiNhanSu } from '../../lib/nguongChiNhanSu';
 import { ExcelImportExportBar } from '../../components/ExcelImportExportBar';
-import type { ExcelColumnDef } from '../../lib/excelTableTools';
-import { parseMoneyVi } from '../../lib/excelTableTools';
+import {
+    parseExcelToRows,
+    ExcelColumnDef,
+    parseExcelDate,
+    parseMoneyVi,
+    cleanString,
+    normalizeKey
+} from '../../lib/excelTableTools';
 
 interface Contract {
     id: number;
@@ -107,9 +114,19 @@ export function HopDong() {
     const [projects, setProjects] = useState<Array<{ id: string; ten_du_an: string }>>([]);
     const [employees, setEmployees] = useState<Array<{ id: string; full_name: string; code: string; anh_nhan_su?: string | null }>>([]);
     const [searchTerm, setSearchTerm] = useState('');
+    const [debouncedSearch, setDebouncedSearch] = useState('');
     const [viewMode, setViewMode] = useState<'table' | 'folder'>('table');
     const [selectedFolderProjectId, setSelectedFolderProjectId] = useState<number | null>(null);
     const [expandedProjects, setExpandedProjects] = useState<number[]>([]);
+
+    // Pagination states
+    const [page, setPage] = useState(1);
+    const [pageSize] = useState(50);
+    const [totalContracts, setTotalContracts] = useState(0);
+    const [hasMore, setHasMore] = useState(true);
+    const [isLoading, setIsLoading] = useState(false);
+    const [totalGiaTriQT, setTotalGiaTriQT] = useState(0);
+    const [totalDaThu, setTotalDaThu] = useState(0);
 
     // Filter states
     const [selectedDuAnIds, setSelectedDuAnIds] = useState<Set<string>>(new Set());
@@ -122,22 +139,38 @@ export function HopDong() {
     } | null>(null);
     const [reloadKey, setReloadKey] = useState(0);
 
+    // Debounce search
+    useEffect(() => {
+        const timer = setTimeout(() => {
+            setDebouncedSearch(searchTerm);
+            setPage(1); // Reset page on search
+        }, 500);
+        return () => clearTimeout(timer);
+    }, [searchTerm]);
+
     const hopDongExcelColumns: ExcelColumnDef[] = [
-        { key: 'project_name', header: 'Tên dự án', example: 'Khớp tên dự án hệ thống' },
-        { key: 'so_hop_dong', header: 'Số hợp đồng', example: 'HĐ-01/2025' },
+        { key: 'tt', header: 'TT', example: '1' },
+        { key: 'so_ho_plhd', header: 'Số HĐ & PLHĐ', example: 'HĐ-01/2025' },
+        { key: 'ngay_ky_hd', header: 'Ngày', example: '15/01' }, // Định dạng ngày/tháng
+        { key: 'nam_ky_hd', header: 'Năm', example: '2025' },  // Định dạng năm đầy đủ (YYYY)
+        { key: 'ten_da', header: 'Tên DA', example: 'Khớp tên dự án hệ thống' },
         { key: 'ten_goi_thau', header: 'Tên gói thầu', example: 'Gói thi công' },
-        { key: 'ngay_ky_hd', header: 'Ngày ký HĐ', example: '2025-01-15' },
-        { key: 'gia_tri_hd', header: 'Giá trị HĐ', example: '1000000000' },
-        { key: 'gia_tri_qt', header: 'Giá trị quyết toán', example: '1000000000' },
-        { key: 'trang_thai', header: 'Trạng thái', example: 'Đang thực hiện' },
-        { key: 'ten_day_du_chu_dau_tu', header: 'Chủ đầu tư', example: 'Công ty ABC' },
-        { key: 'mst', header: 'MST chủ đầu tư', example: '0123456789' },
-        { key: 'dia_chi_tai_thoi_diem_ky', header: 'Địa chỉ CĐT', example: 'Hà Nội' },
-        { key: 'dai_dien_ben_a', header: 'Đại diện bên A', example: 'Nguyễn Văn A' },
-        { key: 'chuc_vu_dai_dien_a', header: 'Chức vụ đại diện A', example: 'Giám đốc' },
-        { key: 'nguoi_dai_dien_ky', header: 'Người đại diện ký', example: 'Trần Văn B' },
-        { key: 'loai_cong_trinh', header: 'Loại công trình', example: 'Dân dụng' },
-        { key: 'cap_cong_trinh', header: 'Cấp công trình', example: 'Cấp 1' },
+        { key: 'loai_dv', header: 'Loại DV', example: 'Tư vấn' },
+        { key: 'gia_hd_plhd', header: 'Giá HĐ/PLHĐ', example: '1000000000' },
+        { key: 'gia_xuat_hd', header: 'Giá xuất HĐ', example: '1000000000' },
+        { key: 'cdt_thanh_toan', header: 'CĐT thanh toán', example: '500000000' },
+        { key: 'cdt_no', header: 'CĐT nợ', example: '500000000' },
+        { key: 'cdt_tam_ung', header: 'CĐT tạm ứng', example: '0' },
+        { key: 'noi_dung_xuat_hoa_don', header: 'Nội dung xuất hóa đơn', example: 'Thanh toán đợt 1' },
+        { key: 'thong_tin_kh', header: 'Thông tin KH', example: 'Công ty ABC' },
+        { key: 'mst_kh', header: 'MST KH', example: '0123456789' },
+        { key: 'so_hd_xuat', header: 'Số HĐ', example: '0000123' },
+        { key: 'ngay_xuat_hoa_don', header: 'Ngày xuất Hóa đơn', example: '20/01/2025' },
+        { key: 'nam_xuat_hoa_don', header: 'Năm xuất Hóa đơn', example: '2025' },
+        { key: 'ghi_chu_co', header: 'Ghi chú/Có', example: '' },
+        { key: 'ghi_chu_chua_co', header: 'Ghi chú/Chưa có', example: '' },
+        { key: 'ngay_tien_ve', header: 'Ngày tiền về', example: '25/01/2025' },
+        { key: 'ngay_kiem_tra_hs', header: 'Ngày kiểm tra HS', example: '10/01/2025' },
     ];
     const [tasksByContract, setTasksByContract] = useState<Map<string, TaskRow[]>>(new Map());
     const [allContracts, setAllContracts] = useState<any[]>([]);
@@ -153,15 +186,14 @@ export function HopDong() {
         );
     };
 
-    // Initial data loading
+    // Load metadata (projects, employees, tasks) once
     useEffect(() => {
         (async () => {
             try {
-                const [projectList, employeeList, contractRows, allThuChi] = await Promise.all([
+                const [projectList, employeeList, allTasks] = await Promise.all([
                     projectService.getAll(),
                     employeeService.getAll(),
-                    contractService.getAll(),
-                    thuChiService.getAll()
+                    taskService.getAll()
                 ]);
 
                 setProjects(projectList.map(p => ({ id: p.id, ten_du_an: p.ten_du_an })));
@@ -171,6 +203,40 @@ export function HopDong() {
                     code: emp.code || '',
                     anh_nhan_su: (emp as any).anh_nhan_su || null
                 })));
+
+                const tasksMap = new Map<string, TaskRow[]>();
+                ((allTasks as any).data || allTasks).forEach((t: TaskRow) => {
+                    if (t.hop_dong_id) {
+                        const list = tasksMap.get(t.hop_dong_id) || [];
+                        list.push(t);
+                        tasksMap.set(t.hop_dong_id, list);
+                    }
+                });
+                setTasksByContract(tasksMap);
+            } catch (error) {
+                console.error("[HopDong] Error loading metadata:", error);
+            }
+        })();
+    }, []);
+
+    // Load paged contracts
+    useEffect(() => {
+        (async () => {
+            try {
+                setIsLoading(true);
+                const [response, allThuChi] = await Promise.all([
+                    contractService.getAll({ 
+                        page, 
+                        pageSize, 
+                        search: debouncedSearch 
+                    }),
+                    thuChiService.getAll()
+                ]);
+
+                const contractRows = response.data || [];
+                const total = response.total || 0;
+                setTotalContracts(total);
+                setHasMore(contractRows.length === pageSize);
 
                 // Calculate "Đã thu" map
                 const thuChiMap = new Map<string, number>();
@@ -221,38 +287,53 @@ export function HopDong() {
                             nhanSuTen: c.nhan_su_ten || null,
                             nhanSuCode: c.nhan_su_code || null,
                             tenDayDuChuDauTu: c.ten_day_du_chu_dau_tu || null,
-                            daiDienBenA: c.dai_dien_ben_a || null,
-                            chucVuDaiDienA: c.chuc_vu_dai_dien_a || null,
+                            dai_dien_ben_a: c.dai_dien_ben_a || null,
+                            chuc_vu_dai_dien_a: c.chuc_vu_dai_dien_a || null,
                             mst: c.mst || null,
-                            diaChiTaiThoiDiemKy: c.dia_chi_tai_thoi_diem_ky || null,
-                        };
+                            dia_chi_tai_thoi_diem_ky: c.dia_chi_tai_thoi_diem_ky || null,
+                        } as any;
                     }),
                 }));
 
-                setAllContracts(contractRows);
-                setItems(projectGroups);
-                setExpandedProjects(projectGroups.map(p => p.id));
+                if (page === 1) {
+                    setItems(projectGroups);
+                    setAllContracts(contractRows);
+                    setExpandedProjects(projectGroups.map(p => p.id));
+                } else {
+                    setItems(prev => {
+                        const newItems = [...prev];
+                        projectGroups.forEach(g => {
+                            const existing = newItems.find(p => p.projectName === g.projectName);
+                            if (existing) {
+                                existing.contracts = [...existing.contracts, ...g.contracts];
+                            } else {
+                                newItems.push({ ...g, id: newItems.length + 1 });
+                            }
+                        });
+                        return newItems;
+                    });
+                    setAllContracts(prev => [...prev, ...contractRows]);
+                }
 
-                // Load tasks for progress
-                const tasksMap = new Map<string, TaskRow[]>();
-                await Promise.all(contractRows.map(async (row) => {
-                    try {
-                        const contractTasks = await taskService.getByHopDongId(row.id);
-                        tasksMap.set(row.id, contractTasks);
-                    } catch (e) {
-                        tasksMap.set(row.id, []);
-                    }
-                }));
-                setTasksByContract(tasksMap);
+                // Calculate totals (approximate for display)
+                if (page === 1) {
+                    setTotalGiaTriQT(contractRows.reduce((s: number, c: any) => s + Number(c.gia_tri_qt || 0), 0));
+                    setTotalDaThu(contractRows.reduce((s: number, c: any) => s + (thuChiMap.get(c.id) || 0), 0));
+                } else {
+                    setTotalGiaTriQT(prev => prev + contractRows.reduce((s: number, c: any) => s + Number(c.gia_tri_qt || 0), 0));
+                    setTotalDaThu(prev => prev + contractRows.reduce((s: number, c: any) => s + (thuChiMap.get(c.id) || 0), 0));
+                }
+
             } catch (error) {
-                console.error("[HopDong] Error loading data:", error);
+                console.error("[HopDong] Error loading paged data:", error);
+            } finally {
+                setIsLoading(false);
             }
         })();
-    }, [reloadKey]);
+    }, [page, debouncedSearch, reloadKey]);
 
     // Memoized filtered items
     const filteredItems = useMemo(() => {
-        const searchLower = searchTerm.toLowerCase();
         return items.filter(project => {
             if (filterFromUrl && project.projectName !== filterFromUrl) return false;
 
@@ -264,17 +345,11 @@ export function HopDong() {
         }).map(project => ({
             ...project,
             contracts: project.contracts.filter(c => {
-                const matchesSearch = !searchTerm ||
-                    c.soHopDong.toLowerCase().includes(searchLower) ||
-                    c.tenGoiThau.toLowerCase().includes(searchLower) ||
-                    c.loaiDichVu.toLowerCase().includes(searchLower) ||
-                    project.projectName.toLowerCase().includes(searchLower);
-
                 const matchesContract = selectedHopDongIds.size === 0 || (c.uuid && selectedHopDongIds.has(c.uuid));
-                return matchesSearch && matchesContract;
+                return matchesContract;
             })
-        })).filter(project => project.contracts.length > 0 || project.projectName.toLowerCase().includes(searchLower));
-    }, [items, filterFromUrl, selectedDuAnIds, selectedHopDongIds, searchTerm, projects]);
+        })).filter(project => project.contracts.length > 0);
+    }, [items, filterFromUrl, selectedDuAnIds, selectedHopDongIds, projects]);
 
     // Handle Folder selection effect
     useEffect(() => {
@@ -355,17 +430,122 @@ export function HopDong() {
                             sheetName="Hop dong"
                             onImport={async (rows) => {
                                 try {
-                                    // Map Excel keys to database fields and parse numbers
-                                    const processedRows = rows.map(r => ({
-                                        ...r,
-                                        gia_tri_hd: parseMoneyVi(r.gia_tri_hd || '0'),
-                                        gia_tri_qt: parseMoneyVi(r.gia_tri_qt || '0'),
-                                    }));
-                                    
-                                    const result = await contractService.bulkImport(processedRows);
+                                    // Map dữ liệu để xử lý nhanh hơn (sẽ fetch theo batch bên dưới)
+                                    const customerMap = new Map<string, any>(); // normalizeKey -> id
+                                    const projectMap = new Map<string, any>(); // normalizeKey -> id
+
+                                    // Lấy Map dữ liệu để xử lý nhanh hơn
+                                    const getOrCreateCustomer = async (r: any) => {
+                                        const customerName = cleanString(r.thong_tin_kh);
+                                        if (!customerName) return null;
+                                        
+                                        const normName = normalizeKey(customerName);
+                                        if (customerMap.has(normName)) return customerMap.get(normName);
+
+                                        try {
+                                            const newC = await customerService.create({
+                                                ten_don_vi: customerName, // Lưu với hoa thường chuẩn NFC
+                                                mst: (r.mst_kh || '').trim() || undefined
+                                            });
+                                            if (newC?.id) {
+                                                customerMap.set(normName, newC.id);
+                                                return newC.id;
+                                            }
+                                        } catch (e: any) {
+                                            console.error('Error creating customer:', e);
+                                            throw new Error(`Lỗi khi tạo khách hàng "${customerName}": ${e.message || 'Không rõ nguyên nhân'}`);
+                                        }
+                                    };
+
+                                    const getOrCreateProject = async (r: any, customerId: any) => {
+                                        const projectName = cleanString(r.ten_da);
+                                        if (!projectName) return null;
+
+                                        const normProject = normalizeKey(projectName);
+                                        if (projectMap.has(normProject)) return projectMap.get(normProject);
+
+                                        try {
+                                            const newP = await projectService.create({
+                                                ten_du_an: projectName, // Lưu với hoa thường chuẩn NFC
+                                                status: 'Đang thực hiện',
+                                                progress: 0,
+                                                customer_id: customerId,
+                                                ten_khach_hang: (r.thong_tin_kh || '').trim() || null,
+                                            });
+                                            if (newP?.id) {
+                                                projectMap.set(normProject, newP.id);
+                                                return newP.id;
+                                            }
+                                        } catch (e: any) {
+                                            console.error('Error creating project:', e);
+                                            // Chuyển lỗi này thành một phần của báo cáo lỗi thay vì nuốt chửng nó
+                                            throw new Error(`Lỗi khi tạo dự án "${projectName}": ${e.message || 'Không rõ nguyên nhân'}`);
+                                        }
+                                    };
+                                    // Xử lý theo từng lô (Batching) để tránh timeout
+                                    const BATCH_SIZE = 20;
+                                    let totalOk = 0;
+                                    let allErrors: string[] = [];
+
+                                    for (let i = 0; i < rows.length; i += BATCH_SIZE) {
+                                        const chunk = rows.slice(i, i + BATCH_SIZE);
+                                        
+                                            const batchCustomerNames = Array.from(new Set(chunk.map(r => cleanString(r.thong_tin_kh)).filter(Boolean)));
+                                            if (batchCustomerNames.length > 0) {
+                                                const batchCustomers = await customerService.getByNames(batchCustomerNames);
+                                                batchCustomers.forEach((c: any) => {
+                                                    customerMap.set(normalizeKey(c.ten_don_vi), c.id);
+                                                });
+                                            }
+
+                                            // 2. Tra cứu các dự án hiện có trong Lô hàng này
+                                            const batchProjectNames = Array.from(new Set(chunk.map(r => cleanString(r.ten_da)).filter(Boolean)));
+                                            if (batchProjectNames.length > 0) {
+                                                const batchProjects = await projectService.getByNames(batchProjectNames);
+                                                batchProjects.forEach((p: any) => {
+                                                    projectMap.set(normalizeKey(p.ten_du_an), p.id);
+                                                });
+                                            }
+
+                                        const processedChunk = [];
+
+                                        if (i === 0) console.log("[Excel Debug] First chunk raw data:", chunk);
+
+                                        for (const r of chunk) {
+                                            const customerId = await getOrCreateCustomer(r);
+                                            const duAnId = await getOrCreateProject(r, customerId);
+
+                                            processedChunk.push({
+                                                ...r,
+                                                __rowNumber: r.__rowNumber, // Truyền số dòng Excel lên server
+                                                du_an_id: duAnId,
+                                                customer_id: customerId,
+                                                gia_tri_hd: parseMoneyVi(r.gia_hd_plhd || '0'),
+                                                gia_tri_qt: parseMoneyVi(r.gia_xuat_hd || '0'),
+                                                da_thu: parseMoneyVi(r.cdt_thanh_toan || '0'),
+                                                con_phai_thu: parseMoneyVi(r.cdt_no || '0'),
+                                                so_hop_dong: (r.so_ho_plhd || '').trim(),
+                                                project_name: cleanString(r.ten_da),
+                                                ten_goi_thau: cleanString(r.ten_goi_thau),
+                                                loai_dich_vu: cleanString(r.loai_dv),
+                                                ten_day_du_chu_dau_tu: cleanString(r.thong_tin_kh),
+                                                mst: (r.mst_kh || '').trim(),
+                                                ngay_ky_hd: parseExcelDate(r.ngay_ky_hd, r.nam_ky_hd),
+                                            });
+                                        }
+
+                                        // Gửi lên server từng lô
+                                        const result = await contractService.bulkImport(processedChunk);
+                                        totalOk += (result.created + result.updated);
+                                        if (result.errors.length > 0) {
+                                            // Đã có số dòng Excel chính xác từ server, không cần ghi thêm Lô nữa cho đỡ rối
+                                            allErrors.push(...result.errors);
+                                        }
+                                    }
+
                                     return {
-                                        ok: result.created + result.updated,
-                                        errors: result.errors
+                                        ok: totalOk,
+                                        errors: allErrors
                                     };
                                 } catch (e: any) {
                                     return { ok: 0, errors: [e?.message || 'Lỗi kết nối server'] };
@@ -397,21 +577,21 @@ export function HopDong() {
                             <div className="p-2 rounded-md bg-white border border-slate-200 text-slate-600"><Briefcase size={18} /></div>
                             <div>
                                 <div className="text-[10px] font-semibold text-slate-500 uppercase">Hợp đồng</div>
-                                <div className="font-bold text-slate-800">{items.reduce((sum, p) => sum + p.contracts.length, 0)}</div>
+                                <div className="font-bold text-slate-800">{totalContracts}</div>
                             </div>
                         </div>
                         <div className="flex items-center gap-3">
                             <div className="p-2 rounded-md bg-white border border-slate-200 text-emerald-600"><BarChart3 size={18} /></div>
                             <div>
                                 <div className="text-[10px] font-semibold text-slate-500 uppercase">Tổng quyết toán</div>
-                                <div className="font-bold text-slate-800">{formatCurrency(items.reduce((sum, p) => sum + p.contracts.reduce((s, c) => s + c.giaTriQT, 0), 0))} đ</div>
+                                <div className="font-bold text-slate-800">{formatCurrency(totalGiaTriQT)} đ</div>
                             </div>
                         </div>
                         <div className="flex items-center gap-3">
                             <div className="p-2 rounded-md bg-white border border-slate-200 text-amber-600"><CheckCircle size={18} /></div>
                             <div>
                                 <div className="text-[10px] font-semibold text-slate-500 uppercase">Đã thu</div>
-                                <div className="font-bold text-emerald-700">{formatCurrency(items.reduce((sum, p) => sum + p.contracts.reduce((s, c) => s + c.daThu, 0), 0))} đ</div>
+                                <div className="font-bold text-emerald-700">{formatCurrency(totalDaThu)} đ</div>
                             </div>
                         </div>
                     </div>
@@ -608,6 +788,24 @@ export function HopDong() {
                                         })}
                                     </React.Fragment>
                                 ))}
+                                {hasMore && (
+                                    <tr>
+                                        <td colSpan={7} className="py-4 px-2 text-center border-t border-slate-100">
+                                            <button
+                                                type="button"
+                                                onClick={(e) => {
+                                                    e.stopPropagation();
+                                                    setPage(p => p + 1);
+                                                }}
+                                                disabled={isLoading}
+                                                className="px-6 py-2 text-sm font-bold text-blue-600 bg-blue-50 hover:bg-blue-100 rounded-full transition-colors border border-blue-200 disabled:opacity-50 inline-flex items-center gap-2"
+                                            >
+                                                {isLoading ? <Loader2 size={16} className="animate-spin" /> : null}
+                                                {isLoading ? 'Đang tải...' : 'Xem thêm hợp đồng'}
+                                            </button>
+                                        </td>
+                                    </tr>
+                                )}
                             </tbody>
                         </table>
                     </div>

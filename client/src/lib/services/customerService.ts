@@ -153,5 +153,25 @@ export const customerService = {
       console.error('Exception in delete:', err);
       throw err;
     }
+  },
+
+  async getByNames(names: string[]) {
+    if (!names || names.length === 0) return [];
+    try {
+      const { data, error } = await supabase
+        .from('khach_hang')
+        .select('*')
+        .in('ten_don_vi', names);
+      
+      if (error) {
+        console.error('Error fetching customers by names:', error);
+        throw error;
+      }
+      
+      return data || [];
+    } catch (err) {
+      console.error('Exception in getByNames:', err);
+      throw err;
+    }
   }
 };

@@ -3,8 +3,20 @@ import type { Request, Response } from 'express';
 export const createGenericController = (service: any) => ({
   async getAll(req: Request, res: Response) {
     try {
-      const data = await service.getAll();
-      res.json(data);
+      const isPaged = req.query.page !== undefined;
+      const options = {
+        page: req.query.page ? Number(req.query.page) : undefined,
+        pageSize: req.query.pageSize ? Number(req.query.pageSize) : undefined,
+        search: req.query.search as string | undefined
+      };
+      const result = await service.getAll(options);
+      
+      if (isPaged) {
+        res.json(result);
+      } else {
+        // Backward compatibility: return only the array if not paged
+        res.json(result.data || result);
+      }
     } catch (error: any) {
       res.status(500).json({ error: error.message });
     }

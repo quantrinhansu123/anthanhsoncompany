@@ -1,14 +1,29 @@
 import { getSupabase } from '../config/supabase';
 
 export const taskService = {
-  async getAll() {
-    const { data, error } = await getSupabase()
-      .from('task')
-      .select('*')
-      .order('created_at', { ascending: false });
+  async getAll(options: { page?: number; pageSize?: number; search?: string } = {}) {
+    const { page, pageSize, search } = options;
+    const supabase = getSupabase();
+    
+    let query = supabase.from('task').select('*', { count: 'exact' });
+
+    if (search) {
+      query = query.ilike('ten_task', `%${search}%`);
+    }
+
+    if (page !== undefined && pageSize !== undefined) {
+      const from = (page - 1) * pageSize;
+      const to = from + pageSize - 1;
+      query = query.range(from, to);
+    }
+
+    const { data, error, count } = await query.order('created_at', { ascending: false });
     
     if (error) throw error;
-    return data || [];
+    return {
+      data: data || [],
+      total: count || 0
+    };
   },
 
   async getByHopDongId(hopDongId: string) {

@@ -1,21 +1,45 @@
 import { getSupabase } from '../config/supabase';
 
+const cleanString = (s: any): string => {
+  return String(s || '')
+    .trim()
+    .normalize('NFC')
+    .replace(/\s+/g, ' ');
+};
+
+const normalizeKey = (s: any): string => {
+  return cleanString(s).toLowerCase();
+};
+
 export const contractService = {
-  async getAll() {
-    // We can use Supabase joins on the server
-    const { data, error } = await getSupabase()
+  async getAll(options: { page?: number; pageSize?: number; search?: string } = {}) {
+    const { page, pageSize, search } = options;
+    const supabase = getSupabase();
+    
+    let query = supabase
       .from('hop_dong')
       .select(`
         *,
         du_an:du_an_id(id, ten_du_an),
         nhan_su:nhan_su_id(id, code, full_name, name, hoTen)
-      `)
-      .order('ngay_ky_hd', { ascending: false });
+      `, { count: 'exact' });
+
+    if (search) {
+      // Search in multiple columns
+      query = query.or(`so_hop_dong.ilike.%${search}%,ten_goi_thau.ilike.%${search}%,project_name.ilike.%${search}%`);
+    }
+
+    if (page !== undefined && pageSize !== undefined) {
+      const from = (page - 1) * pageSize;
+      const to = from + pageSize - 1;
+      query = query.range(from, to);
+    }
+
+    const { data, error, count } = await query.order('ngay_ky_hd', { ascending: false });
     
     if (error) throw error;
 
-    // Process result to match frontend's expected format if necessary
-    return (data || []).map((row: any) => {
+    const rows = (data || []).map((row: any) => {
       const contractId = row.contract_id || row.id;
       const nhanSu = row.nhan_su;
       const duAn = row.du_an;
@@ -27,7 +51,6 @@ export const contractService = {
         ...row,
         id: contractId,
         contract_id: contractId,
-        /** PK bảng hop_dong — thường trùng giá trị lưu trong thu_chi.hop_dong_id (khác contract_id). */
         hop_dong_row_id: row.id,
         project_name: duAn?.ten_du_an || row.project_name || null,
         nhan_su_ten: nhanSuTen,
@@ -35,6 +58,11 @@ export const contractService = {
         nhan_su_ids: Array.isArray(row.nhan_su_ids) ? row.nhan_su_ids : (row.nhan_su_ids ? [row.nhan_su_ids] : [])
       };
     });
+
+    return {
+      data: rows,
+      total: count || 0
+    };
   },
 
   async create(payload: any) {
@@ -126,9 +154,20 @@ export const contractService = {
   async bulkImport(rows: any[]) {
     const supabase = getSupabase();
     
-    // 1. Fetch all projects to map project_name -> du_an_id
-    const { data: projects } = await supabase.from('du_an').select('id, ten_du_an');
-    const projectMap = new Map((projects || []).map(p => [String(p.ten_du_an).trim().toLowerCase(), p.id]));
+    // 1. Trích xuất danh sách tên dự án gốc (NFC) để tra cứu bằng toán tử .in()
+    const projectNames = Array.from(new Set(rows.map(r => cleanString(r.ten_du_an || r.project_name)).filter(Boolean)));
+    
+    // 2. Fetch chỉ những dự án cần thiết (Dùng tên gốc NFC để khớp trong DB)
+    let projects: any[] = [];
+    if (projectNames.length > 0) {
+        const { data } = await supabase
+            .from('du_an')
+            .select('id, ten_du_an')
+            .in('ten_du_an', projectNames);
+        projects = data || [];
+    }
+    // 3. Xây dựng bản đồ dùng khóa chuẩn hóa (lowercase) để tra cứu không phân biệt hoa thường
+    const projectMap = new Map(projects.map(p => [normalizeKey(p.ten_du_an), p.id]));
 
     const results = {
       created: 0,
@@ -138,28 +177,33 @@ export const contractService = {
 
     for (let i = 0; i < rows.length; i++) {
       const row = rows[i];
+      // Ưu tiên lấy số dòng thực tế từ Excel do client gửi lên
+      const rowSuffix = row.__rowNumber ? `Excel Dòng ${row.__rowNumber}` : `Dòng ${i + 2}`;
+      
       try {
         const soHopDong = String(row.so_hop_dong || '').trim();
         if (!soHopDong) {
-          results.errors.push(`Dòng ${i + 2}: Thiếu số hợp đồng.`);
+          results.errors.push(`${rowSuffix}: Thiếu số hợp đồng.`);
           continue;
         }
 
         // Map project name to ID
-        const projectName = String(row.ten_du_an || row.project_name || '').trim();
-        let duAnId = null;
-        if (projectName) {
-          duAnId = projectMap.get(projectName.toLowerCase());
-          if (!duAnId) {
-            results.errors.push(`Dòng ${i + 2}: Không tìm thấy dự án "${projectName}".`);
-            continue;
-          }
+        const rawProjectName = String(row.ten_du_an || row.project_name || '').trim();
+        let duAnId = row.du_an_id || null; // Ưu tiên ID từ client đã tra cứu/tạo xong
+        
+        if (!duAnId && rawProjectName) {
+          duAnId = projectMap.get(normalizeKey(rawProjectName));
+        }
+
+        if (rawProjectName && !duAnId) {
+          results.errors.push(`${rowSuffix}: Không tìm thấy dự án "${rawProjectName}".`);
+          continue;
         }
 
         // Prepare data for upsert
         const payload: any = {
           so_hop_dong: soHopDong,
-          project_name: projectName || null,
+          project_name: rawProjectName || null,
           du_an_id: duAnId,
           ten_goi_thau: row.ten_goi_thau || null,
           ngay_ky_hd: row.ngay_ky_hd || null,
@@ -223,7 +267,7 @@ export const contractService = {
           results.created++;
         }
       } catch (err: any) {
-        results.errors.push(`Dòng ${i + 2}: ${err.message}`);
+        results.errors.push(`${rowSuffix}: ${err.message}`);
       }
     }
 
