@@ -50,7 +50,19 @@ export const taskService = {
   async update(id: string, payload: any) {
     const supabase = getSupabase();
     const updatedAt = new Date().toISOString();
-    const taskBody = { ...payload, updated_at: updatedAt };
+    const sanitizeDate = (v: unknown) => {
+      if (v === '' || v === undefined) return null;
+      return v;
+    };
+
+    // Tránh lỗi Postgres: invalid input syntax for type date: ""
+    const taskBody = {
+      ...payload,
+      ngay_bat_dau: sanitizeDate(payload.ngay_bat_dau),
+      ngay_ket_thuc: sanitizeDate(payload.ngay_ket_thuc),
+      ngay_hoan_thanh: sanitizeDate(payload.ngay_hoan_thanh),
+      updated_at: updatedAt,
+    };
 
     const { data: taskRows, error: taskErr } = await supabase
       .from('task')
@@ -67,7 +79,10 @@ export const taskService = {
      */
     const detailPatch: Record<string, unknown> = {};
     const pick = (from: string, to?: string) => {
-      if (payload[from] !== undefined) detailPatch[to || from] = payload[from];
+      if (payload[from] !== undefined) {
+        const v = payload[from];
+        detailPatch[to || from] = v === '' ? null : v;
+      }
     };
     pick('trang_thai');
     pick('tien_do');

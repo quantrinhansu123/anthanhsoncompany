@@ -13,3 +13,4 @@ comment on column public.cong_viec_nhat_ky_nhan_su.quy_trinh_item_id is 'Id bư�
 comment on column public.cong_viec_nhat_ky_nhan_su.ghi_chu is 'Ghi chú thêm';
 comment on column public.cong_viec_nhat_ky_nhan_su.trang_thai is 'Đang làm | Hoàn thành';
 comment on column public.cong_viec_nhat_ky_nhan_su.completed_at is 'Thời điểm duyệt hoàn thành';
+ 
