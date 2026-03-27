@@ -1,6 +1,6 @@
 import React, { useEffect, useState, useMemo } from 'react';
 import { createPortal } from 'react-dom';
-import { Search, Plus, Eye, Edit, Trash2, X, ChevronDown, FileText, FolderOpen, PlusCircle, User, CheckCircle, BarChart3, Briefcase, Calendar, Loader2 } from 'lucide-react';
+import { Search, Plus, Eye, Edit, Trash2, X, ChevronDown, ChevronLeft, ChevronRight, FileText, FolderOpen, PlusCircle, User, CheckCircle, BarChart3, Briefcase, Calendar, Loader2 } from 'lucide-react';
 import { useSearchParams } from 'react-router-dom';
 import { contractService, ContractRow, ContractFile } from '../../lib/services/contractService';
 import { projectService } from '../../lib/services/projectService';
@@ -123,7 +123,6 @@ export function HopDong() {
     const [page, setPage] = useState(1);
     const [pageSize] = useState(50);
     const [totalContracts, setTotalContracts] = useState(0);
-    const [hasMore, setHasMore] = useState(true);
     const [isLoading, setIsLoading] = useState(false);
     const [totalGiaTriQT, setTotalGiaTriQT] = useState(0);
     const [totalDaThu, setTotalDaThu] = useState(0);
@@ -174,6 +173,15 @@ export function HopDong() {
     ];
     const [tasksByContract, setTasksByContract] = useState<Map<string, TaskRow[]>>(new Map());
     const [allContracts, setAllContracts] = useState<any[]>([]);
+
+    const totalPages = useMemo(
+        () => Math.max(1, Math.ceil((totalContracts || 0) / pageSize)),
+        [totalContracts, pageSize]
+    );
+
+    useEffect(() => {
+        if (page > totalPages) setPage(totalPages);
+    }, [page, totalPages]);
 
     const formatCurrency = (amount: number) => {
         if (amount === 0) return '0';
@@ -236,7 +244,6 @@ export function HopDong() {
                 const contractRows = response.data || [];
                 const total = response.total || 0;
                 setTotalContracts(total);
-                setHasMore(contractRows.length === pageSize);
 
                 // Calculate "Đã thu" map
                 const thuChiMap = new Map<string, number>();
@@ -295,34 +302,13 @@ export function HopDong() {
                     }),
                 }));
 
-                if (page === 1) {
-                    setItems(projectGroups);
-                    setAllContracts(contractRows);
-                    setExpandedProjects(projectGroups.map(p => p.id));
-                } else {
-                    setItems(prev => {
-                        const newItems = [...prev];
-                        projectGroups.forEach(g => {
-                            const existing = newItems.find(p => p.projectName === g.projectName);
-                            if (existing) {
-                                existing.contracts = [...existing.contracts, ...g.contracts];
-                            } else {
-                                newItems.push({ ...g, id: newItems.length + 1 });
-                            }
-                        });
-                        return newItems;
-                    });
-                    setAllContracts(prev => [...prev, ...contractRows]);
-                }
+                setItems(projectGroups);
+                setAllContracts(contractRows);
+                setExpandedProjects(projectGroups.map(p => p.id));
 
-                // Calculate totals (approximate for display)
-                if (page === 1) {
-                    setTotalGiaTriQT(contractRows.reduce((s: number, c: any) => s + Number(c.gia_tri_qt || 0), 0));
-                    setTotalDaThu(contractRows.reduce((s: number, c: any) => s + (thuChiMap.get(c.id) || 0), 0));
-                } else {
-                    setTotalGiaTriQT(prev => prev + contractRows.reduce((s: number, c: any) => s + Number(c.gia_tri_qt || 0), 0));
-                    setTotalDaThu(prev => prev + contractRows.reduce((s: number, c: any) => s + (thuChiMap.get(c.id) || 0), 0));
-                }
+                // Tổng QT / đã thu chỉ cho các HĐ trên trang hiện tại (tránh nhầm với toàn hệ thống khi phân trang)
+                setTotalGiaTriQT(contractRows.reduce((s: number, c: any) => s + Number(c.gia_tri_qt || 0), 0));
+                setTotalDaThu(contractRows.reduce((s: number, c: any) => s + (thuChiMap.get(c.id) || 0), 0));
 
             } catch (error) {
                 console.error("[HopDong] Error loading paged data:", error);
@@ -552,6 +538,7 @@ export function HopDong() {
                                 }
                             }}
                             onDone={() => {
+                                setPage(1);
                                 setReloadKey((k) => k + 1);
                                 setToast({
                                     message: 'Đã xử lý nhập Excel hợp đồng.',
@@ -585,6 +572,7 @@ export function HopDong() {
                             <div>
                                 <div className="text-[10px] font-semibold text-slate-500 uppercase">Tổng quyết toán</div>
                                 <div className="font-bold text-slate-800">{formatCurrency(totalGiaTriQT)} đ</div>
+                                <div className="text-[9px] text-slate-400 font-medium normal-case">theo trang hiện tại</div>
                             </div>
                         </div>
                         <div className="flex items-center gap-3">
@@ -592,6 +580,7 @@ export function HopDong() {
                             <div>
                                 <div className="text-[10px] font-semibold text-slate-500 uppercase">Đã thu</div>
                                 <div className="font-bold text-emerald-700">{formatCurrency(totalDaThu)} đ</div>
+                                <div className="text-[9px] text-slate-400 font-medium normal-case">theo trang hiện tại</div>
                             </div>
                         </div>
                     </div>
@@ -699,7 +688,7 @@ export function HopDong() {
                             </thead>
                             <tbody>
                                 {filteredItems.map(group => (
-                                    <React.Fragment key={group.id}>
+                                    <React.Fragment key={`${group.id}-${group.projectName}`}>
                                         <tr onClick={() => toggleProject(group.id)} className="bg-slate-50/80 cursor-pointer hover:bg-slate-100 transition-colors border-b border-slate-200">
                                             <td className="py-2 pl-3 md:pl-5">
                                                 <ChevronDown size={12} className={`text-slate-400 transition-transform ${expandedProjects.includes(group.id) ? '' : '-rotate-90'}`} />
@@ -788,24 +777,6 @@ export function HopDong() {
                                         })}
                                     </React.Fragment>
                                 ))}
-                                {hasMore && (
-                                    <tr>
-                                        <td colSpan={7} className="py-4 px-2 text-center border-t border-slate-100">
-                                            <button
-                                                type="button"
-                                                onClick={(e) => {
-                                                    e.stopPropagation();
-                                                    setPage(p => p + 1);
-                                                }}
-                                                disabled={isLoading}
-                                                className="px-6 py-2 text-sm font-bold text-blue-600 bg-blue-50 hover:bg-blue-100 rounded-full transition-colors border border-blue-200 disabled:opacity-50 inline-flex items-center gap-2"
-                                            >
-                                                {isLoading ? <Loader2 size={16} className="animate-spin" /> : null}
-                                                {isLoading ? 'Đang tải...' : 'Xem thêm hợp đồng'}
-                                            </button>
-                                        </td>
-                                    </tr>
-                                )}
                             </tbody>
                         </table>
                     </div>
@@ -923,6 +894,34 @@ export function HopDong() {
                         </div>
                     </div>
                 )}
+
+                <div className="px-4 md:px-6 py-3 border-t border-slate-200 bg-slate-50/90 flex flex-wrap items-center justify-center gap-3 sm:gap-4">
+                    <button
+                        type="button"
+                        aria-label="Trang trước"
+                        disabled={page <= 1 || isLoading}
+                        onClick={() => setPage((p) => Math.max(1, p - 1))}
+                        className="inline-flex items-center justify-center w-9 h-9 rounded-lg border border-slate-200 bg-white text-slate-700 hover:bg-slate-100 disabled:opacity-45 disabled:pointer-events-none transition-colors"
+                    >
+                        <ChevronLeft size={18} />
+                    </button>
+                    <div className="flex items-center gap-2 text-sm text-slate-700 min-w-[12rem] justify-center">
+                        {isLoading ? <Loader2 size={16} className="animate-spin text-blue-600" /> : null}
+                        <span className="font-semibold tabular-nums">
+                            Trang {page} / {totalPages}
+                        </span>
+                        <span className="text-slate-500 text-xs font-medium hidden sm:inline">({totalContracts} HĐ)</span>
+                    </div>
+                    <button
+                        type="button"
+                        aria-label="Trang sau"
+                        disabled={page >= totalPages || isLoading}
+                        onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+                        className="inline-flex items-center justify-center w-9 h-9 rounded-lg border border-slate-200 bg-white text-slate-700 hover:bg-slate-100 disabled:opacity-45 disabled:pointer-events-none transition-colors"
+                    >
+                        <ChevronRight size={18} />
+                    </button>
+                </div>
             </div>
         </div>
     );

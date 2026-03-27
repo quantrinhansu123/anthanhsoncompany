@@ -23,6 +23,8 @@ type Props = {
     onDone?: () => void;
     className?: string;
     disabled?: boolean;
+    /** Nút gọn hơn (toolbar dày đặc) */
+    compact?: boolean;
 };
 
 export function ExcelImportExportBar({
@@ -34,6 +36,7 @@ export function ExcelImportExportBar({
     onDone,
     className = '',
     disabled = false,
+    compact = false,
 }: Props) {
     const inputRef = useRef<HTMLInputElement>(null);
     const [busy, setBusy] = useState(false);
@@ -77,15 +80,20 @@ export function ExcelImportExportBar({
         }
     };
 
+    const btnBase = compact
+        ? 'gap-1 px-2 py-1 text-[11px] rounded-md'
+        : 'gap-1.5 px-3 py-1.5 text-xs rounded-lg';
+    const iconSz = compact ? 12 : 14;
+
     return (
-        <div className={`flex flex-wrap items-center gap-2 ${className}`}>
+        <div className={`flex flex-wrap items-center gap-1.5 ${className}`}>
             <button
                 type="button"
                 onClick={handleDownload}
                 disabled={disabled || busy}
-                className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold border border-slate-200 rounded-lg bg-white text-slate-700 hover:bg-slate-50 disabled:opacity-50"
+                className={`inline-flex items-center font-semibold border border-slate-200 bg-white text-slate-700 hover:bg-slate-50 disabled:opacity-50 ${btnBase}`}
             >
-                <Download size={14} />
+                <Download size={iconSz} />
                 {data && data.length > 0 ? 'Tải file Excel' : 'Tải mẫu Excel'}
             </button>
             <input
@@ -99,12 +107,12 @@ export function ExcelImportExportBar({
                 type="button"
                 onClick={handlePickFile}
                 disabled={disabled || busy}
-                className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold border border-emerald-200 rounded-lg bg-emerald-50 text-emerald-800 hover:bg-emerald-100 disabled:opacity-50"
+                className={`inline-flex items-center font-semibold border border-emerald-200 bg-emerald-50 text-emerald-800 hover:bg-emerald-100 disabled:opacity-50 ${btnBase}`}
             >
-                {busy ? <Loader2 size={14} className="animate-spin" /> : <Upload size={14} />}
+                {busy ? <Loader2 size={iconSz} className="animate-spin" /> : <Upload size={iconSz} />}
                 Nhập từ Excel
             </button>
-            {msg && <span className="text-[11px] text-slate-600 max-w-md">{msg}</span>}
+            {msg && <span className={`text-slate-600 max-w-md ${compact ? 'text-[10px]' : 'text-[11px]'}`}>{msg}</span>}
         </div>
     );
 }

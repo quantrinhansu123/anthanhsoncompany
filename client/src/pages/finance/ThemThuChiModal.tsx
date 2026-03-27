@@ -1,7 +1,8 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { X, Save, Plus, DollarSign, Calendar, FileText, Briefcase } from 'lucide-react';
+import { X, Save, Plus, DollarSign, Calendar, FileText, Briefcase, UserCircle2 } from 'lucide-react';
 import { thuChiService } from '../../lib/services/thuChiService';
 import { projectService } from '../../lib/services/projectService';
+import { customerService } from '../../lib/services/customerService';
 import { contractService, type ContractRow } from '../../lib/services/contractService';
 import { employeeService } from '../../lib/services/employeeService';
 import { type NhanSuOption } from '../../lib/formatNhanSu';
@@ -67,9 +68,11 @@ export function ThemThuChiModal({
     const [isSaving, setIsSaving] = useState(false);
     const [projects, setProjects] = useState<any[]>([]);
     const [contracts, setContracts] = useState<ContractRow[]>([]);
+    const [customers, setCustomers] = useState<Array<{ id: string; ten_don_vi: string }>>([]);
     const [employees, setEmployees] = useState<NhanSuOption[]>([]);
     const [existingNhanSuChiTotal, setExistingNhanSuChiTotal] = useState(0);
     const [formData, setFormData] = useState({
+        customerId: '' as string,
         duAnId: '',
         hopDongId: '',
         loaiPhieu: defaultType || 'Phiếu thu',
@@ -80,21 +83,44 @@ export function ThemThuChiModal({
         hangMucChi: 'chi_du_an' as HangMucChi,
     });
 
+    const effectiveCustomerId = (customerScope?.customer_id || formData.customerId || '').trim();
+    const effectiveCustomerTenDonVi =
+        customerScope?.ten_don_vi?.trim() ||
+        customers.find((c) => String(c.id) === String(formData.customerId))?.ten_don_vi ||
+        '';
+
+    const customerSelectLocked = Boolean(customerScope?.customer_id);
+
     const projectsForSelect = useMemo((): Array<{ id: string; ten_du_an: string }> => {
+        if (!effectiveCustomerId) return [];
         const scope = customerScope;
-        if (!scope?.customer_id) {
-            return projects.map((p: ProjectOpt) => ({ id: p.id, ten_du_an: p.ten_du_an }));
-        }
-        if (scope.projects_for_customer !== undefined) {
+        if (scope?.customer_id && scope.projects_for_customer !== undefined) {
             return scope.projects_for_customer.map((p) => ({
                 id: String(p.id),
                 ten_du_an: p.ten_du_an || '',
             }));
         }
-        return filterProjectsByCustomer(projects as ProjectOpt[], scope.customer_id, scope.ten_don_vi).map(
-            (p) => ({ id: p.id, ten_du_an: p.ten_du_an }),
-        );
-    }, [projects, customerScope]);
+        if (scope?.customer_id) {
+            return filterProjectsByCustomer(
+                projects as ProjectOpt[],
+                scope.customer_id,
+                scope.ten_don_vi,
+            ).map((p) => ({ id: p.id, ten_du_an: p.ten_du_an }));
+        }
+        const rows = filterProjectsByCustomer(
+            projects as ProjectOpt[],
+            effectiveCustomerId,
+            effectiveCustomerTenDonVi,
+        ).map((p) => ({ id: p.id, ten_du_an: p.ten_du_an }));
+        if (mode === 'edit' && formData.duAnId) {
+            const has = rows.some((p) => String(p.id) === String(formData.duAnId));
+            if (!has) {
+                const p = (projects as ProjectOpt[]).find((x) => String(x.id) === String(formData.duAnId));
+                if (p) return [...rows, { id: p.id, ten_du_an: p.ten_du_an }];
+            }
+        }
+        return rows;
+    }, [projects, customerScope, effectiveCustomerId, effectiveCustomerTenDonVi, mode, formData.duAnId]);
 
     const contractsForSelect = useMemo(() => {
         const du = String(formData.duAnId || '').trim();
@@ -114,6 +140,8 @@ export function ThemThuChiModal({
         Boolean(customerScope?.customer_id) &&
         customerScope?.projects_for_customer !== undefined &&
         projectsForSelect.length === 0;
+
+    const needSelectCustomerFirst = !customerSelectLocked && !String(formData.customerId || '').trim();
 
     const nguongTien = useMemo(() => {
         if (!selectedContract) return 0;
@@ -166,11 +194,12 @@ export function ThemThuChiModal({
         let cancelled = false;
         (async () => {
             try {
-                const { emps, contracts: loadedContracts } = await loadData();
+                const { projects: loadedProjects, contracts: loadedContracts } = await loadData();
                 if (cancelled) return;
                 if (initialData) {
                     let duAnId = initialData.du_an_id || '';
                     let hopDongId = initialData.hop_dong_id || '';
+                    let ctHd: ContractRow | undefined;
                     if (!duAnId && hopDongId) {
                         const ct = loadedContracts.find(
                             (c) =>
@@ -180,7 +209,7 @@ export function ThemThuChiModal({
                         if (ct?.du_an_id) duAnId = String(ct.du_an_id);
                     }
                     if (hopDongId) {
-                        const ctHd = loadedContracts.find(
+                        ctHd = loadedContracts.find(
                             (c) =>
                                 String(c.id || '') === String(hopDongId) ||
                                 String(c.hop_dong_row_id || '') === String(hopDongId),
@@ -189,7 +218,16 @@ export function ThemThuChiModal({
                             hopDongId = String(ctHd.hop_dong_row_id || ctHd.id || hopDongId);
                         }
                     }
+                    const projRow = loadedProjects.find((p: any) => String(p.id) === String(duAnId));
+                    let customerIdInit =
+                        projRow?.customer_id != null && String(projRow.customer_id).trim()
+                            ? String(projRow.customer_id).trim()
+                            : '';
+                    if (!customerIdInit && ctHd?.customer_id) {
+                        customerIdInit = String(ctHd.customer_id).trim();
+                    }
                     setFormData({
+                        customerId: customerIdInit,
                         duAnId,
                         hopDongId,
                         loaiPhieu: initialData.type || initialData.loai_phieu || 'Phiếu thu',
@@ -213,6 +251,7 @@ export function ThemThuChiModal({
                     });
                 } else {
                     setFormData({
+                        customerId: customerScope?.customer_id ? String(customerScope.customer_id) : '',
                         duAnId: '',
                         hopDongId: '',
                         loaiPhieu: defaultType || 'Phiếu thu',
@@ -229,11 +268,12 @@ export function ThemThuChiModal({
         return () => {
             cancelled = true;
         };
-    }, [isOpen, initialData, defaultType]);
+    }, [isOpen, initialData, defaultType, customerScope?.customer_id]);
 
     /** Thêm phiếu từ KH: gỡ dự án sai, tự chọn nếu chỉ 1 dự án; hợp đồng theo dự án. */
     useEffect(() => {
         if (!isOpen || mode !== 'add' || !customerScope?.customer_id || projects.length === 0) return;
+        const cust = String(customerScope.customer_id);
         setFormData((prev) => {
             let du = prev.duAnId;
             if (du && !projectsForSelect.some((p) => String(p.id) === String(du))) du = '';
@@ -253,8 +293,8 @@ export function ThemThuChiModal({
             ) {
                 hop = '';
             }
-            if (du === prev.duAnId && hop === prev.hopDongId) return prev;
-            return { ...prev, duAnId: du, hopDongId: hop };
+            if (du === prev.duAnId && hop === prev.hopDongId && String(prev.customerId) === cust) return prev;
+            return { ...prev, customerId: cust, duAnId: du, hopDongId: hop };
         });
     }, [isOpen, mode, customerScope, projects.length, projectsForSelect, contracts]);
 
@@ -278,14 +318,22 @@ export function ThemThuChiModal({
     const loadData = async (): Promise<{
         emps: NhanSuOption[];
         contracts: ContractRow[];
+        projects: any[];
     }> => {
-        const [pList, cList, empList] = await Promise.all([
+        const [pList, cList, empList, custList] = await Promise.all([
             projectService.getAll(),
             contractService.getAll(),
             employeeService.getAll(),
+            customerService.getAll(),
         ]);
         setProjects(pList);
         setContracts(cList);
+        setCustomers(
+            (custList || []).map((c: any) => ({
+                id: String(c.id),
+                ten_don_vi: String(c.ten_don_vi || '').trim() || '(Không tên)',
+            })),
+        );
         const emps: NhanSuOption[] = empList.map((emp) => ({
             id: emp.id.toString(),
             full_name: emp.full_name || emp.name || emp.hoTen || '',
@@ -293,7 +341,7 @@ export function ThemThuChiModal({
             anh_nhan_su: emp.anh_nhan_su || null,
         }));
         setEmployees(emps);
-        return { emps, contracts: cList };
+        return { emps, contracts: cList, projects: pList };
     };
 
     const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) => {
@@ -309,6 +357,10 @@ export function ThemThuChiModal({
 
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
+        if (!customerSelectLocked && !String(formData.customerId || '').trim()) {
+            alert('Vui lòng chọn khách hàng.');
+            return;
+        }
         if (formData.loaiPhieu === 'Phiếu chi' && !String(formData.nhanSuId || '').trim()) {
             alert('Vui lòng chọn nhân sự cho phiếu chi.');
             return;
@@ -457,6 +509,47 @@ export function ThemThuChiModal({
                                 </div>
                             </div>
 
+                            <div className="space-y-1.5 md:col-span-2">
+                                <label className="text-[11px] font-bold text-slate-500 uppercase tracking-wider ml-1">
+                                    Khách hàng <span className="text-red-500">*</span>
+                                </label>
+                                <div className="relative">
+                                    <UserCircle2 className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
+                                    <select
+                                        name="customerId"
+                                        value={customerSelectLocked ? String(customerScope?.customer_id || '') : formData.customerId}
+                                        onChange={(e) =>
+                                            setFormData((prev) => ({
+                                                ...prev,
+                                                customerId: e.target.value,
+                                                duAnId: '',
+                                                hopDongId: '',
+                                            }))
+                                        }
+                                        disabled={customerSelectLocked}
+                                        className="w-full pl-11 pr-4 py-3 bg-white border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500/10 focus:border-indigo-500 text-sm text-slate-800 transition-all hover:border-slate-300 shadow-sm disabled:bg-slate-50 disabled:text-slate-600"
+                                    >
+                                        <option value="">
+                                            {customerSelectLocked
+                                                ? '— Khách theo ngữ cảnh —'
+                                                : '— Chọn khách hàng —'}
+                                        </option>
+                                        {[...customers]
+                                            .sort((a, b) =>
+                                                a.ten_don_vi.localeCompare(b.ten_don_vi, 'vi', { sensitivity: 'base' }),
+                                            )
+                                            .map((c) => (
+                                                <option key={c.id} value={c.id}>
+                                                    {c.ten_don_vi}
+                                                </option>
+                                            ))}
+                                    </select>
+                                </div>
+                                {needSelectCustomerFirst ? (
+                                    <p className="text-[11px] text-slate-500 ml-1">Chọn khách hàng trước, sau đó chọn dự án và hợp đồng.</p>
+                                ) : null}
+                            </div>
+
                             <div className="space-y-1.5 md:col-span-1">
                                 <label className="text-[11px] font-bold text-slate-500 uppercase tracking-wider ml-1">Dự án liên quan</label>
                                 <div className="relative">
@@ -471,13 +564,15 @@ export function ThemThuChiModal({
                                                 hopDongId: '',
                                             }))
                                         }
-                                        disabled={scopedNoProjects}
+                                        disabled={scopedNoProjects || needSelectCustomerFirst}
                                         className="w-full pl-11 pr-4 py-3 bg-white border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500/10 focus:border-indigo-500 text-sm text-slate-800 transition-all hover:border-slate-300 shadow-sm disabled:bg-slate-50 disabled:text-slate-500"
                                     >
                                         <option value="">
                                             {scopedNoProjects
                                                 ? '— Khách chưa có dự án —'
-                                                : '— Chọn dự án —'}
+                                                : needSelectCustomerFirst
+                                                  ? '— Chọn khách hàng trước —'
+                                                  : '— Chọn dự án —'}
                                         </option>
                                         {projectsForSelect.map((p) => (
                                             <option key={p.id} value={p.id}>
@@ -492,7 +587,7 @@ export function ThemThuChiModal({
                                     </p>
                                 ) : (
                                     <p className="text-[11px] text-slate-400 ml-1">
-                                        Hợp đồng chỉ hiển thị sau khi chọn dự án.
+                                        Sau khách hàng → dự án; hợp đồng theo dự án đã chọn.
                                     </p>
                                 )}
                             </div>
@@ -505,7 +600,11 @@ export function ThemThuChiModal({
                                         name="hopDongId"
                                         value={formData.hopDongId}
                                         onChange={handleChange}
-                                        disabled={scopedNoProjects || !String(formData.duAnId || '').trim()}
+                                        disabled={
+                                            scopedNoProjects ||
+                                            needSelectCustomerFirst ||
+                                            !String(formData.duAnId || '').trim()
+                                        }
                                         className="w-full pl-11 pr-4 py-3 bg-white border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500/10 focus:border-indigo-500 text-sm text-slate-800 transition-all hover:border-slate-300 shadow-sm disabled:bg-slate-50 disabled:text-slate-500"
                                     >
                                         <option value="">

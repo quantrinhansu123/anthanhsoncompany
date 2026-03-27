@@ -25,7 +25,6 @@ import {
     Calendar,
     TrendingDown,
     TrendingUp,
-    Landmark,
     Gauge,
     Percent
 } from 'lucide-react';
@@ -73,7 +72,7 @@ const Toast = ({ message, type, onClose }: ToastProps) => {
 
 function StatChip({ label }: { label: string }) {
     return (
-        <span className="inline-flex items-center rounded-lg border border-white/10 bg-white/[0.06] px-3 py-1.5 text-xs font-medium text-slate-300">
+        <span className="inline-flex items-center rounded-md border border-white/10 bg-white/[0.06] px-2 py-0.5 text-[11px] font-medium text-slate-300">
             {label}
         </span>
     );
@@ -93,6 +92,7 @@ export function ThuChi() {
     const [contracts, setContracts] = useState<
         Array<{
             id: string;
+            hop_dong_row_id?: string | null;
             so_hop_dong: string | null;
             du_an_id: string | null;
             customer_id: string | null;
@@ -118,7 +118,7 @@ export function ThuChi() {
     
     // Column filter dropdown states
     const [openColumnFilter, setOpenColumnFilter] = useState<string | null>(null);
-    
+
     const itemsPerPage = 10;
     const [toast, setToast] = useState<{ message: string, type: 'success' | 'error' | 'info' } | null>(null);
 
@@ -162,6 +162,7 @@ export function ThuChi() {
                 setContracts(
                     contractList.map((c: any) => ({
                         id: c.id,
+                        hop_dong_row_id: c.hop_dong_row_id ?? null,
                         so_hop_dong: c.so_hop_dong,
                         du_an_id: c.du_an_id || null,
                         customer_id: c.customer_id || null,
@@ -184,10 +185,25 @@ export function ThuChi() {
         })();
     }, []);
 
+    /** Khớp `thu_chi.hop_dong_id` (thường là PK bảng hop_dong) với bản ghi hợp đồng từ API */
+    const hopDongRef = (c: (typeof contracts)[number]) => String(c.hop_dong_row_id || c.id || '').trim();
+
     // Load data from database
     useEffect(() => {
         loadRecords();
-    }, [selectedCustomerIds, selectedDuAnIds, selectedHopDongIds, selectedNhanSuIds, dateFrom, dateTo, quickDateFilter, selectedMonth]);
+    }, [
+        selectedCustomerIds,
+        selectedDuAnIds,
+        selectedHopDongIds,
+        selectedNhanSuIds,
+        dateFrom,
+        dateTo,
+        quickDateFilter,
+        selectedMonth,
+        projects,
+        contracts,
+        customers,
+    ]);
 
     const loadRecords = async () => {
         try {
@@ -201,8 +217,32 @@ export function ThuChi() {
                 projectInfoMap.set(p.id, { ten_du_an: p.ten_du_an || null, customer_id: p.customer_id || null, customer_name: p.customer_name || null });
             });
 
+            const contractByHopKey = new Map<string, (typeof contracts)[number]>();
+            contracts.forEach((c) => {
+                const k1 = hopDongRef(c);
+                if (k1) contractByHopKey.set(k1, c);
+                if (c.id) contractByHopKey.set(String(c.id), c);
+            });
+
             const mappedData = data.map((item) => {
                 const nhanSuDisplay = item.nhan_su_ten || null;
+                const hid = item.hop_dong_id ? String(item.hop_dong_id).trim() : '';
+                const linkedContract = hid ? contractByHopKey.get(hid) : undefined;
+                const projInfo = projectInfoMap.get(item.du_an_id || '');
+                const customerId =
+                    linkedContract?.customer_id ?? projInfo?.customer_id ?? null;
+                let customerName =
+                    linkedContract?.customer_name ??
+                    projInfo?.customer_name ??
+                    null;
+                if (!customerName && customerId) {
+                    customerName = customers.find((cc) => cc.id === customerId)?.ten_don_vi ?? null;
+                }
+                const soHopDong =
+                    (item.so_hop_dong && String(item.so_hop_dong).trim()) ||
+                    linkedContract?.so_hop_dong ||
+                    null;
+
                 return {
                     ...item,
                     code: item.id.substring(0, 8).toUpperCase(), // Mã chứng từ từ ID
@@ -219,9 +259,10 @@ export function ThuChi() {
                                   ? 'Chi nhân sự'
                                   : '—'
                             : '—',
-                    ten_du_an: item.ten_du_an || projectInfoMap.get(item.du_an_id || '')?.ten_du_an || '(Chưa có dự án)',
-                    customer_id: projectInfoMap.get(item.du_an_id || '')?.customer_id || null,
-                    customer_name: projectInfoMap.get(item.du_an_id || '')?.customer_name || null,
+                    ten_du_an: item.ten_du_an || projInfo?.ten_du_an || '(Chưa có dự án)',
+                    customer_id: customerId,
+                    customer_name: customerName,
+                    so_hop_dong_display: soHopDong,
                     nhan_su_display: nhanSuDisplay,
                 };
             });
@@ -265,7 +306,7 @@ export function ThuChi() {
             if (!newIds.includes(id)) {
                 const contractsToRemove = contracts
                     .filter(c => c.du_an_id === id)
-                    .map(c => c.id);
+                    .map((c) => hopDongRef(c));
                 setSelectedHopDongIds(prevHd => 
                     prevHd.filter(hdId => !contractsToRemove.includes(hdId))
                 );
@@ -354,48 +395,79 @@ export function ThuChi() {
         }
     };
 
-    // Filter theo tab (Phiếu thu hoặc Phiếu chi), search term và các bộ lọc
-    const filteredItems = items.filter(item => {
-        // Filter theo tab
-        const matchesTab = activeTab === 'thu' 
-            ? item.type === 'Phiếu thu'
-            : item.type === 'Phiếu chi';
-        
-        // Filter theo search term
-        const matchesSearch = !searchTerm || 
-            item.code?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-            item.description?.toLowerCase().includes(searchTerm.toLowerCase());
+    // Lọc chung (trừ tab) — dùng cho bộ đếm phiếu thu/chi theo bộ lọc hiện tại
+    const baseFiltered = useMemo(() => {
+        return items.filter((item) => {
+            const term = searchTerm.toLowerCase();
+            const matchesSearch =
+                !searchTerm ||
+                item.code?.toLowerCase().includes(term) ||
+                item.description?.toLowerCase().includes(term) ||
+                (item as any).ten_du_an?.toLowerCase().includes(term) ||
+                (item as any).customer_name?.toLowerCase().includes(term) ||
+                (item as any).so_hop_dong_display?.toLowerCase().includes(term) ||
+                (item as any).so_hop_dong?.toLowerCase().includes(term);
 
-        // Filter theo khách hàng
-        const matchesCustomer = selectedCustomerIds.length === 0 ||
-            ((item as any).customer_id && selectedCustomerIds.includes((item as any).customer_id));
-        
-        // Filter theo dự án
-        const matchesDuAn = selectedDuAnIds.length === 0 || 
-            (item.du_an_id && selectedDuAnIds.includes(item.du_an_id));
-        
-        // Filter theo hợp đồng
-        const matchesHopDong = selectedHopDongIds.length === 0 || 
-            (item.hop_dong_id && selectedHopDongIds.includes(item.hop_dong_id));
-        
-        // Filter theo nhân sự
-        const matchesNhanSu = selectedNhanSuIds.length === 0 || 
-            (item.nhan_su_id && selectedNhanSuIds.includes(item.nhan_su_id));
-        
-        // Filter theo ngày
-        let matchesDate = true;
-        if (dateFrom || dateTo) {
-            const itemDate = item.ngay ? new Date(item.ngay).toISOString().split('T')[0] : '';
-            if (dateFrom && itemDate < dateFrom) {
-                matchesDate = false;
+            const matchesCustomer =
+                selectedCustomerIds.length === 0 ||
+                ((item as any).customer_id && selectedCustomerIds.includes((item as any).customer_id));
+
+            const matchesDuAn =
+                selectedDuAnIds.length === 0 ||
+                (item.du_an_id && selectedDuAnIds.includes(item.du_an_id));
+
+            const matchesHopDong =
+                selectedHopDongIds.length === 0 ||
+                (item.hop_dong_id && selectedHopDongIds.includes(item.hop_dong_id));
+
+            const matchesNhanSu =
+                selectedNhanSuIds.length === 0 ||
+                (item.nhan_su_id && selectedNhanSuIds.includes(item.nhan_su_id));
+
+            let matchesDate = true;
+            if (dateFrom || dateTo) {
+                const itemDate = item.ngay ? new Date(item.ngay).toISOString().split('T')[0] : '';
+                if (dateFrom && itemDate < dateFrom) matchesDate = false;
+                if (dateTo && itemDate > dateTo) matchesDate = false;
             }
-            if (dateTo && itemDate > dateTo) {
-                matchesDate = false;
-            }
-        }
-        
-        return matchesTab && matchesSearch && matchesCustomer && matchesDuAn && matchesHopDong && matchesNhanSu && matchesDate;
-    });
+
+            return (
+                matchesSearch &&
+                matchesCustomer &&
+                matchesDuAn &&
+                matchesHopDong &&
+                matchesNhanSu &&
+                matchesDate
+            );
+        });
+    }, [
+        items,
+        searchTerm,
+        selectedCustomerIds,
+        selectedDuAnIds,
+        selectedHopDongIds,
+        selectedNhanSuIds,
+        dateFrom,
+        dateTo,
+    ]);
+
+    const demPhieuThu = useMemo(
+        () => baseFiltered.filter((i) => i.type === 'Phiếu thu').length,
+        [baseFiltered],
+    );
+    const demPhieuChi = useMemo(
+        () => baseFiltered.filter((i) => i.type === 'Phiếu chi').length,
+        [baseFiltered],
+    );
+    const demPhieuTong = demPhieuThu + demPhieuChi;
+
+    const filteredItems = useMemo(
+        () =>
+            baseFiltered.filter((item) =>
+                activeTab === 'thu' ? item.type === 'Phiếu thu' : item.type === 'Phiếu chi',
+            ),
+        [baseFiltered, activeTab],
+    );
 
     // Tính tổng số tiền theo các bộ lọc
     const totalAmount = filteredItems.reduce((sum, item) => sum + (item.so_tien || 0), 0);
@@ -409,6 +481,8 @@ export function ThuChi() {
             const raw = Number(c.nguong_chi_nhan_su ?? 0);
             const vnd = tienQuyDoiNguongChiNhanSu(loai, Number(c.gia_tri_qt) || 0, raw);
             m.set(String(c.id), vnd);
+            const rowId = c.hop_dong_row_id ? String(c.hop_dong_row_id) : '';
+            if (rowId) m.set(rowId, vnd);
         });
         return m;
     }, [contracts]);
@@ -487,10 +561,30 @@ export function ThuChi() {
                                 >
                                     <ArrowLeft size={18} strokeWidth={2} />
                                 </button>
-                                <div>
-                                    <h1 className="text-lg md:text-xl font-semibold tracking-tight text-slate-900">
-                                        Quản lý thu chi
-                                    </h1>
+                                <div className="min-w-0">
+                                    <div className="flex flex-wrap items-center gap-2 gap-y-1">
+                                        <h1 className="text-lg md:text-xl font-semibold tracking-tight text-slate-900">
+                                            Quản lý thu chi
+                                        </h1>
+                                        <span
+                                            className="inline-flex items-center gap-1.5 rounded-full border border-slate-200/90 bg-white px-2.5 py-0.5 text-[11px] font-medium text-slate-600 shadow-sm"
+                                            title="Số phiếu theo bộ lọc hiện tại (trước khi chọn tab)"
+                                        >
+                                            <span className="text-slate-400 font-normal">Đếm</span>
+                                            <span className="tabular-nums font-semibold text-emerald-700">
+                                                Thu {demPhieuThu}
+                                            </span>
+                                            <span className="text-slate-300" aria-hidden>
+                                                ·
+                                            </span>
+                                            <span className="tabular-nums font-semibold text-rose-700">
+                                                Chi {demPhieuChi}
+                                            </span>
+                                            <span className="rounded-md bg-slate-100 px-1 py-0 text-[10px] font-bold tabular-nums text-slate-700">
+                                                Σ {demPhieuTong}
+                                            </span>
+                                        </span>
+                                    </div>
                                     <p className="mt-0.5 text-sm text-slate-500">
                                         Theo dõi phiếu thu, phiếu chi và mức đạt ngưỡng nhân sự theo hợp đồng
                                     </p>
@@ -500,7 +594,7 @@ export function ThuChi() {
 
                         {/* Tabs — segmented */}
                         <div
-                            className="inline-flex p-1 rounded-xl bg-slate-100/90 border border-slate-200/70 shadow-inner"
+                            className="inline-flex p-0.5 rounded-lg bg-slate-100/90 border border-slate-200/70 shadow-inner"
                             role="tablist"
                         >
                             <button
@@ -512,14 +606,23 @@ export function ThuChi() {
                                     setCurrentPage(1);
                                     setSelectedIds([]);
                                 }}
-                                className={`relative px-5 py-2.5 text-sm font-medium rounded-lg transition-all duration-200 flex items-center gap-2 ${
+                                className={`relative px-3 py-1.5 text-xs font-medium rounded-md transition-all duration-200 flex items-center gap-1.5 ${
                                     activeTab === 'thu'
                                         ? 'bg-white text-emerald-700 shadow-sm ring-1 ring-slate-200/80'
                                         : 'text-slate-600 hover:text-slate-900'
                                 }`}
                             >
-                                <TrendingUp size={16} className={activeTab === 'thu' ? 'text-emerald-600' : 'text-slate-400'} />
+                                <TrendingUp size={14} className={activeTab === 'thu' ? 'text-emerald-600' : 'text-slate-400'} />
                                 Phiếu thu
+                                <span
+                                    className={`min-w-[1.25rem] rounded-md px-1 py-px text-center text-[10px] font-bold tabular-nums ${
+                                        activeTab === 'thu'
+                                            ? 'bg-emerald-100 text-emerald-900'
+                                            : 'bg-slate-200/90 text-slate-600'
+                                    }`}
+                                >
+                                    {demPhieuThu}
+                                </span>
                             </button>
                             <button
                                 type="button"
@@ -530,44 +633,53 @@ export function ThuChi() {
                                     setCurrentPage(1);
                                     setSelectedIds([]);
                                 }}
-                                className={`relative px-5 py-2.5 text-sm font-medium rounded-lg transition-all duration-200 flex items-center gap-2 ${
+                                className={`relative px-3 py-1.5 text-xs font-medium rounded-md transition-all duration-200 flex items-center gap-1.5 ${
                                     activeTab === 'chi'
                                         ? 'bg-white text-rose-700 shadow-sm ring-1 ring-slate-200/80'
                                         : 'text-slate-600 hover:text-slate-900'
                                 }`}
                             >
-                                <TrendingDown size={16} className={activeTab === 'chi' ? 'text-rose-600' : 'text-slate-400'} />
+                                <TrendingDown size={14} className={activeTab === 'chi' ? 'text-rose-600' : 'text-slate-400'} />
                                 Phiếu chi
+                                <span
+                                    className={`min-w-[1.25rem] rounded-md px-1 py-px text-center text-[10px] font-bold tabular-nums ${
+                                        activeTab === 'chi'
+                                            ? 'bg-rose-100 text-rose-900'
+                                            : 'bg-slate-200/90 text-slate-600'
+                                    }`}
+                                >
+                                    {demPhieuChi}
+                                </span>
                             </button>
                         </div>
                     </div>
 
                     {/* Toolbar */}
-                    <div className="px-4 md:px-8 py-5 border-b border-slate-100 bg-white">
-                        <div className="flex flex-col md:flex-row gap-4 justify-between items-start md:items-center mb-4">
-                            <div className="relative w-full md:w-80">
-                                <Search size={16} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
+                    <div className="px-4 md:px-8 py-3 border-b border-slate-100 bg-white">
+                        <div className="flex flex-col lg:flex-row gap-3 justify-between items-stretch lg:items-center mb-3">
+                            <div className="relative w-full lg:max-w-xs lg:flex-1">
+                                <Search size={14} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
                                 <input
                                     type="text"
                                     placeholder="Tìm mã, nội dung..."
                                     value={searchTerm}
                                     onChange={(e) => setSearchTerm(e.target.value)}
-                                    className="w-full pl-10 pr-4 py-2.5 text-sm border border-slate-200 rounded-xl bg-slate-50/50 focus:bg-white focus:outline-none focus:ring-2 focus:ring-slate-900/10 focus:border-slate-300 transition-all placeholder:text-slate-400"
+                                    className="w-full pl-8 pr-3 py-1.5 text-xs border border-slate-200 rounded-lg bg-slate-50/50 focus:bg-white focus:outline-none focus:ring-1 focus:ring-slate-900/10 focus:border-slate-300 transition-all placeholder:text-slate-400"
                                 />
                             </div>
 
-                            <div className="flex items-center gap-2 relative">
+                            <div className="flex flex-wrap items-center gap-1.5 relative">
                                 <div className="relative">
                                     <button 
                                         onClick={(e) => {
                                             e.stopPropagation();
                                             setOpenColumnFilter(openColumnFilter === 'status' ? null : 'status');
                                         }}
-                                        className="flex items-center gap-2 px-3 py-1.5 text-sm text-slate-600 bg-white border border-slate-200 rounded-md hover:bg-slate-50 whitespace-nowrap"
+                                        className="flex items-center gap-1 px-2 py-1 text-xs text-slate-600 bg-white border border-slate-200 rounded-md hover:bg-slate-50 whitespace-nowrap"
                                     >
-                                        <Bookmark size={14} className="text-slate-400" />
+                                        <Bookmark size={12} className="text-slate-400" />
                                         Trạng thái
-                                        <ChevronDown size={14} className="text-slate-400" />
+                                        <ChevronDown size={12} className="text-slate-400" />
                                     </button>
                                     {openColumnFilter === 'status' && (
                                         <div 
@@ -593,20 +705,20 @@ export function ThuChi() {
                                             e.stopPropagation();
                                             setOpenColumnFilter(openColumnFilter === 'topCustomer' ? null : 'topCustomer');
                                         }}
-                                        className={`flex items-center gap-2 px-3 py-1.5 text-sm rounded-md whitespace-nowrap ${
+                                        className={`flex items-center gap-1 px-2 py-1 text-xs rounded-md whitespace-nowrap ${
                                             selectedCustomerIds.length > 0
                                                 ? 'bg-blue-600 text-white border border-blue-600'
                                                 : 'text-slate-600 bg-white border border-slate-200 hover:bg-slate-50'
                                         }`}
                                     >
-                                        <Filter size={14} className={selectedCustomerIds.length > 0 ? 'text-white' : 'text-slate-400'} />
+                                        <Filter size={12} className={selectedCustomerIds.length > 0 ? 'text-white' : 'text-slate-400'} />
                                         Khách hàng
                                         {selectedCustomerIds.length > 0 && (
-                                            <span className="bg-white text-blue-600 rounded-full px-1.5 py-0.5 text-xs font-bold">
+                                            <span className="bg-white text-blue-600 rounded-full px-1 py-0.5 text-[10px] font-bold min-w-[1.1rem] text-center">
                                                 {selectedCustomerIds.length}
                                             </span>
                                         )}
-                                        <ChevronDown size={14} className={selectedCustomerIds.length > 0 ? 'text-white' : 'text-slate-400'} />
+                                        <ChevronDown size={12} className={selectedCustomerIds.length > 0 ? 'text-white' : 'text-slate-400'} />
                                     </button>
                                     {openColumnFilter === 'topCustomer' && (
                                         <div 
@@ -653,20 +765,20 @@ export function ThuChi() {
                                             e.stopPropagation();
                                             setOpenColumnFilter(openColumnFilter === 'topProject' ? null : 'topProject');
                                         }}
-                                        className={`flex items-center gap-2 px-3 py-1.5 text-sm rounded-md whitespace-nowrap ${
+                                        className={`flex items-center gap-1 px-2 py-1 text-xs rounded-md whitespace-nowrap ${
                                             selectedDuAnIds.length > 0
                                                 ? 'bg-blue-600 text-white border border-blue-600'
                                                 : 'text-slate-600 bg-white border border-slate-200 hover:bg-slate-50'
                                         }`}
                                     >
-                                        <Briefcase size={14} className={selectedDuAnIds.length > 0 ? 'text-white' : 'text-slate-400'} />
+                                        <Briefcase size={12} className={selectedDuAnIds.length > 0 ? 'text-white' : 'text-slate-400'} />
                                         Dự án
                                         {selectedDuAnIds.length > 0 && (
-                                            <span className="bg-white text-blue-600 rounded-full px-1.5 py-0.5 text-xs font-bold">
+                                            <span className="bg-white text-blue-600 rounded-full px-1 py-0.5 text-[10px] font-bold min-w-[1.1rem] text-center">
                                                 {selectedDuAnIds.length}
                                             </span>
                                         )}
-                                        <ChevronDown size={14} className={selectedDuAnIds.length > 0 ? 'text-white' : 'text-slate-400'} />
+                                        <ChevronDown size={12} className={selectedDuAnIds.length > 0 ? 'text-white' : 'text-slate-400'} />
                                     </button>
                                     {openColumnFilter === 'topProject' && (
                                         <div 
@@ -718,20 +830,20 @@ export function ThuChi() {
                                             e.stopPropagation();
                                             setOpenColumnFilter(openColumnFilter === 'topContract' ? null : 'topContract');
                                         }}
-                                        className={`flex items-center gap-2 px-3 py-1.5 text-sm rounded-md whitespace-nowrap ${
+                                        className={`flex items-center gap-1 px-2 py-1 text-xs rounded-md whitespace-nowrap ${
                                             selectedHopDongIds.length > 0
                                                 ? 'bg-blue-600 text-white border border-blue-600'
                                                 : 'text-slate-600 bg-white border border-slate-200 hover:bg-slate-50'
                                         }`}
                                     >
-                                        <FileText size={14} className={selectedHopDongIds.length > 0 ? 'text-white' : 'text-slate-400'} />
+                                        <FileText size={12} className={selectedHopDongIds.length > 0 ? 'text-white' : 'text-slate-400'} />
                                         Hợp đồng
                                         {selectedHopDongIds.length > 0 && (
-                                            <span className="bg-white text-blue-600 rounded-full px-1.5 py-0.5 text-xs font-bold">
+                                            <span className="bg-white text-blue-600 rounded-full px-1 py-0.5 text-[10px] font-bold min-w-[1.1rem] text-center">
                                                 {selectedHopDongIds.length}
                                             </span>
                                         )}
-                                        <ChevronDown size={14} className={selectedHopDongIds.length > 0 ? 'text-white' : 'text-slate-400'} />
+                                        <ChevronDown size={12} className={selectedHopDongIds.length > 0 ? 'text-white' : 'text-slate-400'} />
                                     </button>
                                     {openColumnFilter === 'topContract' && (
                                         <div 
@@ -748,7 +860,7 @@ export function ThuChi() {
                                                                 if (selectedHopDongIds.length === getFilteredContracts().length) {
                                                                     setSelectedHopDongIds([]);
                                                                 } else {
-                                                                    setSelectedHopDongIds(getFilteredContracts().map(c => c.id));
+                                                                    setSelectedHopDongIds(getFilteredContracts().map((c) => hopDongRef(c)));
                                                                 }
                                                             }}
                                                             className="w-3 h-3 text-blue-600 border-slate-300 rounded" 
@@ -757,11 +869,11 @@ export function ThuChi() {
                                                     </label>
                                                     <div className="border-t border-slate-200 my-1"></div>
                                                     {getFilteredContracts().map(ct => (
-                                                        <label key={ct.id} className="flex items-center gap-2 cursor-pointer hover:bg-slate-50 p-1 rounded">
+                                                        <label key={hopDongRef(ct)} className="flex items-center gap-2 cursor-pointer hover:bg-slate-50 p-1 rounded">
                                                             <input
                                                                 type="checkbox"
-                                                                checked={selectedHopDongIds.includes(ct.id)}
-                                                                onChange={() => toggleHopDongFilter(ct.id)}
+                                                                checked={selectedHopDongIds.includes(hopDongRef(ct))}
+                                                                onChange={() => toggleHopDongFilter(hopDongRef(ct))}
                                                                 className="w-3 h-3 text-blue-600 border-slate-300 rounded"
                                                             />
                                                             <span className="text-xs">{ct.so_hop_dong || '(Trống)'}</span>
@@ -778,20 +890,20 @@ export function ThuChi() {
                                             e.stopPropagation();
                                             setOpenColumnFilter(openColumnFilter === 'topEmployee' ? null : 'topEmployee');
                                         }}
-                                        className={`flex items-center gap-2 px-3 py-1.5 text-sm rounded-md whitespace-nowrap ${
+                                        className={`flex items-center gap-1 px-2 py-1 text-xs rounded-md whitespace-nowrap ${
                                             selectedNhanSuIds.length > 0
                                                 ? 'bg-blue-600 text-white border border-blue-600'
                                                 : 'text-slate-600 bg-white border border-slate-200 hover:bg-slate-50'
                                         }`}
                                     >
-                                        <Filter size={14} className={selectedNhanSuIds.length > 0 ? 'text-white' : 'text-slate-400'} />
+                                        <Filter size={12} className={selectedNhanSuIds.length > 0 ? 'text-white' : 'text-slate-400'} />
                                         Nhân sự
                                         {selectedNhanSuIds.length > 0 && (
-                                            <span className="bg-white text-blue-600 rounded-full px-1.5 py-0.5 text-xs font-bold">
+                                            <span className="bg-white text-blue-600 rounded-full px-1 py-0.5 text-[10px] font-bold min-w-[1.1rem] text-center">
                                                 {selectedNhanSuIds.length}
                                             </span>
                                         )}
-                                        <ChevronDown size={14} className={selectedNhanSuIds.length > 0 ? 'text-white' : 'text-slate-400'} />
+                                        <ChevronDown size={12} className={selectedNhanSuIds.length > 0 ? 'text-white' : 'text-slate-400'} />
                                     </button>
                                     {openColumnFilter === 'topEmployee' && (
                                         <div 
@@ -840,7 +952,8 @@ export function ThuChi() {
                             </div>
 
                             <ExcelImportExportBar
-                                className="flex flex-wrap"
+                                compact
+                                className="flex flex-wrap items-center shrink-0"
                                 columns={thuChiExcelColumns}
                                 templateFileName="mau-thu-chi"
                                 sheetName="Thu chi"
@@ -919,22 +1032,22 @@ export function ThuChi() {
                             <button
                                 type="button"
                                 onClick={handleAddClick}
-                                className={`flex items-center justify-center gap-2 px-5 py-2.5 text-sm font-semibold text-white rounded-xl transition-all shadow-md hover:shadow-lg active:scale-[0.98] ${
+                                className={`flex items-center justify-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-white rounded-lg transition-all shadow-sm hover:shadow active:scale-[0.98] shrink-0 ${
                                     activeTab === 'thu'
                                         ? 'bg-gradient-to-r from-emerald-600 to-emerald-700 hover:from-emerald-500 hover:to-emerald-600'
                                         : 'bg-gradient-to-r from-rose-600 to-rose-700 hover:from-rose-500 hover:to-rose-600'
                                 }`}
                             >
-                                <Plus size={18} strokeWidth={2.5} />
+                                <Plus size={14} strokeWidth={2.5} />
                                 {activeTab === 'thu' ? 'Thêm phiếu thu' : 'Thêm phiếu chi'}
                             </button>
                         </div>
 
                         {/* Date Filter Row */}
-                        <div className="flex items-center gap-2 flex-wrap">
+                        <div className="flex items-center gap-1.5 flex-wrap mt-1">
                             <button
                                 onClick={() => handleQuickDateFilter('today')}
-                                className={`px-3 py-1.5 text-xs font-medium rounded-md transition-colors ${
+                                className={`px-2 py-1 text-[11px] font-medium rounded-md transition-colors ${
                                     quickDateFilter === 'today'
                                         ? 'bg-blue-600 text-white'
                                         : 'bg-white text-slate-700 border border-slate-200 hover:bg-slate-50'
@@ -944,7 +1057,7 @@ export function ThuChi() {
                             </button>
                             <button
                                 onClick={() => handleQuickDateFilter('yesterday')}
-                                className={`px-3 py-1.5 text-xs font-medium rounded-md transition-colors ${
+                                className={`px-2 py-1 text-[11px] font-medium rounded-md transition-colors ${
                                     quickDateFilter === 'yesterday'
                                         ? 'bg-blue-600 text-white'
                                         : 'bg-white text-slate-700 border border-slate-200 hover:bg-slate-50'
@@ -954,7 +1067,7 @@ export function ThuChi() {
                             </button>
                             <button
                                 onClick={() => handleQuickDateFilter('thisMonth')}
-                                className={`px-3 py-1.5 text-xs font-medium rounded-md transition-colors ${
+                                className={`px-2 py-1 text-[11px] font-medium rounded-md transition-colors ${
                                     quickDateFilter === 'thisMonth'
                                         ? 'bg-blue-600 text-white'
                                         : 'bg-white text-slate-700 border border-slate-200 hover:bg-slate-50'
@@ -965,7 +1078,7 @@ export function ThuChi() {
                             <select
                                 value={selectedMonth}
                                 onChange={(e) => handleMonthSelect(e.target.value)}
-                                className="px-3 py-1.5 text-xs border border-slate-200 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 bg-white"
+                                className="px-2 py-1 text-[11px] border border-slate-200 rounded-md focus:outline-none focus:ring-1 focus:ring-blue-500/20 focus:border-blue-500 bg-white"
                             >
                                 <option value="">Tháng</option>
                                 {Array.from({ length: 12 }, (_, i) => i + 1).map(month => (
@@ -974,173 +1087,220 @@ export function ThuChi() {
                                     </option>
                                 ))}
                             </select>
-                            <div className="flex items-center gap-2 bg-white border border-slate-200 rounded-md px-3 py-1.5">
-                                <Calendar size={14} className="text-slate-400" />
-                                <input
-                                    type="date"
-                                    value={dateFrom}
-                                    onChange={(e) => {
-                                        setDateFrom(e.target.value);
-                                        setQuickDateFilter('');
-                                        setSelectedMonth('');
-                                    }}
-                                    className="text-xs border-none focus:outline-none bg-transparent [color-scheme:light]"
-                                    placeholder="Từ ngày"
-                                />
-                                <span className="text-slate-400">-</span>
-                                <input
-                                    type="date"
-                                    value={dateTo}
-                                    onChange={(e) => {
-                                        setDateTo(e.target.value);
-                                        setQuickDateFilter('');
-                                        setSelectedMonth('');
-                                    }}
-                                    className="text-xs border-none focus:outline-none bg-transparent [color-scheme:light]"
-                                    placeholder="Đến ngày"
-                                />
+                            <div className="grid grid-cols-2 gap-2 w-full min-w-0 sm:w-auto sm:flex-1 sm:max-w-md">
+                                <div className="flex min-w-0 items-center gap-1.5 rounded-md border border-slate-200 bg-white px-2 py-1">
+                                    <Calendar size={12} className="shrink-0 text-slate-400" aria-hidden />
+                                    <input
+                                        type="date"
+                                        value={dateFrom}
+                                        onChange={(e) => {
+                                            setDateFrom(e.target.value);
+                                            setQuickDateFilter('');
+                                            setSelectedMonth('');
+                                        }}
+                                        className="min-w-0 flex-1 text-[11px] border-none bg-transparent focus:outline-none [color-scheme:light]"
+                                        aria-label="Từ ngày"
+                                    />
+                                </div>
+                                <div className="flex min-w-0 items-center gap-1.5 rounded-md border border-slate-200 bg-white px-2 py-1">
+                                    <Calendar size={12} className="shrink-0 text-slate-400" aria-hidden />
+                                    <input
+                                        type="date"
+                                        value={dateTo}
+                                        onChange={(e) => {
+                                            setDateTo(e.target.value);
+                                            setQuickDateFilter('');
+                                            setSelectedMonth('');
+                                        }}
+                                        className="min-w-0 flex-1 text-[11px] border-none bg-transparent focus:outline-none [color-scheme:light]"
+                                        aria-label="Đến ngày"
+                                    />
+                                </div>
                             </div>
                         </div>
 
-                        {/* KPI tổng */}
+                        {/* Khối KPI tối thống nhất: tổng tiền + số phiếu; tab chi thêm ngưỡng */}
                         <div className="px-4 md:px-8 pb-2 pt-1">
                             <div className="relative overflow-hidden rounded-2xl border border-slate-800/20 bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950 shadow-xl">
                                 <div
                                     className="pointer-events-none absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-white/15 to-transparent"
                                     aria-hidden
                                 />
-                                <div className="absolute -right-20 -top-20 h-40 w-40 rounded-full bg-rose-500/10 blur-3xl" aria-hidden />
-                                <div className="absolute -left-16 bottom-0 h-32 w-32 rounded-full bg-violet-500/10 blur-3xl" aria-hidden />
-
                                 {activeTab === 'chi' ? (
-                                    <div className="relative px-5 py-6 md:px-7 md:py-7">
-                                        <div className="flex items-center gap-2 mb-5">
-                                            <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-white/10 text-rose-300 ring-1 ring-white/10">
-                                                <TrendingDown size={18} />
+                                    <>
+                                        <div className="absolute -right-20 -top-20 h-40 w-40 rounded-full bg-rose-500/10 blur-3xl" aria-hidden />
+                                        <div className="absolute -left-16 bottom-0 h-32 w-32 rounded-full bg-violet-500/10 blur-3xl" aria-hidden />
+                                    </>
+                                ) : (
+                                    <>
+                                        <div className="absolute -right-16 -top-16 h-32 w-32 rounded-full bg-emerald-500/10 blur-3xl" aria-hidden />
+                                        <div className="absolute -left-14 bottom-0 h-28 w-28 rounded-full bg-teal-500/10 blur-3xl" aria-hidden />
+                                    </>
+                                )}
+
+                                <div className="relative px-4 py-4 md:px-6 md:py-5">
+                                    {activeTab === 'chi' ? (
+                                        <div className="mb-4 flex items-center gap-2">
+                                            <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-white/10 text-rose-300 ring-1 ring-white/10">
+                                                <TrendingDown size={16} aria-hidden />
                                             </div>
-                                            <div>
+                                            <div className="min-w-0">
                                                 <p className="text-xs font-medium uppercase tracking-wider text-slate-500">
                                                     Tổng quan phiếu chi
                                                 </p>
-                                                <p className="text-sm text-slate-400">Theo bộ lọc hiện tại</p>
+                                                <p className="text-xs text-slate-400">Theo bộ lọc hiện tại</p>
                                             </div>
                                         </div>
-                                        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-                                            <div className="group rounded-xl border border-white/[0.07] bg-white/[0.04] p-4 backdrop-blur-sm transition-colors hover:bg-white/[0.06]">
-                                                <div className="flex items-center gap-2 text-slate-400">
-                                                    <Landmark size={15} className="text-rose-400/90" />
-                                                    <span className="text-xs font-medium">Tổng tiền chi</span>
-                                                </div>
-                                                <p className="mt-3 text-2xl font-semibold tracking-tight text-rose-100 tabular-nums md:text-3xl">
-                                                    {formattedTotalAmount}
-                                                </p>
+                                    ) : null}
+
+                                    <div
+                                        className={`grid gap-3 ${
+                                            activeTab === 'chi'
+                                                ? 'grid-cols-2 md:grid-cols-4'
+                                                : 'grid-cols-1 sm:grid-cols-2'
+                                        }`}
+                                    >
+                                        <div className="group min-w-0 rounded-lg border border-white/[0.07] bg-white/[0.04] p-3 backdrop-blur-sm transition-colors hover:bg-white/[0.06]">
+                                            <div className="flex items-center gap-2 text-slate-400">
+                                                {activeTab === 'thu' ? (
+                                                    <TrendingUp size={14} className="shrink-0 text-emerald-300/90" aria-hidden />
+                                                ) : (
+                                                    <TrendingDown size={14} className="shrink-0 text-rose-400/90" aria-hidden />
+                                                )}
+                                                <span className="min-w-0 truncate text-[11px] font-medium">
+                                                    {activeTab === 'thu' ? 'Tổng tiền thu' : 'Tổng tiền chi'}
+                                                </span>
                                             </div>
-                                            <div className="group rounded-xl border border-white/[0.07] bg-white/[0.04] p-4 backdrop-blur-sm transition-colors hover:bg-white/[0.06]">
-                                                <div className="flex items-center gap-2 text-slate-400">
-                                                    <Gauge size={15} className="text-violet-300/90" />
-                                                    <span className="text-xs font-medium">Tổng tiền ngưỡng</span>
-                                                </div>
-                                                <p className="mt-3 text-2xl font-semibold tracking-tight text-violet-100 tabular-nums md:text-3xl">
-                                                    {chiNhanSuSummary.tongNguong > 0
-                                                        ? fmtVnd(chiNhanSuSummary.tongNguong)
-                                                        : '—'}
-                                                </p>
-                                                <p className="mt-2 text-[11px] leading-relaxed text-slate-500">
-                                                    Cộng ngưỡng các HĐ có phiếu chi nhân sự trong lọc
-                                                </p>
+                                            <p
+                                                className={`mt-2 text-xl font-semibold tracking-tight tabular-nums md:text-2xl ${
+                                                    activeTab === 'thu' ? 'text-emerald-100' : 'text-rose-100'
+                                                }`}
+                                            >
+                                                {formattedTotalAmount}
+                                            </p>
+                                            <p className="mt-2 text-[11px] leading-relaxed text-slate-500">
+                                                Theo bộ lọc hiện tại
+                                            </p>
+                                        </div>
+                                        <div className="group min-w-0 rounded-lg border border-white/[0.07] bg-white/[0.04] p-3 backdrop-blur-sm transition-colors hover:bg-white/[0.06]">
+                                            <div className="flex items-center gap-2 text-slate-400">
+                                                <FileText size={14} className="shrink-0 text-slate-400" aria-hidden />
+                                                <span className="text-[11px] font-medium">Số phiếu</span>
                                             </div>
-                                            <div className="group rounded-xl border border-white/[0.07] bg-white/[0.04] p-4 backdrop-blur-sm transition-colors hover:bg-white/[0.06]">
-                                                <div className="flex items-start justify-between gap-2">
+                                            <p className="mt-2 text-xl font-semibold tracking-tight text-slate-100 tabular-nums md:text-2xl">
+                                                {filteredItems.length}
+                                            </p>
+                                            <p className="mt-2 text-[11px] leading-relaxed text-slate-500">
+                                                Theo bộ lọc hiện tại
+                                            </p>
+                                        </div>
+                                        {activeTab === 'chi' ? (
+                                            <>
+                                                <div className="group min-w-0 rounded-lg border border-white/[0.07] bg-white/[0.04] p-3 backdrop-blur-sm transition-colors hover:bg-white/[0.06]">
                                                     <div className="flex items-center gap-2 text-slate-400">
-                                                        <Percent size={15} className="text-slate-400" aria-hidden />
-                                                        <span className="text-xs font-medium">Đạt ngưỡng (chi NS)</span>
+                                                        <Gauge size={14} className="shrink-0 text-violet-300/90" />
+                                                        <span className="min-w-0 truncate text-[11px] font-medium">
+                                                            Tổng tiền ngưỡng
+                                                        </span>
+                                                    </div>
+                                                    <p className="mt-2 text-xl font-semibold tracking-tight text-violet-100 tabular-nums md:text-2xl">
+                                                        {chiNhanSuSummary.tongNguong > 0
+                                                            ? fmtVnd(chiNhanSuSummary.tongNguong)
+                                                            : '—'}
+                                                    </p>
+                                                    <p className="mt-2 text-[11px] leading-relaxed text-slate-500">
+                                                        Cộng ngưỡng các HĐ có phiếu chi nhân sự trong lọc
+                                                    </p>
+                                                </div>
+                                                <div className="group flex min-w-0 flex-col rounded-lg border border-white/[0.07] bg-white/[0.04] p-3 backdrop-blur-sm transition-colors hover:bg-white/[0.06]">
+                                                    <div className="flex flex-wrap items-start justify-between gap-2">
+                                                        <div className="flex min-w-0 items-center gap-2 text-slate-400">
+                                                            <Percent size={14} className="shrink-0 text-slate-400" aria-hidden />
+                                                            <span className="min-w-0 text-[11px] font-medium leading-snug">
+                                                                Đạt ngưỡng (chi NS)
+                                                            </span>
+                                                        </div>
+                                                        {chiNhanSuSummary.pct != null && chiNhanSuSummary.tongNguong > 0 ? (
+                                                            <span
+                                                                className={`shrink-0 text-lg font-semibold tabular-nums ${
+                                                                    chiNhanSuSummary.pct > 100
+                                                                        ? 'text-red-300'
+                                                                        : chiNhanSuSummary.pct >= 90
+                                                                          ? 'text-amber-200'
+                                                                          : 'text-emerald-300'
+                                                                }`}
+                                                            >
+                                                                {(Math.round(chiNhanSuSummary.pct * 10) / 10).toLocaleString('vi-VN')}%
+                                                            </span>
+                                                        ) : (
+                                                            <span className="shrink-0 text-sm text-slate-500">—</span>
+                                                        )}
                                                     </div>
                                                     {chiNhanSuSummary.pct != null && chiNhanSuSummary.tongNguong > 0 ? (
-                                                        <span
-                                                            className={`text-lg font-semibold tabular-nums ${
-                                                                chiNhanSuSummary.pct > 100
-                                                                    ? 'text-red-300'
-                                                                    : chiNhanSuSummary.pct >= 90
-                                                                      ? 'text-amber-200'
-                                                                      : 'text-emerald-300'
-                                                            }`}
-                                                        >
-                                                            {(Math.round(chiNhanSuSummary.pct * 10) / 10).toLocaleString('vi-VN')}%
-                                                        </span>
+                                                        <>
+                                                            <div className="mt-4 h-2 w-full overflow-hidden rounded-full bg-slate-800/90 ring-1 ring-white/5">
+                                                                <div
+                                                                    className={`h-full rounded-full bg-gradient-to-r transition-all duration-500 ${
+                                                                        chiNhanSuSummary.pct > 100
+                                                                            ? 'from-red-600 to-red-400'
+                                                                            : chiNhanSuSummary.pct >= 90
+                                                                              ? 'from-amber-600 to-amber-400'
+                                                                              : 'from-emerald-600 to-emerald-400'
+                                                                    }`}
+                                                                    style={{
+                                                                        width: `${Math.min(100, chiNhanSuSummary.pct)}%`,
+                                                                    }}
+                                                                />
+                                                            </div>
+                                                            <p className="mt-3 text-[11px] text-slate-400 tabular-nums">
+                                                                Chi NS: {fmtVnd(chiNhanSuSummary.tongChiNS)}
+                                                                {chiNhanSuSummary.pct > 100 ? (
+                                                                    <span className="ml-1.5 font-medium text-red-300">
+                                                                        · Vượt ngưỡng
+                                                                    </span>
+                                                                ) : null}
+                                                            </p>
+                                                        </>
                                                     ) : (
-                                                        <span className="text-sm text-slate-500">—</span>
+                                                        <p className="mt-4 text-[11px] leading-relaxed text-slate-500">
+                                                            Cần phiếu chi nhân sự có hợp đồng và ngưỡng trên HĐ.
+                                                        </p>
                                                     )}
                                                 </div>
-                                                {chiNhanSuSummary.pct != null && chiNhanSuSummary.tongNguong > 0 ? (
-                                                    <>
-                                                        <div className="mt-4 h-2 w-full overflow-hidden rounded-full bg-slate-800/90 ring-1 ring-white/5">
-                                                            <div
-                                                                className={`h-full rounded-full bg-gradient-to-r transition-all duration-500 ${
-                                                                    chiNhanSuSummary.pct > 100
-                                                                        ? 'from-red-600 to-red-400'
-                                                                        : chiNhanSuSummary.pct >= 90
-                                                                          ? 'from-amber-600 to-amber-400'
-                                                                          : 'from-emerald-600 to-emerald-400'
-                                                                }`}
-                                                                style={{
-                                                                    width: `${Math.min(100, chiNhanSuSummary.pct)}%`,
-                                                                }}
-                                                            />
-                                                        </div>
-                                                        <p className="mt-3 text-[11px] text-slate-400 tabular-nums">
-                                                            Chi NS: {fmtVnd(chiNhanSuSummary.tongChiNS)}
-                                                            {chiNhanSuSummary.pct > 100 ? (
-                                                                <span className="ml-1.5 font-medium text-red-300">
-                                                                    · Vượt ngưỡng
-                                                                </span>
-                                                            ) : null}
-                                                        </p>
-                                                    </>
-                                                ) : (
-                                                    <p className="mt-4 text-[11px] leading-relaxed text-slate-500">
-                                                        Cần phiếu chi nhân sự có hợp đồng và ngưỡng trên HĐ.
-                                                    </p>
+                                            </>
+                                        ) : null}
+                                    </div>
+
+                                    {activeTab === 'chi' ? (
+                                        <div className="mt-4 flex flex-wrap items-center gap-1.5 border-t border-white/10 pt-3">
+                                            {selectedCustomerIds.length > 0 && (
+                                                <StatChip label={`${selectedCustomerIds.length} khách hàng`} />
+                                            )}
+                                            {selectedDuAnIds.length > 0 && (
+                                                <StatChip label={`${selectedDuAnIds.length} dự án`} />
+                                            )}
+                                            {selectedHopDongIds.length > 0 && (
+                                                <StatChip label={`${selectedHopDongIds.length} hợp đồng`} />
+                                            )}
+                                        </div>
+                                    ) : (
+                                        (selectedCustomerIds.length > 0 ||
+                                            selectedDuAnIds.length > 0 ||
+                                            selectedHopDongIds.length > 0) && (
+                                            <div className="mt-4 flex flex-wrap items-center gap-1.5 border-t border-white/10 pt-3">
+                                                {selectedCustomerIds.length > 0 && (
+                                                    <StatChip label={`${selectedCustomerIds.length} khách hàng`} />
+                                                )}
+                                                {selectedDuAnIds.length > 0 && (
+                                                    <StatChip label={`${selectedDuAnIds.length} dự án`} />
+                                                )}
+                                                {selectedHopDongIds.length > 0 && (
+                                                    <StatChip label={`${selectedHopDongIds.length} hợp đồng`} />
                                                 )}
                                             </div>
-                                        </div>
-                                        <div className="mt-6 flex flex-wrap items-center gap-2 border-t border-white/10 pt-5">
-                                            <StatChip label={`${filteredItems.length} phiếu`} />
-                                            {selectedCustomerIds.length > 0 && (
-                                                <StatChip label={`${selectedCustomerIds.length} khách hàng`} />
-                                            )}
-                                            {selectedHopDongIds.length > 0 && (
-                                                <StatChip label={`${selectedHopDongIds.length} hợp đồng`} />
-                                            )}
-                                        </div>
-                                    </div>
-                                ) : (
-                                    <div className="relative flex flex-col gap-6 px-5 py-6 md:flex-row md:items-center md:justify-between md:px-7 md:py-7">
-                                        <div className="absolute -right-16 -top-16 h-36 w-36 rounded-full bg-emerald-500/10 blur-3xl" aria-hidden />
-                                        <div className="relative flex items-start gap-4">
-                                            <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-emerald-500/15 text-emerald-300 ring-1 ring-emerald-400/20">
-                                                <TrendingUp size={22} />
-                                            </div>
-                                            <div>
-                                                <p className="text-xs font-medium uppercase tracking-wider text-slate-500">
-                                                    Tổng tiền thu
-                                                </p>
-                                                <p className="mt-1 text-3xl font-semibold tracking-tight text-emerald-100 tabular-nums md:text-4xl">
-                                                    {formattedTotalAmount}
-                                                </p>
-                                                <p className="mt-1 text-sm text-slate-500">Theo bộ lọc hiện tại</p>
-                                            </div>
-                                        </div>
-                                        <div className="relative flex flex-wrap items-center gap-2 md:justify-end">
-                                            <StatChip label={`${filteredItems.length} phiếu`} />
-                                            {selectedCustomerIds.length > 0 && (
-                                                <StatChip label={`${selectedCustomerIds.length} khách hàng`} />
-                                            )}
-                                            {selectedHopDongIds.length > 0 && (
-                                                <StatChip label={`${selectedHopDongIds.length} hợp đồng`} />
-                                            )}
-                                        </div>
-                                    </div>
-                                )}
+                                        )
+                                    )}
+                                </div>
                             </div>
                         </div>
                     </div>
@@ -1209,6 +1369,9 @@ export function ThuChi() {
                                                 </div>
                                             )}
                                         </th>
+                                        <th className="p-4 whitespace-nowrap min-w-[10rem]">
+                                            Khách hàng
+                                        </th>
                                         <th className="p-4 whitespace-nowrap relative">
                                             <div className="flex items-center justify-between gap-2">
                                                 <span>Dự án</span>
@@ -1254,6 +1417,9 @@ export function ThuChi() {
                                                     </div>
                                                 </div>
                                             )}
+                                        </th>
+                                        <th className="p-4 whitespace-nowrap min-w-[8rem]">
+                                            Hợp đồng
                                         </th>
                                         <th className="p-4 whitespace-nowrap">Ngày chứng từ</th>
                                         <th className="p-4 whitespace-nowrap">Loại phiếu</th>
@@ -1320,8 +1486,18 @@ export function ThuChi() {
                                                 <td className="p-4 font-medium text-slate-700">
                                                     {item.code || '(Trống)'}
                                                 </td>
+                                                <td className="p-4 text-slate-700 text-xs max-w-[14rem]">
+                                                    <span className="line-clamp-2" title={(item as any).customer_name || ''}>
+                                                        {(item as any).customer_name || '—'}
+                                                    </span>
+                                                </td>
                                                 <td className="p-4 text-slate-600">
                                                     {item.ten_du_an || '(Chưa có dự án)'}
+                                                </td>
+                                                <td className="p-4 text-slate-700 text-xs font-medium max-w-[10rem]">
+                                                    <span className="line-clamp-2" title={(item as any).so_hop_dong_display || ''}>
+                                                        {(item as any).so_hop_dong_display || '—'}
+                                                    </span>
                                                 </td>
                                                 <td className="p-4 font-medium text-slate-800">
                                                     {item.date || '(Trống)'}
@@ -1438,7 +1614,7 @@ export function ThuChi() {
                                         ))
                                     ) : (
                                         <tr>
-                                            <td colSpan={activeTab === 'chi' ? 12 : 10} className="p-8 text-center text-slate-500">
+                                            <td colSpan={activeTab === 'chi' ? 14 : 12} className="p-8 text-center text-slate-500">
                                                 <div className="flex flex-col items-center gap-2">
                                                     <p className="text-sm font-medium">
                                                         {activeTab === 'thu' ? 'Không có phiếu thu' : 'Không có phiếu chi'}

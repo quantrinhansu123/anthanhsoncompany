@@ -142,13 +142,14 @@ export function DuAn() {
     // Load dự án từ bảng du_an và tính tiến độ từ hợp đồng
     useEffect(() => {
         (async () => {
-            const data = await projectService.getAll();
-            
-            // Load tất cả hợp đồng
-            const contracts = await contractService.getAll();
-            
-            // Load tất cả thu chi để tính chi phí
-            const allThuChi = await thuChiService.getAll();
+            // Song song hoá để giảm thời gian chờ network.
+            // Với thu chi chỉ cần `ten_du_an/loai_phieu/so_tien/...` cho dashboard dự án,
+            // nên dùng hàm "light" để tránh map projects/employees.
+            const [data, contracts, allThuChi] = await Promise.all([
+                projectService.getAll(),
+                contractService.getAll(),
+                thuChiService.getAllForDuAnDashboard(),
+            ]);
             
             // Nhóm hợp đồng theo project_name để hiển thị
             const contractsByProjectName = new Map<string, ContractRow[]>();

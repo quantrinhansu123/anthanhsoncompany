@@ -18,12 +18,43 @@ import {
 import { thuChiService, ThuChiRow } from '../../lib/services/thuChiService';
 import { projectService } from '../../lib/services/projectService';
 import { contractService } from '../../lib/services/contractService';
+import { customerService } from '../../lib/services/customerService';
 import { employeeService } from '../../lib/services/employeeService';
 import type { ContractRow } from '../../lib/services/contractService';
 import { type NhanSuOption } from '../../lib/formatNhanSu';
 import { NhanSuTenAnhPicker } from '../../components/NhanSuTenAnhPicker';
 
 type HangMucChi = 'chi_du_an' | 'chi_nhan_su';
+
+function normCustomerKey(s: string | null | undefined): string {
+    return String(s || '')
+        .trim()
+        .replace(/\s+/g, ' ')
+        .toLowerCase()
+        .normalize('NFC');
+}
+
+type ProjectOpt = {
+    id: string;
+    ten_du_an: string;
+    customer_id?: string | null;
+    ten_khach_hang?: string | null;
+    customer_name?: string | null;
+};
+
+function filterProjectsByCustomer(rows: ProjectOpt[], customerId: string, tenDonVi?: string): ProjectOpt[] {
+    const cid = String(customerId).trim();
+    const nameKey = normCustomerKey(tenDonVi);
+    return rows.filter((p) => {
+        if (String(p.customer_id ?? '').trim() === cid) return true;
+        const label = normCustomerKey(p.ten_khach_hang || p.customer_name || '');
+        return nameKey.length > 0 && label.length > 0 && label === nameKey;
+    });
+}
+
+function contractSelValue(c: ContractRow): string {
+    return String(c.hop_dong_row_id || c.id || '').trim();
+}
 
 interface ToastProps {
     message: string;
@@ -63,6 +94,7 @@ export function AddThuChi() {
     const [toast, setToast] = useState<{ message: string, type: 'success' | 'error' | 'info' } | null>(null);
 
     const [formData, setFormData] = useState({
+        customerId: '',
         duAnId: '',
         hopDongId: '',
         nhanSuId: '',
@@ -76,16 +108,45 @@ export function AddThuChi() {
         file: null as File | null,
         imageUrl: '' as string | null // URL ảnh chứng từ (link)
     });
-    const [projects, setProjects] = useState<Array<{ id: string; ten_du_an: string }>>([]);
+    const [projects, setProjects] = useState<ProjectOpt[]>([]);
+    const [customers, setCustomers] = useState<Array<{ id: string; ten_don_vi: string }>>([]);
     const [contracts, setContracts] = useState<ContractRow[]>([]);
     const [existingNhanSuChiTotal, setExistingNhanSuChiTotal] = useState(0);
     const [employees, setEmployees] = useState<NhanSuOption[]>([]);
     const [loading, setLoading] = useState(false);
 
-    const selectedContract = useMemo(
-        () => contracts.find((c) => c.id === formData.hopDongId),
-        [contracts, formData.hopDongId],
+    const selectedCustomerTenDonVi = useMemo(
+        () => customers.find((c) => String(c.id) === String(formData.customerId))?.ten_don_vi || '',
+        [customers, formData.customerId],
     );
+
+    const projectsForSelect = useMemo(() => {
+        const cid = String(formData.customerId || '').trim();
+        if (!cid) return [];
+        const rows = filterProjectsByCustomer(projects, cid, selectedCustomerTenDonVi);
+        if (isEditMode && formData.duAnId) {
+            const has = rows.some((p) => String(p.id) === String(formData.duAnId));
+            if (!has) {
+                const p = projects.find((x) => String(x.id) === String(formData.duAnId));
+                if (p) return [...rows, p];
+            }
+        }
+        return rows;
+    }, [projects, formData.customerId, selectedCustomerTenDonVi, isEditMode, formData.duAnId]);
+
+    const contractsForSelect = useMemo(() => {
+        const du = String(formData.duAnId || '').trim();
+        if (!du) return [];
+        return contracts.filter((c) => String(c.du_an_id ?? '').trim() === du);
+    }, [contracts, formData.duAnId]);
+
+    const selectedContract = useMemo(() => {
+        const hid = String(formData.hopDongId || '').trim();
+        if (!hid) return undefined;
+        return contracts.find(
+            (c) => String(c.id || '') === hid || String(c.hop_dong_row_id || '') === hid,
+        );
+    }, [contracts, formData.hopDongId]);
 
     const nguongTien = useMemo(() => {
         if (!selectedContract) return 0;
@@ -104,10 +165,11 @@ export function AddThuChi() {
             try {
                 const all = await thuChiService.getAll();
                 if (cancelled) return;
+                const hidNorm = String(formData.hopDongId || '').trim();
                 let sum = all
                     .filter(
                         (r) =>
-                            (r.hop_dong_id || '') === formData.hopDongId &&
+                            String(r.hop_dong_id ?? '').trim() === hidNorm &&
                             r.loai_phieu === 'Phiếu chi' &&
                             r.hang_muc_chi === 'chi_nhan_su',
                     )
@@ -116,7 +178,7 @@ export function AddThuChi() {
                     const cur = all.find((r) => r.id === id);
                     if (
                         cur &&
-                        (cur.hop_dong_id || '') === formData.hopDongId &&
+                        String(cur.hop_dong_id ?? '').trim() === hidNorm &&
                         cur.hang_muc_chi === 'chi_nhan_su'
                     ) {
                         sum -= Number(cur.so_tien) || 0;
@@ -135,11 +197,27 @@ export function AddThuChi() {
     // Load projects, contracts and employees
     useEffect(() => {
         (async () => {
-            const projectList = await projectService.getAll();
-            setProjects(projectList.map(p => ({ id: p.id, ten_du_an: p.ten_du_an })));
-            
-            const contractList = await contractService.getAll();
+            const [projectList, contractList, customerList] = await Promise.all([
+                projectService.getAll(),
+                contractService.getAll(),
+                customerService.getAll(),
+            ]);
+            setProjects(
+                (projectList || []).map((p: any) => ({
+                    id: p.id,
+                    ten_du_an: p.ten_du_an,
+                    customer_id: p.customer_id ?? null,
+                    ten_khach_hang: p.ten_khach_hang ?? null,
+                    customer_name: p.customer_name ?? p.ten_khach_hang ?? null,
+                })),
+            );
             setContracts(contractList);
+            setCustomers(
+                (customerList || []).map((c: any) => ({
+                    id: String(c.id),
+                    ten_don_vi: String(c.ten_don_vi || '').trim() || '(Không tên)',
+                })),
+            );
             
             const employeeList = await employeeService.getAll();
             setEmployees(
@@ -163,10 +241,19 @@ export function AddThuChi() {
     const loadData = async (itemId: string) => {
         try {
             setLoading(true);
-            const [item, employeeList] = await Promise.all([
+            const [item, employeeList, contractList, projectList, customerList] = await Promise.all([
                 thuChiService.getById(itemId),
                 employeeService.getAll(),
+                contractService.getAll(),
+                projectService.getAll(),
+                customerService.getAll(),
             ]);
+            setCustomers(
+                (customerList || []).map((c: any) => ({
+                    id: String(c.id),
+                    ten_don_vi: String(c.ten_don_vi || '').trim() || '(Không tên)',
+                })),
+            );
             const emps: NhanSuOption[] = employeeList.map((emp) => ({
                 id: emp.id.toString(),
                 full_name: emp.full_name || emp.name || emp.hoTen || '',
@@ -174,10 +261,40 @@ export function AddThuChi() {
                 anh_nhan_su: emp.anh_nhan_su || null,
             }));
             setEmployees(emps);
+            setContracts(contractList);
+            setProjects(
+                (projectList || []).map((p: any) => ({
+                    id: p.id,
+                    ten_du_an: p.ten_du_an,
+                    customer_id: p.customer_id ?? null,
+                    ten_khach_hang: p.ten_khach_hang ?? null,
+                    customer_name: p.customer_name ?? p.ten_khach_hang ?? null,
+                })),
+            );
             if (item) {
+                let duAnId = item.du_an_id || '';
+                let hopDongId = item.hop_dong_id || '';
+                const ct = contractList.find(
+                    (c) =>
+                        String(c.id || '') === String(hopDongId) ||
+                        String(c.hop_dong_row_id || '') === String(hopDongId),
+                );
+                if (ct) {
+                    hopDongId = String(ct.hop_dong_row_id || ct.id || hopDongId);
+                    if (!duAnId && ct.du_an_id) duAnId = String(ct.du_an_id);
+                }
+                const projRow = (projectList || []).find((p: any) => String(p.id) === String(duAnId));
+                let customerPlId =
+                    projRow?.customer_id != null && String(projRow.customer_id).trim()
+                        ? String(projRow.customer_id).trim()
+                        : '';
+                if (!customerPlId && ct?.customer_id) {
+                    customerPlId = String(ct.customer_id).trim();
+                }
                 setFormData({
-                    duAnId: item.du_an_id || '',
-                    hopDongId: item.hop_dong_id || '',
+                    customerId: customerPlId,
+                    duAnId,
+                    hopDongId,
                     nhanSuId:
                         item.nhan_su_id ? String(item.nhan_su_id) : '',
                     loaiPhieu: item.loai_phieu,
@@ -198,6 +315,10 @@ export function AddThuChi() {
     };
 
     const handleSave = async () => {
+        if (!String(formData.customerId || '').trim()) {
+            setToast({ message: 'Vui lòng chọn khách hàng', type: 'error' });
+            return;
+        }
         if (!formData.duAnId) {
             setToast({ message: 'Vui lòng chọn dự án', type: 'error' });
             return;
@@ -225,9 +346,20 @@ export function AddThuChi() {
             // Lấy URL ảnh chứng từ (chỉ lưu link, không upload)
             const imageUrl = formData.imageUrl?.trim() || null;
 
+            const hid = String(formData.hopDongId || '').trim();
+            const hopContract = hid
+                ? contracts.find(
+                      (c) =>
+                          String(c.id || '') === hid || String(c.hop_dong_row_id || '') === hid,
+                  )
+                : null;
+            const hopDongPayload = hopContract
+                ? String(hopContract.hop_dong_row_id || hopContract.id || '').trim() || null
+                : hid || null;
+
             const payload: Partial<ThuChiRow> = {
                 du_an_id: formData.duAnId || null,
-                hop_dong_id: formData.hopDongId || null,
+                hop_dong_id: hopDongPayload,
                 nhan_su_id:
                     formData.loaiPhieu === 'Phiếu thu' ? null : String(formData.nhanSuId || '').trim() || null,
                 loai_phieu: formData.loaiPhieu,
@@ -350,6 +482,41 @@ export function AddThuChi() {
                         </div>
                     </div>
 
+                    {/* Khách hàng */}
+                    <div className="flex flex-col md:flex-row md:items-center gap-4 md:gap-8">
+                        <div className="md:w-1/3 md:text-right">
+                            <label className="text-sm font-medium text-slate-500">
+                                Khách hàng <span className="text-red-500">*</span>
+                            </label>
+                        </div>
+                        <div className="md:w-2/3 relative flex-1">
+                            <select
+                                value={formData.customerId}
+                                onChange={(e) =>
+                                    setFormData({
+                                        ...formData,
+                                        customerId: e.target.value,
+                                        duAnId: '',
+                                        hopDongId: '',
+                                    })
+                                }
+                                className="w-full max-w-full px-4 py-2.5 bg-white border border-slate-300 rounded-md appearance-none focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 text-slate-700"
+                            >
+                                <option value="">-- Chọn khách hàng --</option>
+                                {[...customers]
+                                    .sort((a, b) =>
+                                        a.ten_don_vi.localeCompare(b.ten_don_vi, 'vi', { sensitivity: 'base' }),
+                                    )
+                                    .map((c) => (
+                                        <option key={c.id} value={c.id}>
+                                            {c.ten_don_vi}
+                                        </option>
+                                    ))}
+                            </select>
+                            <ChevronDown size={16} className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
+                        </div>
+                    </div>
+
                     {/* Dự án */}
                     <div className="flex flex-col md:flex-row md:items-center gap-4 md:gap-8">
                         <div className="md:w-1/3 md:text-right">
@@ -359,10 +526,13 @@ export function AddThuChi() {
                             <select
                                 value={formData.duAnId}
                                 onChange={(e) => setFormData({ ...formData, duAnId: e.target.value, hopDongId: '' })}
-                                className="w-full max-w-full px-4 py-2.5 bg-white border border-slate-300 rounded-md appearance-none focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 text-slate-700 project-select"
+                                disabled={!String(formData.customerId || '').trim()}
+                                className="w-full max-w-full px-4 py-2.5 bg-white border border-slate-300 rounded-md appearance-none focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 text-slate-700 project-select disabled:bg-slate-50 disabled:text-slate-500"
                             >
-                                <option value="">-- Chọn dự án --</option>
-                                {projects.map(p => (
+                                <option value="">
+                                    {formData.customerId ? '-- Chọn dự án --' : '-- Chọn khách hàng trước --'}
+                                </option>
+                                {projectsForSelect.map((p) => (
                                     <option
                                         key={p.id}
                                         value={p.id}
@@ -385,23 +555,23 @@ export function AddThuChi() {
                             <select
                                 value={formData.hopDongId}
                                 onChange={(e) => setFormData({ ...formData, hopDongId: e.target.value })}
-                                className="w-full px-4 py-2.5 bg-white border border-slate-300 rounded-md appearance-none focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 text-slate-700"
+                                className="w-full px-4 py-2.5 bg-white border border-slate-300 rounded-md appearance-none focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 text-slate-700 disabled:bg-slate-50 disabled:text-slate-500"
                                 disabled={!formData.duAnId}
                             >
-                                <option value="">-- Chọn hợp đồng (tùy chọn) --</option>
-                                {contracts
-                                    .filter(c => {
-                                        // Filter contracts by project if duAnId is selected
-                                        if (formData.duAnId) {
-                                            return c.du_an_id === formData.duAnId;
-                                        }
-                                        return true; // Show all if no project selected
-                                    })
-                                    .map(c => (
-                                        <option key={c.id || ''} value={c.id || ''}>
-                                            {c.so_hop_dong || (c.id ? String(c.id).substring(0, 8) : '')}
+                                <option value="">
+                                    {!formData.duAnId
+                                        ? '-- Chọn dự án trước --'
+                                        : '-- Chọn hợp đồng (tùy chọn) --'}
+                                </option>
+                                {contractsForSelect.map((c) => {
+                                    const v = contractSelValue(c);
+                                    if (!v) return null;
+                                    return (
+                                        <option key={v} value={v}>
+                                            {c.so_hop_dong || c.ten_goi_thau || v}
                                         </option>
-                                    ))}
+                                    );
+                                })}
                             </select>
                             <ChevronDown size={16} className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
                         </div>

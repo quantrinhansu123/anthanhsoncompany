@@ -30,6 +30,83 @@ export interface ThuChiRow {
 }
 
 export const thuChiService = {
+  // Lấy thu chi phục vụ dashboard/danh sách dự án.
+  // Tối ưu: join trực tiếp để lấy `ten_du_an`/`nhan_su_*` thay vì gọi thêm projectService/employeeService để map.
+  async getAllForDuAnDashboard(filterDuAnId?: string | null): Promise<ThuChiRow[]> {
+    try {
+      let query = supabase
+        .from('thu_chi')
+        .select(`
+          id,
+          du_an_id,
+          hop_dong_id,
+          nhan_su_id,
+          loai_phieu,
+          so_tien,
+          ngay,
+          noi_dung,
+          tinh_trang_phieu,
+          hang_muc_chi,
+          nguoi_nhan,
+          file_url,
+          anh_url,
+          ghi_chu,
+          created_at,
+          du_an:du_an_id(ten_du_an, customer_id, customer_name),
+          hop_dong:hop_dong_id(id, so_hop_dong),
+          nhan_su:nhan_su_id(id, code, full_name, name, hoTen, anh_nhan_su)
+        `)
+        .order('ngay', { ascending: false });
+
+      if (filterDuAnId) {
+        query = query.eq('du_an_id', filterDuAnId);
+      }
+
+      const { data, error } = await query;
+      if (error) {
+        console.error('Error fetching thu_chi for DuAn dashboard:', error);
+        throw error;
+      }
+
+      return (data || []).map((row: any) => {
+        const duAn = row.du_an;
+        const hopDong = row.hop_dong;
+        const nhanSu = row.nhan_su;
+        const tenNhanSu =
+          nhanSu?.full_name || nhanSu?.name || nhanSu?.hoTen || null;
+
+        return {
+          id: String(row.id),
+          du_an_id: row.du_an_id,
+          hop_dong_id: row.hop_dong_id,
+          nhan_su_id: row.nhan_su_id,
+          loai_phieu: row.loai_phieu,
+          so_tien: Number(row.so_tien) || 0,
+          ngay: row.ngay,
+          ngay_tien_ve: row.ngay ?? null,
+          noi_dung: row.noi_dung,
+          tinh_trang_phieu: row.tinh_trang_phieu,
+          nguoi_nhan: row.nguoi_nhan,
+          file_url: row.file_url,
+          anh_url: row.anh_url,
+          ghi_chu: row.ghi_chu,
+          hang_muc_chi: row.hang_muc_chi,
+          created_at: row.created_at,
+
+          // Joined
+          ten_du_an: duAn?.ten_du_an ?? null,
+          so_hop_dong: hopDong?.so_hop_dong ?? null,
+          nhan_su_ten: tenNhanSu,
+          nhan_su_code: nhanSu?.code ?? null,
+          nhan_su_anh: nhanSu?.anh_nhan_su ?? null,
+        } as ThuChiRow;
+      });
+    } catch (err) {
+      console.error('Exception in thuChiService.getAllForDuAnDashboard:', err);
+      return [];
+    }
+  },
+
   // Lấy tất cả thu chi (join với du_an và hop_dong để lấy tên)
   async getAll(filterDuAnId?: string | null): Promise<ThuChiRow[]> {
     try {
