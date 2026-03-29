@@ -19,6 +19,7 @@ import {
   Trash2,
   BookOpen,
   ChevronDown,
+  Eye,
 } from 'lucide-react';
 import type { TaskRow } from '../../lib/services/taskService';
 import { contractService } from '../../lib/services/contractService';
@@ -34,6 +35,8 @@ import {
   type TaskDetailComment,
   type TaskDetailDocument,
   type TaskDetailHistory,
+  type DanhSachCongViecItem,
+  type TrangThaiDanhSachCongViec,
 } from '../../lib/services/taskDetailService';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { PreviewLinkModal } from '../../components/PreviewLinkModal';
@@ -116,6 +119,138 @@ function taiLieuToDraft(docs: TaskDetailDocument[] | undefined): DocDraftRow[] {
     const row = newDocDraftRow();
     return { ...row, ten: d.ten || '', link: d.link || '', mota: d.mota ?? '' };
   });
+}
+
+const LIST_CV_TRANG_THAI_OPTIONS: TrangThaiDanhSachCongViec[] = [
+  'Đang làm',
+  'Hoàn thành',
+  'Duyệt',
+  'Từ chối',
+];
+
+type ListCongViecDraftRow = {
+  key: string;
+  noi_dung: string;
+  trang_thai: TrangThaiDanhSachCongViec;
+  ly_do_tu_choi: string;
+  ngay_gio_hoan_thanh: string;
+  ghi_chu: string;
+  /** Id nhân sự — chỉ chọn trong danh sách người phụ trách của công việc */
+  nhan_su_phu_trach_ids: string[];
+};
+
+function isoToDatetimeLocal(iso: string | null | undefined): string {
+  if (!iso?.trim()) return '';
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return '';
+  const pad = (n: number) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
+function datetimeLocalToIso(local: string): string | null {
+  const s = local.trim();
+  if (!s) return null;
+  const d = new Date(s);
+  if (Number.isNaN(d.getTime())) return null;
+  return d.toISOString();
+}
+
+function newListCongViecDraftRow(): ListCongViecDraftRow {
+  const key =
+    typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
+      ? crypto.randomUUID()
+      : `lcv-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
+  return {
+    key,
+    noi_dung: '',
+    trang_thai: 'Đang làm',
+    ly_do_tu_choi: '',
+    ngay_gio_hoan_thanh: '',
+    ghi_chu: '',
+    nhan_su_phu_trach_ids: [],
+  };
+}
+
+/** Nhân sự khớp chuỗi «Người phụ trách» của công việc (tên / mã / id). */
+function listCongViecPhuTrachOptions(
+  task: TaskRow | null,
+  employees: Array<{ id: string; full_name: string; code: string }>,
+): Array<{ id: string; full_name: string; code: string }> {
+  if (!task) return [];
+  const raw = (task.nguoi_phu_trach || '').trim();
+  if (!raw) return [];
+  const tokens = raw
+    .split(',')
+    .map((x) => x.trim())
+    .filter(Boolean);
+  if (tokens.length === 0) return [];
+  const allowed = new Set(tokens.map((t) => String(t)));
+  return employees.filter((e) => {
+    const id = String(e.id ?? '');
+    return allowed.has(e.full_name) || allowed.has(e.code) || allowed.has(id);
+  });
+}
+
+function listCvPhuTrachDropdownLabel(
+  ids: string[],
+  options: Array<{ id: string; full_name: string; code: string }>,
+): string {
+  if (options.length === 0) return 'Chưa có người phụ trách ở công việc';
+  if (ids.length === 0) return '— Chọn nhân sự —';
+  const labels = ids.map((id) => {
+    const e = options.find((x) => x.id === id);
+    return e ? e.full_name || e.code || id : id;
+  });
+  if (labels.length === 1) return labels[0];
+  if (labels.length === 2) return `${labels[0]} · ${labels[1]}`;
+  return `${ids.length} người đã chọn`;
+}
+
+function listCvStatusBadgeClass(st: TrangThaiDanhSachCongViec): string {
+  switch (st) {
+    case 'Đang làm':
+      return 'bg-blue-100 text-blue-900 border-blue-300';
+    case 'Hoàn thành':
+      return 'bg-emerald-100 text-emerald-900 border-emerald-300';
+    case 'Duyệt':
+      return 'bg-violet-100 text-violet-900 border-violet-300';
+    case 'Từ chối':
+      return 'bg-red-100 text-red-900 border-red-300';
+    default:
+      return 'bg-slate-100 text-slate-800 border-slate-300';
+  }
+}
+
+/** `datetime-local` → hiển thị ngắn */
+function formatListCvDatetimeLocalShort(ymdhm: string): string {
+  if (!ymdhm.trim()) return '';
+  const d = new Date(ymdhm);
+  if (Number.isNaN(d.getTime())) return '';
+  return d.toLocaleString('vi-VN', {
+    day: '2-digit',
+    month: '2-digit',
+    year: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+  });
+}
+
+function danhSachCongViecToDraft(
+  items: DanhSachCongViecItem[] | undefined,
+): ListCongViecDraftRow[] {
+  const arr = Array.isArray(items) && items.length > 0 ? items : [];
+  if (arr.length === 0) return [newListCongViecDraftRow()];
+  return arr.map((it) => ({
+    key: it.id,
+    noi_dung: it.noi_dung || '',
+    trang_thai: it.trang_thai,
+    ly_do_tu_choi: it.ly_do_tu_choi?.trim() ? it.ly_do_tu_choi : '',
+    ngay_gio_hoan_thanh: isoToDatetimeLocal(it.ngay_gio_hoan_thanh),
+    ghi_chu: it.ghi_chu?.trim() ? it.ghi_chu : '',
+    nhan_su_phu_trach_ids: Array.isArray(it.nhan_su_phu_trach_ids)
+      ? it.nhan_su_phu_trach_ids.map(String).filter(Boolean)
+      : [],
+  }));
 }
 
 /** Thanh tiến độ danh sách trái: có `quy_trinh_items` thì % = bước Đạt / tổng bước; không thì dùng `tien_do` trong DB. */
@@ -245,6 +380,19 @@ export function QuanLyCongViec() {
   const [docPreviewUrl, setDocPreviewUrl] = useState<string | null>(null);
   const [docDraftRows, setDocDraftRows] = useState<DocDraftRow[]>([newDocDraftRow()]);
   const [docSaving, setDocSaving] = useState(false);
+  const [listCongViecDraftRows, setListCongViecDraftRows] = useState<ListCongViecDraftRow[]>([
+    newListCongViecDraftRow(),
+  ]);
+  const [listCongViecSaving, setListCongViecSaving] = useState(false);
+  /** Popup nhập lý do khi chọn trạng thái Từ chối */
+  const [listCvTuChoiModal, setListCvTuChoiModal] = useState<{
+    rowKey: string;
+    lyDo: string;
+  } | null>(null);
+  /** Dòng nào đang mở dropdown chọn nhân sự phụ trách (list công việc) */
+  const [listCvPhuTrachOpenRow, setListCvPhuTrachOpenRow] = useState<string | null>(null);
+  /** Dòng list công việc đang mở rộng (chỉnh sửa đầy đủ) */
+  const [listCvRowExpanded, setListCvRowExpanded] = useState<Record<string, boolean>>({});
   const [saving, setSaving] = useState(false);
   const [formData, setFormData] = useState<
     Omit<TaskRow, 'id' | 'created_at' | 'updated_at'>
@@ -267,7 +415,7 @@ export function QuanLyCongViec() {
   const [thuVienLoiList, setThuVienLoiList] = useState<ThuVienLoiRow[]>([]);
   const [selectedEmployeeIds, setSelectedEmployeeIds] = useState<string[]>([]);
   const [detailTabState, setDetailTabState] = useState<
-    'NOI_DUNG' | 'BINH_LUAN' | 'TAI_LIEU' | 'LICH_SU' | 'LOI_GHI_NHAN'
+    'NOI_DUNG' | 'BINH_LUAN' | 'TAI_LIEU' | 'LIST_CONG_VIEC' | 'LICH_SU' | 'LOI_GHI_NHAN'
   >('NOI_DUNG');
   /** Giá trị option = chuỗi thật hoặc `__EMPTY__` nếu trống */
   const [loiCascadeChuyen, setLoiCascadeChuyen] = useState('');
@@ -308,6 +456,15 @@ export function QuanLyCongViec() {
     const docs = (detailByTask[selected.id]?.tai_lieu || []) as TaskDetailDocument[];
     setDocDraftRows(taiLieuToDraft(docs));
   }, [selected?.id, detailByTask[selected?.id || '']?.tai_lieu]);
+
+  useEffect(() => {
+    if (!selected?.id) {
+      setListCongViecDraftRows([newListCongViecDraftRow()]);
+      return;
+    }
+    const items = detailByTask[selected.id]?.danh_sach_cong_viec;
+    setListCongViecDraftRows(danhSachCongViecToDraft(items));
+  }, [selected?.id, detailByTask[selected?.id || '']?.danh_sach_cong_viec]);
 
   useEffect(() => {
     if (!contractFilterOpen) {
@@ -756,6 +913,30 @@ export function QuanLyCongViec() {
     return { soNgayThucHien, conLaiText, conLaiClass };
   }, [selected]);
 
+  const listCvPhuTrachOptions = useMemo(
+    () => listCongViecPhuTrachOptions(selected, employees),
+    [selected?.id, selected?.nguoi_phu_trach, employees],
+  );
+
+  useEffect(() => {
+    if (listCvPhuTrachOpenRow == null) return;
+    const onDown = (e: MouseEvent) => {
+      const el = e.target as HTMLElement;
+      if (el.closest('[data-list-cv-phu-trach]')) return;
+      setListCvPhuTrachOpenRow(null);
+    };
+    document.addEventListener('mousedown', onDown);
+    return () => document.removeEventListener('mousedown', onDown);
+  }, [listCvPhuTrachOpenRow]);
+
+  useEffect(() => {
+    setListCvPhuTrachOpenRow(null);
+  }, [selected?.id]);
+
+  useEffect(() => {
+    setListCvRowExpanded({});
+  }, [selected?.id]);
+
   const handleSendComment = async () => {
     const content = commentDraft.trim();
     if (!content || !selected) return;
@@ -828,11 +1009,11 @@ export function QuanLyCongViec() {
         </div>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 lg:gap-5 flex-1 min-h-0">
-        {/* Danh sách công việc (trái) */}
-        <div className="lg:col-span-4 bg-white border-2 border-slate-400 rounded-xl shadow-lg flex flex-col min-h-0">
-          <div className="px-4 py-3 border-b-2 border-slate-300 flex items-center justify-between gap-2">
-          <div className="flex gap-1 text-[11px] font-bold rounded-full bg-slate-200/90 p-1">
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-3 lg:gap-4 flex-1 min-h-0">
+        {/* Danh sách công việc (trái) — cột hẹp, gọn */}
+        <div className="lg:col-span-3 bg-white border-2 border-slate-400 rounded-xl shadow-lg flex flex-col min-h-0 min-w-0">
+          <div className="px-2 py-2 border-b-2 border-slate-300 flex items-center justify-between gap-1">
+          <div className="flex gap-0.5 text-[10px] font-bold rounded-full bg-slate-200/90 p-0.5 min-w-0 overflow-x-auto [scrollbar-width:thin]">
             {[
               {
                 id: 'all',
@@ -862,14 +1043,14 @@ export function QuanLyCongViec() {
               <button
                 key={tab.id}
                 onClick={() => setActiveTab(tab.id as StatusTab)}
-                className={`px-2.5 py-1 rounded-full flex items-center gap-1 transition-colors ${
+                className={`px-1.5 py-0.5 rounded-full flex items-center gap-0.5 shrink-0 transition-colors ${
                   activeTab === tab.id
-                    ? 'bg-white shadow-md ring-2 ring-slate-400/60'
+                    ? 'bg-white shadow-sm ring-1 ring-slate-400/60'
                     : 'bg-transparent'
                 }`}
               >
                 <span
-                  className={`${
+                  className={`whitespace-nowrap ${
                     activeTab === tab.id
                       ? `${tab.color} font-bold`
                       : 'text-slate-700 font-bold'
@@ -878,7 +1059,7 @@ export function QuanLyCongViec() {
                   {tab.label}
                 </span>
                 <span
-                  className={`inline-flex items-center justify-center min-w-[18px] h-[18px] rounded-full text-[10px] font-bold ${
+                  className={`inline-flex items-center justify-center min-w-[16px] h-[16px] rounded-full text-[9px] font-bold ${
                     tab.id === 'done'
                       ? 'bg-emerald-600 text-white'
                       : tab.id === 'doing'
@@ -895,15 +1076,15 @@ export function QuanLyCongViec() {
           </div>
           </div>
 
-          <div className="px-4 py-2 border-b border-slate-300">
-            <div className="grid grid-cols-2 gap-x-2 gap-y-2 items-start">
+          <div className="px-2 py-1.5 border-b border-slate-300">
+            <div className="grid grid-cols-1 gap-1.5 items-start">
             <div className="relative min-w-0">
-              <Search className="w-4 h-4 text-slate-600 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
+              <Search className="w-3.5 h-3.5 text-slate-600 absolute left-2 top-1/2 -translate-y-1/2 pointer-events-none" />
               <input
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
-                placeholder="Nhập tên công việc"
-                className="w-full pl-8 pr-3 py-1.5 rounded-lg border-2 border-slate-400 text-xs focus:outline-none focus:ring-2 focus:ring-blue-600/40 focus:border-blue-600 bg-slate-200 font-bold text-slate-900"
+                placeholder="Tìm tên công việc"
+                className="w-full pl-7 pr-2 py-1 rounded-md border border-slate-400 text-[11px] focus:outline-none focus:ring-1 focus:ring-blue-600/40 focus:border-blue-600 bg-slate-200 font-semibold text-slate-900"
               />
             </div>
             <div className="relative min-w-0" ref={contractFilterRef}>
@@ -911,7 +1092,7 @@ export function QuanLyCongViec() {
               <button
                 type="button"
                 onClick={() => setContractFilterOpen((o) => !o)}
-                className="w-full flex items-center justify-between gap-2 rounded-lg border-2 border-slate-400 px-3 py-1.5 text-xs bg-slate-200 focus:outline-none focus:ring-2 focus:ring-blue-600/40 focus:border-blue-600 text-slate-900 font-bold text-left"
+                className="w-full flex items-center justify-between gap-1 rounded-md border border-slate-400 px-2 py-1 text-[11px] bg-slate-200 focus:outline-none focus:ring-1 focus:ring-blue-600/40 focus:border-blue-600 text-slate-900 font-semibold text-left"
                 title="Lọc danh sách theo một hoặc nhiều hợp đồng"
                 aria-expanded={contractFilterOpen}
                 aria-haspopup="listbox"
@@ -1005,13 +1186,13 @@ export function QuanLyCongViec() {
               ) : null}
             </div>
             <div className="min-w-0">
-              <label className="block text-[10px] font-bold text-slate-600 uppercase tracking-wide mb-1">
+              <label className="block text-[9px] font-bold text-slate-600 uppercase tracking-wide mb-0.5">
                 Nhân sự phụ trách
               </label>
               <select
                 value={filterNhanSuId}
                 onChange={(e) => setFilterNhanSuId(e.target.value)}
-                className="w-full min-w-0 rounded-lg border-2 border-slate-400 px-2 py-1.5 text-[11px] bg-slate-200 font-bold text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-600/40 focus:border-blue-600"
+                className="w-full min-w-0 rounded-md border border-slate-400 px-1.5 py-1 text-[10px] bg-slate-200 font-semibold text-slate-900 focus:outline-none focus:ring-1 focus:ring-blue-600/40 focus:border-blue-600"
                 title="Chỉ hiện công việc có người phụ trách đã chọn"
               >
                 <option value="">Tất cả nhân sự</option>
@@ -1028,23 +1209,23 @@ export function QuanLyCongViec() {
               </select>
             </div>
             <div className="min-w-0">
-              <label className="block text-[10px] font-bold text-slate-600 uppercase tracking-wide mb-1">
-                Ngày kết thúc (từ — đến)
+              <label className="block text-[9px] font-bold text-slate-600 uppercase tracking-wide mb-0.5">
+                Kết thúc (từ — đến)
               </label>
-              <div className="flex items-center gap-1">
+              <div className="flex items-center gap-0.5">
                 <input
                   type="date"
                   value={filterKetThucTu}
                   onChange={(e) => setFilterKetThucTu(e.target.value)}
-                  className="min-w-0 flex-1 rounded-lg border-2 border-slate-400 px-1 py-1.5 text-[10px] bg-slate-200 font-bold text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-600/40 focus:border-blue-600"
+                  className="min-w-0 flex-1 rounded-md border border-slate-400 px-0.5 py-1 text-[9px] bg-slate-200 font-semibold text-slate-900 focus:outline-none focus:ring-1 focus:ring-blue-600/40 focus:border-blue-600"
                   title="Từ ngày kết thúc"
                 />
-                <span className="text-[9px] font-bold text-slate-500 shrink-0">—</span>
+                <span className="text-[8px] font-bold text-slate-500 shrink-0">—</span>
                 <input
                   type="date"
                   value={filterKetThucDen}
                   onChange={(e) => setFilterKetThucDen(e.target.value)}
-                  className="min-w-0 flex-1 rounded-lg border-2 border-slate-400 px-1 py-1.5 text-[10px] bg-slate-200 font-bold text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-600/40 focus:border-blue-600"
+                  className="min-w-0 flex-1 rounded-md border border-slate-400 px-0.5 py-1 text-[9px] bg-slate-200 font-semibold text-slate-900 focus:outline-none focus:ring-1 focus:ring-blue-600/40 focus:border-blue-600"
                   title="Đến ngày kết thúc"
                 />
               </div>
@@ -1052,13 +1233,13 @@ export function QuanLyCongViec() {
             </div>
           </div>
 
-          <div className="flex-1 min-h-0 overflow-y-auto py-2 overscroll-contain">
+          <div className="flex-1 min-h-0 overflow-y-auto py-1 overscroll-contain">
             {loading ? (
-              <p className="px-4 py-4 text-xs text-slate-600">Đang tải công việc...</p>
+              <p className="px-2 py-2 text-[11px] text-slate-600">Đang tải…</p>
             ) : filtered.length === 0 ? (
-              <p className="px-4 py-4 text-xs text-slate-600">Không có công việc nào.</p>
+              <p className="px-2 py-2 text-[11px] text-slate-600">Không có công việc.</p>
             ) : (
-              <div className="space-y-2 px-0.5">
+              <div className="space-y-1 px-0.5">
                 {filtered.map((task, index) => {
                   const isActive = selected && selected.id === task.id;
                   const listPct = listProgressPercent(task);
@@ -1068,7 +1249,7 @@ export function QuanLyCongViec() {
                   return (
                     <div
                       key={`${task.id}-${index}`}
-                      className={`w-full px-4 py-3.5 border-l-[5px] rounded-r-lg flex items-start justify-between gap-3 ${
+                      className={`w-full px-2 py-2 border-l-[3px] rounded-r-md flex items-start justify-between gap-1.5 ${
                         isActive
                           ? 'bg-blue-100 border-blue-700 shadow-sm ring-1 ring-blue-200/80'
                           : 'bg-slate-50/90 border-transparent hover:bg-slate-200/90 ring-1 ring-slate-200/80'
@@ -1076,40 +1257,40 @@ export function QuanLyCongViec() {
                     >
                       <button
                         onClick={() => setSelected(task)}
-                        className="flex-1 min-w-0 text-left flex flex-col gap-2"
+                        className="flex-1 min-w-0 text-left flex flex-col gap-1"
                       >
                         <span
-                          className="text-sm font-bold text-slate-900 line-clamp-3 leading-snug"
+                          className="text-[11px] font-bold text-slate-900 line-clamp-2 leading-tight"
                           title={task.ten_task}
                         >
                           {task.ten_task}
                         </span>
                         {task.hop_dong_id ? (
                           <span
-                            className="text-[11px] font-medium text-slate-600 line-clamp-2 leading-snug"
+                            className="text-[9px] font-medium text-slate-600 line-clamp-1 leading-tight"
                             title={hopDongLabel}
                           >
                             {hopDongLabel}
                           </span>
                         ) : null}
-                        <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5">
-                          <div className="flex items-center gap-2 flex-1 min-w-[8rem]">
-                            <div className="flex-1 min-w-0 h-2.5 rounded-full bg-slate-200 overflow-hidden ring-1 ring-slate-300/80">
+                        <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5">
+                          <div className="flex items-center gap-1 flex-1 min-w-0">
+                            <div className="flex-1 min-w-0 h-1.5 rounded-full bg-slate-200 overflow-hidden">
                               <div
                                 className="h-full rounded-full bg-emerald-600 transition-[width] duration-300 ease-out"
                                 style={{ width: `${listPct}%` }}
                               />
                             </div>
-                            <span className="text-[11px] font-bold text-emerald-800 tabular-nums shrink-0 min-w-[2.25rem]">
+                            <span className="text-[9px] font-bold text-emerald-800 tabular-nums shrink-0 w-7 text-right">
                               {listPct}%
                             </span>
                           </div>
-                          <span className="text-[11px] font-bold text-slate-800 shrink-0 max-w-full">
+                          <span className="text-[9px] font-bold text-slate-800 shrink-0 max-w-[4.5rem] truncate" title={task.trang_thai}>
                             {task.trang_thai}
                           </span>
                         </div>
                       </button>
-                      <div className="flex flex-col sm:flex-row items-center gap-1.5 shrink-0 pt-0.5">
+                      <div className="flex flex-col items-center gap-1 shrink-0">
                         <button
                           type="button"
                           title="Sửa công việc"
@@ -1143,9 +1324,9 @@ export function QuanLyCongViec() {
                             setTaskModalEditingId(task.id);
                             setIsModalOpen(true);
                           }}
-                          className="w-8 h-8 flex items-center justify-center rounded-full border-2 border-amber-600 bg-amber-100 text-amber-900 hover:bg-amber-200 shadow-sm"
+                          className="w-6 h-6 flex items-center justify-center rounded-full border border-amber-600 bg-amber-100 text-amber-900 hover:bg-amber-200"
                         >
-                          <Pencil className="w-4 h-4" aria-hidden />
+                          <Pencil className="w-3 h-3" aria-hidden />
                         </button>
                         <button
                           type="button"
@@ -1180,9 +1361,9 @@ export function QuanLyCongViec() {
                               }
                             })();
                           }}
-                          className="w-8 h-8 flex items-center justify-center rounded-full border-2 border-red-600 bg-red-100 text-red-800 hover:bg-red-200 shadow-sm"
+                          className="w-6 h-6 flex items-center justify-center rounded-full border border-red-600 bg-red-100 text-red-800 hover:bg-red-200"
                         >
-                          <Trash2 className="w-4 h-4" aria-hidden />
+                          <Trash2 className="w-3 h-3" aria-hidden />
                         </button>
                       </div>
                     </div>
@@ -1194,7 +1375,7 @@ export function QuanLyCongViec() {
         </div>
 
         {/* Chi tiết công việc (giữa) */}
-        <div className="lg:col-span-8 bg-white border-2 border-slate-400 rounded-xl shadow-lg flex flex-col min-h-0">
+        <div className="lg:col-span-9 bg-white border-2 border-slate-400 rounded-xl shadow-lg flex flex-col min-h-0 min-w-0">
                           <div className="px-5 py-3 border-b-2 border-slate-300 flex items-center justify-between gap-3 flex-wrap">
             <div className="min-w-0 flex-1">
               <h2 className="text-sm font-bold text-slate-900 line-clamp-2">
@@ -1425,6 +1606,7 @@ export function QuanLyCongViec() {
                       { id: 'NOI_DUNG', label: 'NỘI DUNG' },
                       { id: 'BINH_LUAN', label: 'BÌNH LUẬN' },
                       { id: 'TAI_LIEU', label: 'TÀI LIỆU' },
+                      { id: 'LIST_CONG_VIEC', label: 'LIST CÔNG VIỆC' },
                       { id: 'LOI_GHI_NHAN', label: 'GHI NHẬN LỖI' },
                       { id: 'LICH_SU', label: 'LỊCH SỬ' },
                     ].map((tab) => (
@@ -1456,6 +1638,13 @@ export function QuanLyCongViec() {
                                 (d: TaskDetailDocument) => String(d?.link || '').trim(),
                               ).length
                             }
+                          </span>
+                        )}
+                        {tab.id === 'LIST_CONG_VIEC' && (
+                          <span className="ml-1 inline-flex items-center justify-center rounded-full bg-indigo-100 text-indigo-900 text-[9px] px-1.5">
+                            {(detailByTask[selected.id]?.danh_sach_cong_viec || []).filter((x) =>
+                              String(x?.noi_dung || '').trim(),
+                            ).length}
                           </span>
                         )}
                         {tab.id === 'LOI_GHI_NHAN' && (
@@ -1667,6 +1856,494 @@ export function QuanLyCongViec() {
                             </div>
                           </div>
                         ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {detailTabState === 'LIST_CONG_VIEC' && selected && (
+                    <div className="mt-3 rounded-xl border border-slate-200 bg-slate-200 px-3 py-3 text-xs text-slate-700 space-y-3">
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <div>
+                          <p className="font-bold text-slate-800 text-[11px]">
+                            Danh sách việc cần làm
+                          </p>
+                          <p className="text-[10px] text-slate-600 mt-0.5">
+                            Mỗi dòng hiển thị gọn; bấm <span className="font-semibold">Xem</span> để chỉnh
+                            trạng thái, nhân sự, ngày giờ, ghi chú. Dòng mới thêm sẽ tự mở. Lưu chỉ ghi các
+                            dòng có nội dung.
+                          </p>
+                        </div>
+                        <div className="flex flex-wrap items-center gap-2">
+                          <button
+                            type="button"
+                            disabled={listCongViecSaving}
+                            onClick={() => {
+                              const nr = newListCongViecDraftRow();
+                              setListCongViecDraftRows((rows) => [...rows, nr]);
+                              setListCvRowExpanded((p) => ({ ...p, [nr.key]: true }));
+                            }}
+                            className="px-2.5 py-1 rounded-lg border border-slate-300 bg-white text-[11px] font-bold text-slate-700 hover:bg-slate-100 disabled:opacity-50"
+                          >
+                            + Thêm việc
+                          </button>
+                          <button
+                            type="button"
+                            disabled={listCongViecSaving}
+                            onClick={async () => {
+                              const detailId = detailByTask[selected.id]?.id;
+                              if (!detailId) {
+                                alert('Chưa có bản ghi chi tiết. Thử tải lại trang.');
+                                return;
+                              }
+                              for (const r of listCongViecDraftRows) {
+                                if (!r.noi_dung.trim()) continue;
+                                if (r.trang_thai === 'Từ chối' && !r.ly_do_tu_choi.trim()) {
+                                  alert('Các việc “Từ chối” cần có lý do — chọn lại trạng thái và nhập lý do.');
+                                  return;
+                                }
+                              }
+                              const allowedNs = new Set(listCvPhuTrachOptions.map((e) => e.id));
+                              const payload: DanhSachCongViecItem[] = listCongViecDraftRows
+                                .filter((r) => r.noi_dung.trim())
+                                .map((r) => ({
+                                  id: r.key,
+                                  noi_dung: r.noi_dung.trim(),
+                                  trang_thai: r.trang_thai,
+                                  ly_do_tu_choi:
+                                    r.trang_thai === 'Từ chối'
+                                      ? r.ly_do_tu_choi.trim()
+                                      : null,
+                                  ngay_gio_hoan_thanh: datetimeLocalToIso(r.ngay_gio_hoan_thanh),
+                                  ghi_chu: r.ghi_chu.trim() ? r.ghi_chu.trim() : null,
+                                  nhan_su_phu_trach_ids: r.nhan_su_phu_trach_ids.filter((id) =>
+                                    allowedNs.has(id),
+                                  ),
+                                }));
+                              setListCongViecSaving(true);
+                              try {
+                                const updated = await taskDetailService.updateDanhSachCongViec(
+                                  detailId,
+                                  payload,
+                                );
+                                setDetailByTask((prev) => ({ ...prev, [selected.id]: updated }));
+                              } catch (err) {
+                                console.error('[QuanLyCongViec] updateDanhSachCongViec:', err);
+                                alert(
+                                  err instanceof Error
+                                    ? err.message
+                                    : 'Không lưu được. Chạy SQL add_cong_viec_danh_sach_cong_viec.sql trên Supabase nếu chưa có cột danh_sach_cong_viec.',
+                                );
+                              } finally {
+                                setListCongViecSaving(false);
+                              }
+                            }}
+                            className="px-2.5 py-1 rounded-lg bg-indigo-800 text-white text-[11px] font-bold hover:bg-indigo-950 disabled:opacity-50"
+                          >
+                            {listCongViecSaving ? 'Đang lưu...' : 'Lưu danh sách'}
+                          </button>
+                        </div>
+                      </div>
+                      <ul className="space-y-2 max-h-[min(420px,55vh)] overflow-y-auto pr-0.5">
+                        {listCongViecDraftRows.map((row, idx) => {
+                          const listCvExpanded = Boolean(listCvRowExpanded[row.key]);
+                          return (
+                          <li
+                            key={row.key}
+                            className={`rounded-lg border border-slate-200 bg-white ${
+                              listCvExpanded ? 'p-2.5 space-y-2' : 'px-2.5 py-2'
+                            }`}
+                          >
+                            {!listCvExpanded ? (
+                              <div className="space-y-1">
+                                <div className="flex items-center gap-2 min-w-0">
+                                  <span
+                                    className={`shrink-0 text-[9px] font-bold px-1.5 py-0.5 rounded border ${listCvStatusBadgeClass(row.trang_thai)}`}
+                                  >
+                                    {row.trang_thai}
+                                  </span>
+                                  <span
+                                    className="flex-1 min-w-0 text-[11px] font-semibold text-slate-900 truncate"
+                                    title={row.noi_dung.trim() || undefined}
+                                  >
+                                    {row.noi_dung.trim() ||
+                                      `Dòng ${idx + 1} — chưa có nội dung`}
+                                  </span>
+                                  <div className="hidden sm:flex items-center gap-1.5 shrink-0 text-[9px] text-slate-500 tabular-nums">
+                                    {row.nhan_su_phu_trach_ids.length > 0 ? (
+                                      <span title="Nhân sự phụ trách">
+                                        {row.nhan_su_phu_trach_ids.length} NS
+                                      </span>
+                                    ) : null}
+                                    {row.ngay_gio_hoan_thanh ? (
+                                      <span
+                                        className="max-w-[6.5rem] truncate"
+                                        title={formatListCvDatetimeLocalShort(
+                                          row.ngay_gio_hoan_thanh,
+                                        )}
+                                      >
+                                        {formatListCvDatetimeLocalShort(row.ngay_gio_hoan_thanh)}
+                                      </span>
+                                    ) : null}
+                                    {row.ghi_chu.trim() ? (
+                                      <BookOpen
+                                        className="w-3.5 h-3.5 text-slate-400 shrink-0"
+                                        aria-label="Có ghi chú"
+                                      />
+                                    ) : null}
+                                  </div>
+                                  <button
+                                    type="button"
+                                    disabled={listCongViecSaving}
+                                    onClick={() =>
+                                      setListCvRowExpanded((p) => ({ ...p, [row.key]: true }))
+                                    }
+                                    className="inline-flex items-center gap-1 shrink-0 rounded-lg border border-slate-200 bg-white px-2 py-1 text-[10px] font-bold text-indigo-800 hover:bg-indigo-50 disabled:opacity-50"
+                                  >
+                                    <Eye className="w-3.5 h-3.5" />
+                                    Xem
+                                  </button>
+                                  <button
+                                    type="button"
+                                    disabled={listCongViecSaving || listCongViecDraftRows.length <= 1}
+                                    onClick={() => {
+                                      setListCongViecDraftRows((rows) =>
+                                        rows.length <= 1
+                                          ? rows
+                                          : rows.filter((r) => r.key !== row.key),
+                                      );
+                                      setListCvRowExpanded((p) => {
+                                        const next = { ...p };
+                                        delete next[row.key];
+                                        return next;
+                                      });
+                                    }}
+                                    className="p-1.5 rounded-lg text-slate-500 hover:text-red-600 hover:bg-red-50 disabled:opacity-40 shrink-0"
+                                    title="Xóa dòng"
+                                  >
+                                    <Trash2 className="w-4 h-4" />
+                                  </button>
+                                </div>
+                                {row.trang_thai === 'Từ chối' && row.ly_do_tu_choi.trim() ? (
+                                  <p
+                                    className="text-[9px] text-red-700 truncate pl-0.5"
+                                    title={row.ly_do_tu_choi}
+                                  >
+                                    Lý do: {row.ly_do_tu_choi}
+                                  </p>
+                                ) : null}
+                              </div>
+                            ) : (
+                              <>
+                            <div className="flex items-center justify-between gap-2 pb-2 border-b border-slate-100">
+                              <span className="text-[10px] font-bold text-slate-600 uppercase tracking-wide">
+                                Chi tiết
+                              </span>
+                              <button
+                                type="button"
+                                disabled={listCongViecSaving}
+                                onClick={() =>
+                                  setListCvRowExpanded((p) => ({ ...p, [row.key]: false }))
+                                }
+                                className="text-[10px] font-bold text-indigo-800 hover:underline"
+                              >
+                                Thu gọn
+                              </button>
+                            </div>
+                            <div className="flex flex-col sm:flex-row sm:items-start gap-2">
+                              <div className="shrink-0 w-full sm:w-36">
+                                <label className="block text-[10px] font-bold text-slate-600 mb-0.5">
+                                  Trạng thái
+                                </label>
+                                <select
+                                  value={row.trang_thai}
+                                  disabled={listCongViecSaving}
+                                  onChange={(e) => {
+                                    const v = e.target.value as TrangThaiDanhSachCongViec;
+                                    if (v === 'Từ chối') {
+                                      setListCvTuChoiModal({
+                                        rowKey: row.key,
+                                        lyDo: row.ly_do_tu_choi || '',
+                                      });
+                                      return;
+                                    }
+                                    setListCongViecDraftRows((rows) =>
+                                      rows.map((r) =>
+                                        r.key === row.key
+                                          ? { ...r, trang_thai: v, ly_do_tu_choi: '' }
+                                          : r,
+                                      ),
+                                    );
+                                  }}
+                                  className="w-full rounded-lg border border-slate-200 px-2 py-1.5 text-[11px] bg-slate-50"
+                                >
+                                  {LIST_CV_TRANG_THAI_OPTIONS.map((opt) => (
+                                    <option key={opt} value={opt}>
+                                      {opt}
+                                    </option>
+                                  ))}
+                                </select>
+                              </div>
+                              <div className="flex-1 min-w-0">
+                                <label className="block text-[10px] font-bold text-slate-600 mb-0.5">
+                                  Nội dung công việc
+                                </label>
+                                <input
+                                  type="text"
+                                  value={row.noi_dung}
+                                  disabled={listCongViecSaving}
+                                  onChange={(e) =>
+                                    setListCongViecDraftRows((rows) =>
+                                      rows.map((r) =>
+                                        r.key === row.key ? { ...r, noi_dung: e.target.value } : r,
+                                      ),
+                                    )
+                                  }
+                                  className="w-full rounded-lg border border-slate-200 px-2 py-1.5 text-[11px] bg-slate-50"
+                                  placeholder={`Việc ${idx + 1}…`}
+                                />
+                              </div>
+                              <button
+                                type="button"
+                                disabled={listCongViecSaving || listCongViecDraftRows.length <= 1}
+                                onClick={() => {
+                                  setListCongViecDraftRows((rows) =>
+                                    rows.length <= 1 ? rows : rows.filter((r) => r.key !== row.key),
+                                  );
+                                  setListCvRowExpanded((p) => {
+                                    const next = { ...p };
+                                    delete next[row.key];
+                                    return next;
+                                  });
+                                }}
+                                className="p-1.5 rounded-lg text-slate-500 hover:text-red-600 hover:bg-red-50 disabled:opacity-40 shrink-0 self-end sm:self-start sm:mt-5"
+                                title="Xóa dòng"
+                              >
+                                <Trash2 className="w-4 h-4" />
+                              </button>
+                            </div>
+                            <div className="relative" data-list-cv-phu-trach>
+                              <label className="block text-[10px] font-bold text-slate-600 mb-0.5">
+                                Nhân sự phụ trách
+                              </label>
+                              <button
+                                type="button"
+                                disabled={
+                                  listCongViecSaving || listCvPhuTrachOptions.length === 0
+                                }
+                                onClick={() =>
+                                  setListCvPhuTrachOpenRow((k) =>
+                                    k === row.key ? null : row.key,
+                                  )
+                                }
+                                className="w-full flex items-center justify-between gap-2 rounded-lg border border-slate-200 px-2 py-1.5 text-[11px] bg-slate-50 text-left font-medium text-slate-800 hover:bg-slate-100 disabled:opacity-50 disabled:cursor-not-allowed"
+                              >
+                                <span className="truncate">
+                                  {listCvPhuTrachDropdownLabel(
+                                    row.nhan_su_phu_trach_ids,
+                                    listCvPhuTrachOptions,
+                                  )}
+                                </span>
+                                <ChevronDown
+                                  className={`w-4 h-4 shrink-0 text-slate-500 transition-transform ${
+                                    listCvPhuTrachOpenRow === row.key ? 'rotate-180' : ''
+                                  }`}
+                                />
+                              </button>
+                              {listCvPhuTrachOpenRow === row.key ? (
+                                <div className="absolute left-0 right-0 z-30 mt-1 max-h-52 overflow-y-auto rounded-lg border border-slate-200 bg-white py-1 shadow-lg">
+                                  {listCvPhuTrachOptions.length === 0 ? (
+                                    <p className="px-2 py-2 text-[10px] text-slate-500">
+                                      Gán «Người phụ trách» cho công việc trước để chọn tại đây.
+                                    </p>
+                                  ) : (
+                                    listCvPhuTrachOptions.map((e) => {
+                                      const checked = row.nhan_su_phu_trach_ids.includes(e.id);
+                                      return (
+                                        <label
+                                          key={e.id}
+                                          className="flex cursor-pointer items-center gap-2 px-2 py-1.5 text-[11px] hover:bg-slate-100"
+                                        >
+                                          <input
+                                            type="checkbox"
+                                            checked={checked}
+                                            disabled={listCongViecSaving}
+                                            onChange={() => {
+                                              setListCongViecDraftRows((rows) =>
+                                                rows.map((r) => {
+                                                  if (r.key !== row.key) return r;
+                                                  const set = new Set(r.nhan_su_phu_trach_ids);
+                                                  if (set.has(e.id)) set.delete(e.id);
+                                                  else set.add(e.id);
+                                                  return {
+                                                    ...r,
+                                                    nhan_su_phu_trach_ids: Array.from(set),
+                                                  };
+                                                }),
+                                              );
+                                            }}
+                                            className="rounded border-slate-300 text-indigo-800 focus:ring-indigo-700"
+                                          />
+                                          <span className="min-w-0 truncate">
+                                            {e.full_name || e.code || e.id}
+                                          </span>
+                                        </label>
+                                      );
+                                    })
+                                  )}
+                                </div>
+                              ) : null}
+                            </div>
+                            {row.trang_thai === 'Từ chối' && row.ly_do_tu_choi.trim() ? (
+                              <div className="space-y-1">
+                                <p className="text-[10px] text-red-800 bg-red-50 border border-red-200 rounded-lg px-2 py-1.5">
+                                  <span className="font-bold">Lý do từ chối:</span> {row.ly_do_tu_choi}
+                                </p>
+                                <button
+                                  type="button"
+                                  disabled={listCongViecSaving}
+                                  onClick={() =>
+                                    setListCvTuChoiModal({
+                                      rowKey: row.key,
+                                      lyDo: row.ly_do_tu_choi,
+                                    })
+                                  }
+                                  className="text-[10px] font-bold text-red-700 underline hover:text-red-900 disabled:opacity-50"
+                                >
+                                  Sửa lý do
+                                </button>
+                              </div>
+                            ) : null}
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                              <div>
+                                <label className="block text-[10px] font-bold text-slate-600 mb-0.5">
+                                  Ngày giờ hoàn thành
+                                </label>
+                                <input
+                                  type="datetime-local"
+                                  value={row.ngay_gio_hoan_thanh}
+                                  disabled={listCongViecSaving}
+                                  onChange={(e) =>
+                                    setListCongViecDraftRows((rows) =>
+                                      rows.map((r) =>
+                                        r.key === row.key
+                                          ? { ...r, ngay_gio_hoan_thanh: e.target.value }
+                                          : r,
+                                      ),
+                                    )
+                                  }
+                                  className="w-full rounded-lg border border-slate-200 px-2 py-1.5 text-[11px] bg-slate-50"
+                                />
+                              </div>
+                              <div className="sm:col-span-2">
+                                <label className="block text-[10px] font-bold text-slate-600 mb-0.5">
+                                  Ghi chú
+                                </label>
+                                <textarea
+                                  value={row.ghi_chu}
+                                  disabled={listCongViecSaving}
+                                  onChange={(e) =>
+                                    setListCongViecDraftRows((rows) =>
+                                      rows.map((r) =>
+                                        r.key === row.key ? { ...r, ghi_chu: e.target.value } : r,
+                                      ),
+                                    )
+                                  }
+                                  rows={2}
+                                  className="w-full rounded-lg border border-slate-200 px-2 py-1.5 text-[11px] bg-slate-50 resize-y min-h-[2.5rem]"
+                                  placeholder="Tuỳ chọn"
+                                />
+                              </div>
+                            </div>
+                              </>
+                            )}
+                          </li>
+                          );
+                        })}
+                      </ul>
+                    </div>
+                  )}
+
+                  {listCvTuChoiModal && (
+                    <div
+                      className="fixed inset-0 z-[134] flex items-center justify-center bg-black/50 p-4"
+                      role="presentation"
+                      onClick={() => setListCvTuChoiModal(null)}
+                    >
+                      <div
+                        className="bg-white rounded-2xl shadow-2xl w-full max-w-md overflow-hidden flex flex-col"
+                        role="dialog"
+                        aria-modal="true"
+                        aria-labelledby="list-cv-tu-choi-title"
+                        onClick={(e) => e.stopPropagation()}
+                      >
+                        <div className="px-5 py-3 border-b border-slate-200 flex items-center justify-between shrink-0">
+                          <h2
+                            id="list-cv-tu-choi-title"
+                            className="text-sm font-bold text-slate-800"
+                          >
+                            Lý do từ chối
+                          </h2>
+                          <button
+                            type="button"
+                            onClick={() => setListCvTuChoiModal(null)}
+                            className="p-1.5 rounded-lg hover:bg-slate-200 text-slate-600"
+                            aria-label="Đóng"
+                          >
+                            <X className="w-4 h-4" />
+                          </button>
+                        </div>
+                        <div className="p-5 space-y-3">
+                          <p className="text-[11px] text-slate-600">
+                            Vui lòng nhập lý do từ chối cho việc này.
+                          </p>
+                          <textarea
+                            value={listCvTuChoiModal.lyDo}
+                            onChange={(e) =>
+                              setListCvTuChoiModal((m) =>
+                                m ? { ...m, lyDo: e.target.value } : m,
+                              )
+                            }
+                            rows={4}
+                            className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm"
+                            placeholder="Nhập lý do…"
+                            autoFocus
+                          />
+                        </div>
+                        <div className="px-5 py-3 border-t border-slate-200 flex justify-end gap-2 bg-slate-50 shrink-0">
+                          <button
+                            type="button"
+                            onClick={() => setListCvTuChoiModal(null)}
+                            className="px-4 py-2 rounded-lg border border-slate-200 text-sm font-bold text-slate-700 hover:bg-slate-200"
+                          >
+                            Hủy
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              const m = listCvTuChoiModal;
+                              if (!m) return;
+                              if (!m.lyDo.trim()) {
+                                alert('Vui lòng nhập lý do từ chối.');
+                                return;
+                              }
+                              setListCongViecDraftRows((rows) =>
+                                rows.map((r) =>
+                                  r.key === m.rowKey
+                                    ? {
+                                        ...r,
+                                        trang_thai: 'Từ chối' as const,
+                                        ly_do_tu_choi: m.lyDo.trim(),
+                                      }
+                                    : r,
+                                ),
+                              );
+                              setListCvTuChoiModal(null);
+                            }}
+                            className="px-4 py-2 rounded-lg bg-red-700 text-white text-sm font-bold hover:bg-red-900"
+                          >
+                            Xác nhận từ chối
+                          </button>
+                        </div>
                       </div>
                     </div>
                   )}

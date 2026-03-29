@@ -145,6 +145,71 @@ export interface TaskDetailHistory {
   ghi_chu?: string | null;
 }
 
+/** Trạng thái từng dòng trong tab “List công việc” */
+export type TrangThaiDanhSachCongViec =
+  | 'Đang làm'
+  | 'Hoàn thành'
+  | 'Duyệt'
+  | 'Từ chối';
+
+const TRANG_THAI_DANH_SACH_SET = new Set<string>([
+  'Đang làm',
+  'Hoàn thành',
+  'Duyệt',
+  'Từ chối',
+]);
+
+/** Một dòng trong tab “List công việc” (cột jsonb `danh_sach_cong_viec`) */
+export interface DanhSachCongViecItem {
+  id: string;
+  noi_dung: string;
+  trang_thai: TrangThaiDanhSachCongViec;
+  /** Khi `trang_thai` = Từ chối */
+  ly_do_tu_choi?: string | null;
+  /** ISO datetime */
+  ngay_gio_hoan_thanh?: string | null;
+  ghi_chu?: string | null;
+  /** Id nhân sự phụ trách (chọn từ danh sách người phụ trách của công việc) */
+  nhan_su_phu_trach_ids?: string[];
+  /** Cũ — đọc để tương thích bản ghi trước khi có `trang_thai` */
+  da_xong?: boolean;
+}
+
+function parseTrangThaiDanhSachCongViec(o: Record<string, unknown>): TrangThaiDanhSachCongViec {
+  const t = String(o.trang_thai ?? '').trim();
+  if (TRANG_THAI_DANH_SACH_SET.has(t)) return t as TrangThaiDanhSachCongViec;
+  if (Boolean(o.da_xong)) return 'Hoàn thành';
+  return 'Đang làm';
+}
+
+export function parseDanhSachCongViecColumn(raw: unknown): DanhSachCongViecItem[] {
+  if (!Array.isArray(raw)) return [];
+  return raw
+    .filter((x) => x && typeof x === 'object')
+    .map((x) => {
+      const o = x as Record<string, unknown>;
+      const trang_thai = parseTrangThaiDanhSachCongViec(o);
+      const ly = o.ly_do_tu_choi;
+      const ng = o.ngay_gio_hoan_thanh;
+      const gc = o.ghi_chu;
+      const nsRaw = o.nhan_su_phu_trach_ids;
+      const nhan_su_phu_trach_ids = Array.isArray(nsRaw)
+        ? nsRaw.map((x) => String(x)).filter((s) => s.trim() !== '')
+        : [];
+      return {
+        id: typeof o.id === 'string' && o.id ? o.id : crypto.randomUUID(),
+        noi_dung: String(o.noi_dung ?? ''),
+        trang_thai,
+        ly_do_tu_choi:
+          ly != null && String(ly).trim() !== '' ? String(ly).trim() : null,
+        ngay_gio_hoan_thanh:
+          ng != null && String(ng).trim() !== '' ? String(ng).trim() : null,
+        ghi_chu: gc != null && String(gc).trim() !== '' ? String(gc).trim() : null,
+        nhan_su_phu_trach_ids,
+      };
+    });
+}
+
 export interface BuocDanhGia {
   id: string;
   ten: string;
@@ -227,6 +292,8 @@ export interface TaskDetailRow {
   buoc_danh_gia?: BuocDanhGia[];
   /** jsonb — ghi nhận lỗi từ thư viện lỗi + người vi phạm */
   loi_ghi_nhan?: LoiGhiNhanItem[];
+  /** jsonb — danh sách việc con do người dùng tự thêm (tab List công việc) */
+  danh_sach_cong_viec?: DanhSachCongViecItem[];
   created_at?: string;
   updated_at?: string;
   ten_task_detail?: CongViecTenTaskJsonb;
@@ -1327,6 +1394,7 @@ export const taskDetailService = {
       ...row,
       ten_task_detail,
       loi_ghi_nhan: parseLoiGhiNhanColumn(row.loi_ghi_nhan),
+      danh_sach_cong_viec: parseDanhSachCongViecColumn(row.danh_sach_cong_viec),
       tai_lieu: (row.tai_lieu || []) as TaskDetailDocument[],
       binh_luan: (row.binh_luan || []) as TaskDetailComment[],
       lich_su: coerceLichSuArray(row.lich_su),
@@ -1421,6 +1489,25 @@ export const taskDetailService = {
     const next = [...existing, comment];
 
     return this.updateComments(detailId, next);
+  },
+
+  async updateDanhSachCongViec(
+    detailId: string,
+    items: DanhSachCongViecItem[],
+  ): Promise<TaskDetailRow> {
+    const { data, error } = await supabase
+      .from('cong_viec_chi_tiet')
+      .update({ danh_sach_cong_viec: items })
+      .eq('id', detailId)
+      .select('*')
+      .single();
+
+    if (error) {
+      console.error('[taskDetailService] updateDanhSachCongViec:', error);
+      throw error;
+    }
+
+    return taskDetailService.normalizeRow(data);
   },
 
   /** Tổng hợp mọi dòng `loi_ghi_nhan` mà `nguoi_vi_pham_id` trùng nhân sự */
