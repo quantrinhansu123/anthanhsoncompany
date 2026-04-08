@@ -290,15 +290,23 @@ export function AddEmployee() {
   const getDateInputValue = (dateString: string): string => {
     if (!dateString) return '';
     // If already in YYYY-MM-DD format, return as is
-    if (dateString.includes('-') && dateString.length === 10) {
+    if (typeof dateString === 'string' && dateString.includes('-') && dateString.length === 10) {
       return dateString;
     }
     // Convert from DD/MM/YYYY to YYYY-MM-DD for input
-    const parts = dateString.split('/');
-    if (parts.length === 3) {
-      return `${parts[2]}-${parts[1]}-${parts[0]}`;
+    if (typeof dateString === 'string') {
+        const parts = dateString.split('/');
+        if (parts.length === 3) {
+            return `${parts[2]}-${parts[1]}-${parts[0]}`;
+        }
     }
     return '';
+  };
+
+  // Helper to ensure empty date strings are sent as null to database
+  const sanitizeDate = (val: string | null | undefined): string | null => {
+    if (!val || String(val).trim() === '') return null;
+    return val;
   };
 
   const parseExpiryDate = (value: string): Date | null => {
@@ -372,15 +380,15 @@ export function AddEmployee() {
         department: formData.phongBan, // Fallback
         chucVu: formData.chucVu, // Chức vụ - camelCase (schema đã chuẩn hóa)
         position: formData.chucVu, // Fallback
-        ngayVaoLam: formData.ngayVaoLam || (isEditMode ? undefined : new Date().toISOString().split('T')[0]), // Ngày vào làm - camelCase
-        joinDate: formData.ngayVaoLam || (isEditMode ? undefined : new Date().toISOString().split('T')[0]), // Fallback
+        ngayVaoLam: sanitizeDate(formData.ngayVaoLam) || (isEditMode ? undefined : new Date().toISOString().split('T')[0]), // Ngày vào làm - camelCase
+        joinDate: sanitizeDate(formData.ngayVaoLam) || (isEditMode ? undefined : new Date().toISOString().split('T')[0]), // Fallback
         email: formData.email,
         sdtNhanVien: formData.sdtNhanVien, // Số điện thoại - camelCase (schema đã chuẩn hóa)
         phone: formData.sdtNhanVien, // Fallback
-        ngaySinh: formData.ngaySinh, // Ngày sinh - camelCase
+        ngaySinh: sanitizeDate(formData.ngaySinh), // Ngày sinh - camelCase
         diaChi: formData.diaChi, // Địa chỉ - camelCase
         soCCCD: formData.soCCCD, // Số CCCD - camelCase
-        ngayCapCCCD: formData.ngayCapCCCD, // Ngày cấp CCCD - camelCase
+        ngayCapCCCD: sanitizeDate(formData.ngayCapCCCD), // Ngày cấp CCCD - camelCase
         mstCaNhan: formData.mstCaNhan, // MST cá nhân - camelCase
         maSoBHXH: formData.maSoBHXH, // Mã số BHXH - camelCase
         bangDHChuyenNganh: formData.bangDHChuyenNganh, // Bằng đại học - camelCase
@@ -446,12 +454,14 @@ export function AddEmployee() {
           // Update existing dependent
           await dependentService.update(dependent.id, {
             ...dependent,
+            ngaySinhNPT: sanitizeDate(dependent.ngaySinhNPT),
             employee_id: finalEmployeeId
           });
         } else {
           // Create new dependent
           await dependentService.create({
             ...dependent,
+            ngaySinhNPT: sanitizeDate(dependent.ngaySinhNPT),
             employee_id: finalEmployeeId
           });
         }
@@ -525,7 +535,7 @@ export function AddEmployee() {
               ghiChu: cert.ghiChu,
               cchn: cert.cchn,
               hangCCHN: cert.hangCCHN,
-              ngayHetHanCC: cert.ngayHetHanCC,
+              ngayHetHanCC: sanitizeDate(String(cert.ngayHetHanCC)),
               employee_id: finalEmployeeId // Sẽ được map sang id_nhan_su trong service
             });
           } catch (err: any) {
@@ -539,7 +549,7 @@ export function AddEmployee() {
               ghiChu: cert.ghiChu,
               cchn: cert.cchn,
               hangCCHN: cert.hangCCHN,
-              ngayHetHanCC: cert.ngayHetHanCC,
+              ngayHetHanCC: sanitizeDate(String(cert.ngayHetHanCC)),
               employee_id: finalEmployeeId
             });
           }
@@ -553,7 +563,7 @@ export function AddEmployee() {
             ghiChu: cert.ghiChu,
             cchn: cert.cchn,
             hangCCHN: cert.hangCCHN,
-            ngayHetHanCC: cert.ngayHetHanCC,
+            ngayHetHanCC: sanitizeDate(String(cert.ngayHetHanCC)),
             employee_id: finalEmployeeId // Sẽ được map sang id_nhan_su trong service
           });
         }
