@@ -600,55 +600,62 @@ export function ThuChiNhanSu() {
                                 columns={thuChiNsExcelColumns}
                                 templateFileName="mau-phieu-chi-nhan-su"
                                 sheetName="Phieu chi"
-                                onImport={async (rows) => {
+                                onImport={async (rows, onProgress) => {
                                     const errors: string[] = [];
                                     let ok = 0;
-                                    for (let i = 0; i < rows.length; i++) {
-                                        const r = rows[i];
-                                        const tenDuAn = (r.ten_du_an || '').trim();
-                                        const proj = projects.find(
-                                            (p) => p.ten_du_an.trim().toLowerCase() === tenDuAn.toLowerCase(),
-                                        );
-                                        if (!tenDuAn || !proj) {
-                                            errors.push(`Dòng ${i + 2}: không tìm thấy dự án`);
-                                            continue;
-                                        }
-                                        const soTien = parseMoneyVi(r.so_tien || '0');
-                                        if (soTien <= 0) {
-                                            errors.push(`Dòng ${i + 2}: Số tiền không hợp lệ`);
-                                            continue;
-                                        }
-                                        const tn = (r.ten_nhan_su || '').trim();
-                                        const emp = employees.find(
-                                            (e) =>
-                                                (e.full_name || '').trim().toLowerCase() === tn.toLowerCase(),
-                                        );
-                                        if (!tn || !emp) {
-                                            errors.push(`Dòng ${i + 2}: thiếu/không khớp Tên nhân sự`);
-                                            continue;
-                                        }
-                                        const hm = (r.hang_muc_chi || '').toLowerCase();
-                                        const hangMuc = hm.includes('nhân') ? 'chi_nhan_su' : 'chi_du_an';
-                                        const soHd = (r.so_hop_dong || '').trim();
-                                        let hopDongId: string | null = null;
-                                        if (soHd) {
-                                            const c = contracts.find(
-                                                (x) =>
-                                                    String(x.du_an_id || '') === String(proj.id) &&
-                                                    (x.so_hop_dong || '').trim().toLowerCase() ===
-                                                        soHd.toLowerCase(),
+                                    const total = rows.length;
+                                    const chunkSize = 50;
+
+                                    for (let i = 0; i < rows.length; i += chunkSize) {
+                                        const chunk = rows.slice(i, i + chunkSize);
+                                        const payloads: any[] = [];
+
+                                        for (let j = 0; j < chunk.length; j++) {
+                                            const r = chunk[j];
+                                            const tenDuAn = (r.ten_du_an || '').trim();
+                                            const proj = projects.find(
+                                                (p) => p.ten_du_an.trim().toLowerCase() === tenDuAn.toLowerCase(),
                                             );
-                                            if (!c) {
-                                                errors.push(`Dòng ${i + 2}: không tìm thấy HĐ "${soHd}" thuộc dự án`);
+                                            if (!tenDuAn || !proj) {
+                                                errors.push(`Dòng ${r.__rowNumber || i + j + 2}: không tìm thấy dự án`);
                                                 continue;
                                             }
-                                            hopDongId = String(c.hop_dong_row_id || c.id);
-                                        } else if (hangMuc === 'chi_nhan_su') {
-                                            errors.push(`Dòng ${i + 2}: Chi nhân sự cần Số hợp đồng`);
-                                            continue;
-                                        }
-                                        try {
-                                            await thuChiService.create({
+                                            const soTien = parseMoneyVi(r.so_tien || '0');
+                                            if (soTien <= 0) {
+                                                errors.push(`Dòng ${r.__rowNumber || i + j + 2}: Số tiền không hợp lệ`);
+                                                continue;
+                                            }
+                                            const tn = (r.ten_nhan_su || '').trim();
+                                            const emp = employees.find(
+                                                (e) =>
+                                                    (e.full_name || '').trim().toLowerCase() === tn.toLowerCase(),
+                                            );
+                                            if (!tn || !emp) {
+                                                errors.push(`Dòng ${r.__rowNumber || i + j + 2}: thiếu/không khớp Tên nhân sự`);
+                                                continue;
+                                            }
+                                            const hm = (r.hang_muc_chi || '').toLowerCase();
+                                            const hangMuc = hm.includes('nhân') ? 'chi_nhan_su' : 'chi_du_an';
+                                            const soHd = (r.so_hop_dong || '').trim();
+                                            let hopDongId: string | null = null;
+                                            if (soHd) {
+                                                const c = contracts.find(
+                                                    (x) =>
+                                                        String(x.du_an_id || '') === String(proj.id) &&
+                                                        (x.so_hop_dong || '').trim().toLowerCase() ===
+                                                            soHd.toLowerCase(),
+                                                );
+                                                if (!c) {
+                                                    errors.push(`Dòng ${r.__rowNumber || i + j + 2}: không tìm thấy HĐ "${soHd}" thuộc dự án`);
+                                                    continue;
+                                                }
+                                                hopDongId = String(c.hop_dong_row_id || c.id);
+                                            } else if (hangMuc === 'chi_nhan_su') {
+                                                errors.push(`Dòng ${r.__rowNumber || i + j + 2}: Chi nhân sự cần Số hợp đồng`);
+                                                continue;
+                                            }
+                                            
+                                            payloads.push({
                                                 loai_phieu: 'Phiếu chi',
                                                 so_tien: soTien,
                                                 ngay: r.ngay?.trim() || new Date().toISOString().split('T')[0],
@@ -660,10 +667,17 @@ export function ThuChiNhanSu() {
                                                 nguoi_nhan: null,
                                                 tinh_trang_phieu: r.tinh_trang?.trim() || 'Tạm ứng',
                                             });
-                                            ok++;
-                                        } catch (e: any) {
-                                            errors.push(`Dòng ${i + 2}: ${e?.message || 'Lỗi'}`);
                                         }
+
+                                        if (payloads.length > 0) {
+                                            try {
+                                                const res = await thuChiService.createMany(payloads);
+                                                ok += res.length;
+                                            } catch (e: any) {
+                                                errors.push(`Lỗi khi lưu lô dòng từ ${i + 1}: ${e?.message || 'Lỗi'}`);
+                                            }
+                                        }
+                                        onProgress(Math.min(i + chunkSize, total), total);
                                     }
                                     return { ok, errors };
                                 }}

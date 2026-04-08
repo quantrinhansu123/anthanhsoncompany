@@ -219,6 +219,27 @@ export const thuChiService = {
     }
   },
 
+  // Tạo nhiều thu chi cùng lúc (tối ưu hiệu suất)
+  async createMany(payloads: Partial<ThuChiRow>[]): Promise<ThuChiRow[]> {
+    try {
+      if (!payloads.length) return [];
+      const { data, error } = await supabase
+        .from('thu_chi')
+        .insert(payloads)
+        .select();
+
+      if (error) {
+        console.error('Error creating many thu_chi:', error);
+        throw error;
+      }
+
+      return (data || []) as ThuChiRow[];
+    } catch (err) {
+      console.error('Exception in thuChiService.createMany:', err);
+      throw err;
+    }
+  },
+
   // Cập nhật thu chi
   async update(id: string, payload: Partial<ThuChiRow>): Promise<ThuChiRow | null> {
     try {
