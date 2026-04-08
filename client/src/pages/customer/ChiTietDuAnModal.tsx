@@ -14,11 +14,11 @@ interface ChiTietDuAnModalProps {
     onAddContract?: () => void;
 }
 
-export function ChiTietDuAnModal({ 
-    isOpen, 
-    onClose, 
-    project, 
-    realContracts = new Map(), 
+export function ChiTietDuAnModal({
+    isOpen,
+    onClose,
+    project,
+    realContracts = new Map(),
     projectContractInfo = new Map(),
     onDeleteContract,
     onAddContract
@@ -39,8 +39,8 @@ export function ChiTietDuAnModal({
         try {
             // Note: thuChiService.getAllForDuAnDashboard might be more appropriate if we want the linked data
             const all = await thuChiService.getAll();
-            const filtered = all.filter(r => 
-                (r.du_an_id === project.id) || 
+            const filtered = all.filter(r =>
+                (r.du_an_id === project.id) ||
                 (r.ten_du_an === project.projectName)
             );
             setThuChiRows(filtered.sort((a, b) => String(b.ngay || '').localeCompare(String(a.ngay || ''))));
@@ -137,11 +137,10 @@ export function ChiTietDuAnModal({
                                             realContracts.get(project.projectName)!.map((contract: ContractRow) => (
                                                 <tr key={contract.id} className="hover:bg-slate-50/50 transition-colors">
                                                     <td className="px-6 py-4">
-                                                        <span className={`px-2 py-1 rounded-md text-[11px] font-bold ${
-                                                            contract.file_status === 'Đã có file' 
-                                                                ? 'text-emerald-600 bg-emerald-50' 
+                                                        <span className={`px-2 py-1 rounded-md text-[11px] font-bold ${contract.file_status === 'Đã có file'
+                                                                ? 'text-emerald-600 bg-emerald-50'
                                                                 : 'text-rose-600 bg-rose-50'
-                                                        }`}>
+                                                            }`}>
                                                             {contract.file_status || 'Chưa có file'}
                                                         </span>
                                                     </td>
@@ -241,7 +240,7 @@ export function ChiTietDuAnModal({
                                             thuChiRows.map((row) => (
                                                 <tr key={row.id} className="hover:bg-slate-50/50 transition-colors">
                                                     <td className="px-6 py-4">
-                                                        <span className={`font-bold ${row.loai_phieu === 'Phiếu thu' ? 'text-emerald-600' : 'text-rose-600'}`}>
+                                                        <span className={`font-bold ${(row.loai_phieu || '').toLowerCase().trim() === 'Phiếu thu' ? 'text-emerald-600' : 'text-rose-600'}`}>
                                                             {row.loai_phieu}
                                                         </span>
                                                     </td>
@@ -302,15 +301,15 @@ export function ChiTietDuAnModal({
 // Custom Plus icon for consistent usage
 function Plus({ size, className }: { size: number, className?: string }) {
     return (
-        <svg 
-            width={size} 
-            height={size} 
-            viewBox="0 0 24 24" 
-            fill="none" 
-            stroke="currentColor" 
-            strokeWidth="2" 
-            strokeLinecap="round" 
-            strokeLinejoin="round" 
+        <svg
+            width={size}
+            height={size}
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+            strokeLinecap="round"
+            strokeLinejoin="round"
             className={className}
         >
             <line x1="12" y1="5" x2="12" y2="19"></line>

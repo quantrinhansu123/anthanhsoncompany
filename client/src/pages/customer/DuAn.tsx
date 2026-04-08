@@ -31,10 +31,10 @@ function Toast({ message, type, onClose }: { message: string; type: 'success' | 
 
 export function DuAn() {
     const [items, setItems] = useState<any[]>([]);
-    const { 
-        openDuAnModal, 
-        openChiTietDuAn, 
-        openDelete 
+    const {
+        openDuAnModal,
+        openChiTietDuAn,
+        openDelete
     } = useDuAnModal();
     const { openThemHopDong, openDelete: openDeleteHopDong } = useHopDongModal();
 
@@ -97,16 +97,16 @@ export function DuAn() {
         }
     };
 
-    
+
     // State để lưu hợp đồng thực tế từ database
     const [realContracts, setRealContracts] = useState<Map<string, ContractRow[]>>(new Map());
-    
+
     // State để lưu tiến độ thực tế của từng dự án (tính từ hợp đồng)
     const [projectProgress, setProjectProgress] = useState<Map<string, number>>(new Map());
-    
+
     // State để lưu thông tin hợp đồng của từng dự án (để hiển thị số lượng)
     const [projectContractInfo, setProjectContractInfo] = useState<Map<string, { total: number; completed: number }>>(new Map());
-    
+
     // State để lưu danh sách nhân sự (để hiển thị tên trong modal chi tiết)
     const [employees, setEmployees] = useState<Array<{ id: string; full_name: string; code: string; anh_nhan_su?: string | null }>>([]);
 
@@ -150,104 +150,67 @@ export function DuAn() {
                 contractService.getAll(),
                 thuChiService.getAllForDuAnDashboard(),
             ]);
-            
-            // Nhóm hợp đồng theo project_name để hiển thị
-            const contractsByProjectName = new Map<string, ContractRow[]>();
-            contracts.forEach(contract => {
-                const projectName = contract.project_name || '(Chưa có tên dự án)';
-                if (!contractsByProjectName.has(projectName)) {
-                    contractsByProjectName.set(projectName, []);
-                }
-                contractsByProjectName.get(projectName)!.push(contract);
-            });
-            setRealContracts(contractsByProjectName);
-            
-            // Tính tiến độ cho từng dự án dựa trên số lượng hợp đồng (tạm thời không dùng bảng task)
+
+            console.log('[DuAn] data from thuChiService:', allThuChi);
+
+            // 1. Nhóm hợp đồng theo projectId (dùng Map với key là id)
+            const contractsByProjectId = new Map<string, ContractRow[]>();
             const progressMap = new Map<string, number>();
             const contractInfoMap = new Map<string, { total: number; completed: number }>();
 
-            const contractsByProject = new Map<string, string[]>();
-            contracts.forEach((contract) => {
-                const projectName = contract.project_name || '(Chưa có tên dự án)';
-                if (!contractsByProject.has(projectName)) {
-                    contractsByProject.set(projectName, []);
+            contracts.forEach(contract => {
+                if (contract.du_an_id) {
+                    const projectId = contract.du_an_id;
+                    if (!contractsByProjectId.has(projectId)) {
+                        contractsByProjectId.set(projectId, []);
+                    }
+                    contractsByProjectId.get(projectId)!.push(contract);
+
+                    if (!contractInfoMap.has(projectId)) {
+                        contractInfoMap.set(projectId, { total: 0, completed: 0 });
+                    }
+                    const info = contractInfoMap.get(projectId)!;
+                    info.total++;
+                    if ((contract as any).progress === 100) info.completed++;
                 }
-                contractsByProject.get(projectName)!.push(contract.id);
             });
 
-            contractsByProject.forEach((contractIds, projectName) => {
-                const totalContracts = contractIds.length;
-                // Tạm thời chưa có logic xác định hợp đồng hoàn thành, đặt completed = 0 và progress = 0
-                const completedContracts = 0;
-                const progress = 0;
-                progressMap.set(projectName, progress);
-                contractInfoMap.set(projectName, {
-                    total: totalContracts,
-                    completed: completedContracts,
-                });
+            // Đồng bộ realContracts (vẫn dùng Map name -> rows nếu UI cần, hoặc dùng ID)
+            // Để an toàn cho code cũ, tớ sẽ tạo cả 2 hoặc mapping nếu cần. 
+            // Tuy nhiên ChiTietDuAnModal thường lấy từ p.id
+            const contractsByProjectName = new Map<string, ContractRow[]>();
+            contracts.forEach(c => {
+                const name = c.project_name || '(Chưa có tên dự án)';
+                if (!contractsByProjectName.has(name)) contractsByProjectName.set(name, []);
+                contractsByProjectName.get(name)!.push(c);
+            });
+            setRealContracts(contractsByProjectName);
+
+            // Tính tiến độ dự án từ hợp đồng
+            contractInfoMap.forEach((info, projectId) => {
+                const progress = info.total > 0 ? Math.round((info.completed / info.total) * 100) : 0;
+                progressMap.set(projectId, progress);
             });
 
             setProjectProgress(progressMap);
             setProjectContractInfo(contractInfoMap);
-            
-            // Tính toán giá trị hợp đồng và quyết toán cho từng dự án
-            const projectFinancials = new Map<string, { 
-                giaTriHopDong: number; 
-                giaTriQuyetToan: number; 
-                daThu: number; 
+
+            // 2. Tính toán tài chính & Danh sách thu chi (dùng projectId)
+            const projectFinancials = new Map<string, {
+                giaTriHopDong: number;
+                giaTriQuyetToan: number;
+                daThu: number;
                 conPhaiThu: number;
                 tongChi: number;
             }>();
             const thuChiByProject = new Map<string, ThuChiRow[]>();
-            
-            // Tính tổng giá trị hợp đồng và giá trị quyết toán từ hợp đồng
+
+            // Tính từ hợp đồng
             contracts.forEach((contract: ContractRow) => {
-                if (contract.project_name) {
-                    const projectName = contract.project_name;
-                    if (!projectFinancials.has(projectName)) {
-                        projectFinancials.set(projectName, { 
-                            giaTriHopDong: 0, 
-                            giaTriQuyetToan: 0, 
-                            daThu: 0, 
-                            conPhaiThu: 0,
-                            tongChi: 0,
-                        });
-                    }
-                    const financials = projectFinancials.get(projectName)!;
-                    financials.giaTriHopDong += contract.gia_tri_hd || 0;
-                    financials.giaTriQuyetToan += contract.gia_tri_qt || 0;
-                }
-            });
-            
-            // Tính đã thu từ phiếu thu
-            allThuChi.forEach((tc: ThuChiRow) => {
-                if (tc.du_an_id && tc.ten_du_an && tc.loai_phieu === 'Phiếu thu') {
-                    const projectName = tc.ten_du_an;
-                    if (!projectFinancials.has(projectName)) {
-                        projectFinancials.set(projectName, { 
-                            giaTriHopDong: 0, 
-                            giaTriQuyetToan: 0, 
-                            daThu: 0, 
-                            conPhaiThu: 0,
-                            tongChi: 0,
-                        });
-                    }
-                    const financials = projectFinancials.get(projectName)!;
-                    financials.daThu += tc.so_tien || 0;
-                }
-            });
-
-            // Tính tổng chi & lưu list thu chi cho từng dự án
-            allThuChi.forEach((tc: ThuChiRow) => {
-                if (tc.du_an_id && tc.ten_du_an) {
-                    const projectName = tc.ten_du_an;
-                    if (!thuChiByProject.has(projectName)) {
-                        thuChiByProject.set(projectName, []);
-                    }
-                    thuChiByProject.get(projectName)!.push(tc);
-
-                    if (!projectFinancials.has(projectName)) {
-                        projectFinancials.set(projectName, {
+                if (contract.du_an_id) {
+                    const projectId = contract.du_an_id;
+                    if (!projectFinancials.has(projectId)) {
+                        projectFinancials.set(projectId, {
                             giaTriHopDong: 0,
                             giaTriQuyetToan: 0,
                             daThu: 0,
@@ -255,30 +218,65 @@ export function DuAn() {
                             tongChi: 0,
                         });
                     }
-                    const financials = projectFinancials.get(projectName)!;
-                    if (tc.loai_phieu === 'Phiếu chi') {
-                        financials.tongChi += tc.so_tien || 0;
+                    const financials = projectFinancials.get(projectId)!;
+                    financials.giaTriHopDong += Number(contract.gia_tri_hd) || 0;
+                    financials.giaTriQuyetToan += Number(contract.gia_tri_qt) || 0;
+                }
+            });
+
+            // Tính từ phiếu thu/chi
+            allThuChi.forEach((tc: ThuChiRow) => {
+                const loai = (tc.loai_phieu || '').toLowerCase().trim();
+                const projectId = tc.du_an_id;
+
+                if (projectId) {
+                    // Nhóm list thu chi
+                    if (!thuChiByProject.has(projectId)) {
+                        thuChiByProject.set(projectId, []);
+                    }
+                    thuChiByProject.get(projectId)!.push(tc);
+
+                    // Cộng dồn tài chính
+                    if (!projectFinancials.has(projectId)) {
+                        projectFinancials.set(projectId, {
+                            giaTriHopDong: 0,
+                            giaTriQuyetToan: 0,
+                            daThu: 0,
+                            conPhaiThu: 0,
+                            tongChi: 0,
+                        });
+                    }
+                    const financials = projectFinancials.get(projectId)!;
+                    const amount = Number(tc.so_tien) || 0;
+
+                    if (loai === 'phiếu thu') {
+                        financials.daThu += amount;
+                    } else if (loai === 'phiếu chi') {
+                        financials.tongChi += amount;
                     }
                 }
             });
-            
-            // Tính còn phải thu = giá trị quyết toán - đã thu
-            projectFinancials.forEach((financials) => {
-                financials.conPhaiThu = financials.giaTriQuyetToan - financials.daThu;
+
+            // Tính Còn phải thu cho tất cả
+            projectFinancials.forEach((fin) => {
+                const targetValue = fin.giaTriQuyetToan > 0 ? fin.giaTriQuyetToan : fin.giaTriHopDong;
+                fin.conPhaiThu = targetValue - fin.daThu;
             });
-            
+
             // Map dự án với tiến độ từ hợp đồng
             const mapped = (data || []).map((p: any) => {
-                const projectName = p.ten_du_an;
-                const calculatedProgress = progressMap.get(projectName) ?? 0;
-                const financials = projectFinancials.get(projectName) || { 
-                    giaTriHopDong: 0, 
-                    giaTriQuyetToan: 0, 
-                    daThu: 0, 
+                const projectId = p.id;
+                const calculatedProgress = progressMap.get(projectId) ?? 0;
+                const financials = projectFinancials.get(projectId) || {
+                    giaTriHopDong: 0,
+                    giaTriQuyetToan: 0,
+                    daThu: 0,
                     conPhaiThu: 0,
                     tongChi: 0,
                 };
-                
+
+                const projectName = p.ten_du_an;
+
                 // Ưu tiên lấy customerName từ customer_name (join) hoặc ten_khach_hang
                 // Nếu ten_khach_hang là ID, dùng customer_name từ join
                 let customerName = p.customer_name || null;
@@ -291,19 +289,19 @@ export function DuAn() {
                         customerName = p.ten_khach_hang;
                     }
                 }
-                
+
                 // Lấy ảnh từ nhân sự: ưu tiên manager_img/executor_img, nếu không có thì lấy từ join
                 const managerImg = p.manager_img || (p.manager && p.manager.anh_nhan_su) || null;
                 const executorImg = p.executor_img || (p.executor && p.executor.anh_nhan_su) || null;
-                
+
                 // Lấy tên từ manager và executor objects nếu có, nếu không thì dùng manager_name/executor_name đã map
-                const managerName = p.manager 
+                const managerName = p.manager
                     ? (p.manager.full_name || p.manager.name || p.manager.hoTen || p.manager_name || null)
                     : (p.manager_name || null);
-                const executorName = p.executor 
+                const executorName = p.executor
                     ? (p.executor.full_name || p.executor.name || p.executor.hoTen || p.executor_name || null)
                     : (p.executor_name || null);
-                
+
                 return {
                     id: p.id,
                     projectName: projectName,
@@ -331,7 +329,7 @@ export function DuAn() {
                     daThu: financials.daThu,
                     conPhaiThu: financials.conPhaiThu,
                     tongChi: financials.tongChi,
-                    thuChiList: thuChiByProject.get(projectName) || [],
+                    thuChiList: thuChiByProject.get(projectId) || [],
                     nguongChi: (p as any).nguong_chi ?? null,
                 };
             });
@@ -373,12 +371,12 @@ export function DuAn() {
                     setToast({ message: 'Cập nhật dự án thành công!', type: 'success' });
                     // Lưu projectId trước khi reload để cập nhật selectedProject
                     const currentProjectId = data.id;
-                    
+
                     // Reload dữ liệu từ database
                     setTimeout(async () => {
                         const data = await projectService.getAll();
                         const contracts = await contractService.getAll();
-                        
+
                         // Nhóm hợp đồng theo project_name
                         const contractsByProjectName = new Map<string, ContractRow[]>();
                         contracts.forEach(contract => {
@@ -389,7 +387,7 @@ export function DuAn() {
                             contractsByProjectName.get(projectName)!.push(contract);
                         });
                         setRealContracts(contractsByProjectName);
-                        
+
                         // Tính tiến độ
                         const progressMap = new Map<string, number>();
                         const contractsByProject = new Map<string, string[]>();
@@ -400,13 +398,13 @@ export function DuAn() {
                             }
                             contractsByProject.get(projectName)!.push(contract.id);
                         });
-                        
+
                         const contractInfoMap = new Map<string, { total: number; completed: number }>();
-                        
+
                         await Promise.all(
                             Array.from(contractsByProject.entries()).map(async ([projectName, contractIds]) => {
                                 let completedContracts = 0;
-                                
+
                                 await Promise.all(
                                     contractIds.map(async (contractId) => {
                                         try {
@@ -419,25 +417,25 @@ export function DuAn() {
                                         }
                                     })
                                 );
-                                
+
                                 const totalContracts = contractIds.length;
-                                const progress = totalContracts > 0 
+                                const progress = totalContracts > 0
                                     ? Math.round((completedContracts / totalContracts) * 100)
                                     : 0;
-                                
+
                                 progressMap.set(projectName, progress);
                                 contractInfoMap.set(projectName, { total: totalContracts, completed: completedContracts });
                             })
                         );
-                        
+
                         setProjectProgress(progressMap);
                         setProjectContractInfo(contractInfoMap);
-                        
+
                         // Map dự án với tiến độ
                         const mapped = (data || []).map((p: any) => {
                             const projectName = p.ten_du_an;
                             const calculatedProgress = progressMap.get(projectName) ?? 0;
-                            
+
                             // Ưu tiên lấy customerName từ customer_name (join) hoặc ten_khach_hang
                             // Nếu ten_khach_hang là ID, dùng customer_name từ join
                             let customerName = p.customer_name || null;
@@ -450,19 +448,19 @@ export function DuAn() {
                                     customerName = p.ten_khach_hang;
                                 }
                             }
-                            
+
                             // Lấy ảnh từ nhân sự: ưu tiên manager_img/executor_img, nếu không có thì lấy từ join
                             const managerImg = p.manager_img || (p.manager && p.manager.anh_nhan_su) || null;
                             const executorImg = p.executor_img || (p.executor && p.executor.anh_nhan_su) || null;
-                            
+
                             // Lấy tên từ manager và executor objects nếu có, nếu không thì dùng manager_name/executor_name đã map
-                            const managerName = p.manager 
+                            const managerName = p.manager
                                 ? (p.manager.full_name || p.manager.name || p.manager.hoTen || p.manager_name || null)
                                 : (p.manager_name || null);
-                            const executorName = p.executor 
+                            const executorName = p.executor
                                 ? (p.executor.full_name || p.executor.name || p.executor.hoTen || p.executor_name || null)
                                 : (p.executor_name || null);
-                            
+
                             return {
                                 id: p.id,
                                 projectName: projectName,
@@ -487,7 +485,7 @@ export function DuAn() {
                             };
                         });
                         setItems(mapped);
-                        
+
                         // Cập nhật selectedProject nếu modal chi tiết đang mở
                         // (Giao diện Layout sẽ tự render lại modal nếu tham chiếu projectData đổi)
                     }, 500);
@@ -527,7 +525,7 @@ export function DuAn() {
                     setTimeout(async () => {
                         const data = await projectService.getAll();
                         const contracts = await contractService.getAll();
-                        
+
                         // Nhóm hợp đồng theo project_name
                         const contractsByProjectName = new Map<string, ContractRow[]>();
                         contracts.forEach(contract => {
@@ -538,7 +536,7 @@ export function DuAn() {
                             contractsByProjectName.get(projectName)!.push(contract);
                         });
                         setRealContracts(contractsByProjectName);
-                        
+
                         // Tính tiến độ
                         const progressMap = new Map<string, number>();
                         const contractsByProject = new Map<string, string[]>();
@@ -549,13 +547,13 @@ export function DuAn() {
                             }
                             contractsByProject.get(projectName)!.push(contract.id);
                         });
-                        
+
                         const contractInfoMap = new Map<string, { total: number; completed: number }>();
-                        
+
                         await Promise.all(
                             Array.from(contractsByProject.entries()).map(async ([projectName, contractIds]) => {
                                 let completedContracts = 0;
-                                
+
                                 await Promise.all(
                                     contractIds.map(async (contractId) => {
                                         try {
@@ -568,25 +566,25 @@ export function DuAn() {
                                         }
                                     })
                                 );
-                                
+
                                 const totalContracts = contractIds.length;
-                                const progress = totalContracts > 0 
+                                const progress = totalContracts > 0
                                     ? Math.round((completedContracts / totalContracts) * 100)
                                     : 0;
-                                
+
                                 progressMap.set(projectName, progress);
                                 contractInfoMap.set(projectName, { total: totalContracts, completed: completedContracts });
                             })
                         );
-                        
+
                         setProjectProgress(progressMap);
                         setProjectContractInfo(contractInfoMap);
-                        
+
                         // Map dự án với tiến độ
                         const mapped = (data || []).map((p: any) => {
                             const projectName = p.ten_du_an;
                             const calculatedProgress = progressMap.get(projectName) ?? 0;
-                            
+
                             // Ưu tiên lấy customerName từ customer_name (join) hoặc ten_khach_hang
                             // Nếu ten_khach_hang là ID, dùng customer_name từ join
                             let customerName = p.customer_name || null;
@@ -599,19 +597,19 @@ export function DuAn() {
                                     customerName = p.ten_khach_hang;
                                 }
                             }
-                            
+
                             // Lấy ảnh từ nhân sự: ưu tiên manager_img/executor_img, nếu không có thì lấy từ join
                             const managerImg = p.manager_img || (p.manager && p.manager.anh_nhan_su) || null;
                             const executorImg = p.executor_img || (p.executor && p.executor.anh_nhan_su) || null;
-                            
+
                             // Lấy tên từ manager và executor objects nếu có, nếu không thì dùng manager_name/executor_name đã map
-                            const managerName = p.manager 
+                            const managerName = p.manager
                                 ? (p.manager.full_name || p.manager.name || p.manager.hoTen || p.manager_name || null)
                                 : (p.manager_name || null);
-                            const executorName = p.executor 
+                            const executorName = p.executor
                                 ? (p.executor.full_name || p.executor.name || p.executor.hoTen || p.executor_name || null)
                                 : (p.executor_name || null);
-                            
+
                             return {
                                 id: p.id,
                                 projectName: projectName,
@@ -814,35 +812,35 @@ export function DuAn() {
                                             })()}
                                         </div>
                                     </td>
-                                    
+
                                     {/* Giá trị hợp đồng */}
                                     <td className="py-4 px-4 align-middle text-right">
                                         <span className="text-[13px] font-extrabold text-slate-800 tracking-tight">
                                             {item.giaTriHopDong ? new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND' }).format(item.giaTriHopDong) : '0 đ'}
                                         </span>
                                     </td>
-                                    
+
                                     {/* Giá trị quyết toán */}
                                     <td className="py-4 px-4 align-middle text-right">
                                         <span className="text-[13px] font-extrabold text-blue-700 tracking-tight">
                                             {item.giaTriQuyetToan ? new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND' }).format(item.giaTriQuyetToan) : '0 đ'}
                                         </span>
                                     </td>
-                                    
+
                                     {/* Đã thu */}
                                     <td className="py-4 px-4 align-middle text-right">
                                         <span className="text-[13px] font-extrabold text-emerald-700 tracking-tight">
                                             {item.daThu ? new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND' }).format(item.daThu) : '0 đ'}
                                         </span>
                                     </td>
-                                    
+
                                     {/* Còn phải thu */}
                                     <td className="py-4 px-4 align-middle text-right">
                                         <span className={`text-[13px] font-extrabold tracking-tight ${item.conPhaiThu >= 0 ? 'text-slate-900' : 'text-red-600'}`}>
                                             {item.conPhaiThu ? new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND' }).format(item.conPhaiThu) : '0 đ'}
                                         </span>
                                     </td>
-                                    
+
                                     <td className="py-4 px-4 align-middle text-center">
                                         <div className="flex items-center justify-center gap-2 transition-opacity">
                                             <button
