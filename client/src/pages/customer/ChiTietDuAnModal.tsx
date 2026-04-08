@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { X, Eye, Edit, Trash2, Maximize2 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { ContractRow } from '../../lib/services/contractService';
+import { thuChiService, ThuChiRow } from '../../lib/services/thuChiService';
 
 interface ChiTietDuAnModalProps {
     isOpen: boolean;
@@ -24,6 +25,31 @@ export function ChiTietDuAnModal({
 }: ChiTietDuAnModalProps) {
     const [activeTab, setActiveTab] = useState('info');
     const navigate = useNavigate();
+    const [thuChiRows, setThuChiRows] = useState<ThuChiRow[]>([]);
+    const [loadingThuChi, setLoadingThuChi] = useState(false);
+
+    useEffect(() => {
+        if (isOpen && project?.projectName) {
+            loadThuChi();
+        }
+    }, [isOpen, project?.projectName]);
+
+    async function loadThuChi() {
+        setLoadingThuChi(true);
+        try {
+            // Note: thuChiService.getAllForDuAnDashboard might be more appropriate if we want the linked data
+            const all = await thuChiService.getAll();
+            const filtered = all.filter(r => 
+                (r.du_an_id === project.id) || 
+                (r.ten_du_an === project.projectName)
+            );
+            setThuChiRows(filtered.sort((a, b) => String(b.ngay || '').localeCompare(String(a.ngay || ''))));
+        } catch (e) {
+            console.error('[ChiTietDuAnModal] loadThuChi:', e);
+        } finally {
+            setLoadingThuChi(false);
+        }
+    }
 
     if (!isOpen || !project) return null;
 
@@ -50,6 +76,7 @@ export function ChiTietDuAnModal({
                         {[
                             { id: 'info', label: 'Thông tin dự án' },
                             { id: 'contracts', label: 'Hợp đồng' },
+                            { id: 'finance', label: 'Tài chính' },
                         ].map((tab) => (
                             <button
                                 key={tab.id}
@@ -187,6 +214,71 @@ export function ChiTietDuAnModal({
                                 >
                                     <Plus size={14} className="stroke-[3px]" />
                                     Thêm hợp đồng
+                                </button>
+                            </div>
+                        </div>
+                    )}
+
+                    {activeTab === 'finance' && (
+                        <div className="bg-white border border-slate-200 shadow-sm rounded-2xl overflow-hidden animate-in fade-in slide-in-from-bottom-2 duration-300">
+                            <div className="overflow-x-auto">
+                                <table className="w-full text-left">
+                                    <thead className="border-b border-slate-100 text-slate-500 font-bold bg-slate-50/50 text-[11px] uppercase tracking-wider">
+                                        <tr>
+                                            <th className="px-6 py-4">Loại phiếu</th>
+                                            <th className="px-6 py-4">Hạng mục</th>
+                                            <th className="px-6 py-4 text-center">Ngày</th>
+                                            <th className="px-6 py-4 text-right">Số tiền</th>
+                                            <th className="px-6 py-4">Nội dung</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody className="divide-y divide-slate-50 text-[13px]">
+                                        {loadingThuChi ? (
+                                            <tr>
+                                                <td colSpan={5} className="px-6 py-8 text-center text-slate-400 italic">Đang tải dữ liệu...</td>
+                                            </tr>
+                                        ) : thuChiRows.length > 0 ? (
+                                            thuChiRows.map((row) => (
+                                                <tr key={row.id} className="hover:bg-slate-50/50 transition-colors">
+                                                    <td className="px-6 py-4">
+                                                        <span className={`font-bold ${row.loai_phieu === 'Phiếu thu' ? 'text-emerald-600' : 'text-rose-600'}`}>
+                                                            {row.loai_phieu}
+                                                        </span>
+                                                    </td>
+                                                    <td className="px-6 py-4 text-slate-600">
+                                                        {row.hang_muc_chi === 'chi_nhan_su' ? 'Chi nhân sự' : row.hang_muc_chi === 'chi_du_an' ? 'Chi dự án' : '--'}
+                                                    </td>
+                                                    <td className="px-6 py-4 text-slate-500 text-center">
+                                                        {row.ngay ? new Date(row.ngay).toLocaleDateString('vi-VN') : '-'}
+                                                    </td>
+                                                    <td className="px-6 py-4 text-slate-800 font-bold text-right tabular-nums">
+                                                        {row.so_tien?.toLocaleString('vi-VN')} đ
+                                                    </td>
+                                                    <td className="px-6 py-4 text-slate-500 italic max-w-xs truncate">
+                                                        {row.noi_dung}
+                                                    </td>
+                                                </tr>
+                                            ))
+                                        ) : (
+                                            <tr>
+                                                <td className="px-6 py-12 text-slate-400 italic text-center" colSpan={5}>
+                                                    Chưa có chứng từ thu chi nào cho dự án này
+                                                </td>
+                                            </tr>
+                                        )}
+                                    </tbody>
+                                </table>
+                            </div>
+                            <div className="bg-slate-50/50 border-t border-slate-100 px-6 py-4 flex justify-end">
+                                <button
+                                    onClick={() => {
+                                        onClose();
+                                        navigate(`/tai-chinh/thu-chi?project=${encodeURIComponent(project.projectName)}`);
+                                    }}
+                                    className="flex items-center gap-2 px-4 py-2 bg-emerald-50 text-emerald-600 hover:bg-emerald-100 font-bold text-xs rounded-xl transition-all border border-emerald-100"
+                                >
+                                    <Maximize2 size={14} />
+                                    Mở trang Thu Chi
                                 </button>
                             </div>
                         </div>

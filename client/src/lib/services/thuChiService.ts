@@ -52,8 +52,13 @@ export const thuChiService = {
           anh_url,
           ghi_chu,
           created_at,
-          du_an:du_an_id(ten_du_an, customer_id, customer_name),
-          hop_dong:hop_dong_id(id, so_hop_dong),
+          du_an:du_an_id(id, ten_du_an, customer_id, customer_name),
+          hop_dong:hop_dong_id(
+            id, 
+            so_hop_dong, 
+            du_an_id,
+            du_an:du_an_id(id, ten_du_an)
+          ),
           nhan_su:nhan_su_id(id, code, full_name, name, hoTen, anh_nhan_su)
         `)
         .order('ngay', { ascending: false });
@@ -71,13 +76,16 @@ export const thuChiService = {
       return (data || []).map((row: any) => {
         const duAn = row.du_an;
         const hopDong = row.hop_dong;
+        // Nếu record không có du_an_id nhưng có hop_dong_id, lấy thông tin dự án từ hợp đồng.
+        const effectiveDuAn = duAn || hopDong?.du_an;
+        
         const nhanSu = row.nhan_su;
         const tenNhanSu =
           nhanSu?.full_name || nhanSu?.name || nhanSu?.hoTen || null;
 
         return {
           id: String(row.id),
-          du_an_id: row.du_an_id,
+          du_an_id: row.du_an_id || hopDong?.du_an_id || null,
           hop_dong_id: row.hop_dong_id,
           nhan_su_id: row.nhan_su_id,
           loai_phieu: row.loai_phieu,
@@ -94,7 +102,7 @@ export const thuChiService = {
           created_at: row.created_at,
 
           // Joined
-          ten_du_an: duAn?.ten_du_an ?? null,
+          ten_du_an: effectiveDuAn?.ten_du_an ?? null,
           so_hop_dong: hopDong?.so_hop_dong ?? null,
           nhan_su_ten: tenNhanSu,
           nhan_su_code: nhanSu?.code ?? null,

@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { Search, Plus, Eye, Edit, Trash2, X, Maximize2, CheckCircle, PlusCircle, User } from 'lucide-react';
+import { Search, Plus, Eye, Edit, Trash2, X, Maximize2, CheckCircle, PlusCircle, User, DollarSign } from 'lucide-react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { useDuAnModal } from '../../contexts/DuAnModalContext';
 import { useHopDongModal } from '../../contexts/HopDongModalContext';
@@ -845,6 +845,16 @@ export function DuAn() {
                                     
                                     <td className="py-4 px-4 align-middle text-center">
                                         <div className="flex items-center justify-center gap-2 transition-opacity">
+                                            <button
+                                                className="action-btn p-1.5 text-emerald-600 bg-emerald-50 border border-emerald-100 rounded-md hover:bg-emerald-100"
+                                                title="Xem thu chi"
+                                                onClick={(e) => {
+                                                    e.stopPropagation();
+                                                    navigate(`/tai-chinh/thu-chi?project=${encodeURIComponent(item.projectName)}`);
+                                                }}
+                                            >
+                                                <DollarSign size={14} />
+                                            </button>
                                             <button
                                                 className="action-btn p-1.5 text-purple-600 bg-purple-50 border border-purple-100 rounded-md hover:bg-purple-100"
                                                 title="Xem"

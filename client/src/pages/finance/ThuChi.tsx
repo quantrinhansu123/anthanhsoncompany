@@ -28,7 +28,7 @@ import {
     Gauge,
     Percent
 } from 'lucide-react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { thuChiService, ThuChiRow } from '../../lib/services/thuChiService';
 import { projectService } from '../../lib/services/projectService';
 import { contractService } from '../../lib/services/contractService';
@@ -80,6 +80,7 @@ function StatChip({ label }: { label: string }) {
 
 export function ThuChi() {
     const navigate = useNavigate();
+    const [searchParams] = useSearchParams();
     const [items, setItems] = useState<ThuChiRow[]>([]);
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
@@ -208,6 +209,23 @@ export function ThuChi() {
             }
         })();
     }, []);
+
+    // Handle initial filters from URL
+    useEffect(() => {
+        const duAnId = searchParams.get('duAnId');
+        const projectName = searchParams.get('project');
+        
+        if (duAnId && projects.length > 0) {
+            if (!selectedDuAnIds.includes(duAnId)) {
+                setSelectedDuAnIds([duAnId]);
+            }
+        } else if (projectName && projects.length > 0) {
+            const matchedProject = projects.find(p => p.ten_du_an === projectName);
+            if (matchedProject && !selectedDuAnIds.includes(matchedProject.id)) {
+                setSelectedDuAnIds([matchedProject.id]);
+            }
+        }
+    }, [searchParams, projects]);
 
     /** Khớp `thu_chi.hop_dong_id` (thường là PK bảng hop_dong) với bản ghi hợp đồng từ API */
     const hopDongRef = (c: (typeof contracts)[number]) => String(c.hop_dong_row_id || c.id || '').trim();
