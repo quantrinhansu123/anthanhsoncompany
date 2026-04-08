@@ -69,6 +69,7 @@ export function ThemThuChiModal({
     const [projects, setProjects] = useState<any[]>([]);
     const [contracts, setContracts] = useState<ContractRow[]>([]);
     const [customers, setCustomers] = useState<Array<{ id: string; ten_don_vi: string }>>([]);
+    const [customerSearch, setCustomerSearch] = useState('');
     const [employees, setEmployees] = useState<NhanSuOption[]>([]);
     const [existingNhanSuChiTotal, setExistingNhanSuChiTotal] = useState(0);
     const [formData, setFormData] = useState({
@@ -90,6 +91,14 @@ export function ThemThuChiModal({
         '';
 
     const customerSelectLocked = Boolean(customerScope?.customer_id);
+    const filteredCustomers = useMemo(() => {
+        const term = customerSearch.trim().toLowerCase();
+        const sorted = [...customers].sort((a, b) =>
+            a.ten_don_vi.localeCompare(b.ten_don_vi, 'vi', { sensitivity: 'base' }),
+        );
+        if (!term) return sorted;
+        return sorted.filter((c) => c.ten_don_vi.toLowerCase().includes(term));
+    }, [customers, customerSearch]);
 
     const projectsForSelect = useMemo((): Array<{ id: string; ten_du_an: string }> => {
         if (!effectiveCustomerId) return [];
@@ -513,6 +522,15 @@ export function ThemThuChiModal({
                                 <label className="text-[11px] font-bold text-slate-500 uppercase tracking-wider ml-1">
                                     Khách hàng <span className="text-red-500">*</span>
                                 </label>
+                                {!customerSelectLocked && (
+                                    <input
+                                        type="text"
+                                        value={customerSearch}
+                                        onChange={(e) => setCustomerSearch(e.target.value)}
+                                        placeholder="Gõ để tìm khách hàng..."
+                                        className="w-full px-4 py-2 bg-white border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500/10 focus:border-indigo-500 text-sm text-slate-700 transition-all shadow-sm"
+                                    />
+                                )}
                                 <div className="relative">
                                     <UserCircle2 className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
                                     <select
@@ -534,15 +552,11 @@ export function ThemThuChiModal({
                                                 ? '— Khách theo ngữ cảnh —'
                                                 : '— Chọn khách hàng —'}
                                         </option>
-                                        {[...customers]
-                                            .sort((a, b) =>
-                                                a.ten_don_vi.localeCompare(b.ten_don_vi, 'vi', { sensitivity: 'base' }),
-                                            )
-                                            .map((c) => (
-                                                <option key={c.id} value={c.id}>
-                                                    {c.ten_don_vi}
-                                                </option>
-                                            ))}
+                                        {filteredCustomers.map((c) => (
+                                            <option key={c.id} value={c.id}>
+                                                {c.ten_don_vi}
+                                            </option>
+                                        ))}
                                     </select>
                                 </div>
                                 {needSelectCustomerFirst ? (

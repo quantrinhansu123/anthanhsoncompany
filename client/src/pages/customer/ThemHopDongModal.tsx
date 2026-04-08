@@ -89,6 +89,7 @@ export function ThemHopDongModal({ isOpen, onClose, editData, contractCreatePref
     const [showAddLoaiDichVuModal, setShowAddLoaiDichVuModal] = useState(false);
     const [newLoaiDichVuValue, setNewLoaiDichVuValue] = useState('');
     const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+    const [projectSearch, setProjectSearch] = useState('');
 
     useEffect(() => {
         if (!isOpen) setPreviewUrl(null);
@@ -162,6 +163,11 @@ export function ThemHopDongModal({ isOpen, onClose, editData, contractCreatePref
         }
         return filterProjectsByCustomer(projects, pre.customer_id, pre.ten_don_vi);
     }, [projects, editData, contractCreatePrefill]);
+    const filteredProjectsForSelect = useMemo(() => {
+        const term = projectSearch.trim().toLowerCase();
+        if (!term) return projectsForSelect;
+        return projectsForSelect.filter((p) => (p.ten_du_an || '').toLowerCase().includes(term));
+    }, [projectsForSelect, projectSearch]);
 
     /** Đồng bộ dropdown dự án khách: gỡ lựa chọn sai, tự chọn nếu chỉ còn 1 dự án. */
     useEffect(() => {
@@ -418,6 +424,15 @@ export function ThemHopDongModal({ isOpen, onClose, editData, contractCreatePref
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                             <div className="md:col-span-2">
                                 <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1">Dự án <span className="text-red-500">*</span></label>
+                                {!editData && !noProjectsForCustomer && (
+                                    <input
+                                        type="text"
+                                        value={projectSearch}
+                                        onChange={(e) => setProjectSearch(e.target.value)}
+                                        placeholder="Gõ để tìm dự án..."
+                                        className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm mb-2 focus:outline-none focus:ring-2 focus:ring-purple-500/20 focus:border-purple-500 transition-all bg-white"
+                                    />
+                                )}
                                 <select
                                     value={formData.projectId}
                                     onChange={(e) => setFormData({ ...formData, projectId: e.target.value })}
@@ -429,7 +444,7 @@ export function ThemHopDongModal({ isOpen, onClose, editData, contractCreatePref
                                             ? '— Khách chưa có dự án —'
                                             : '-- Chọn dự án --'}
                                     </option>
-                                    {projectsForSelect.map((p) => (
+                                    {filteredProjectsForSelect.map((p) => (
                                         <option key={p.id} value={p.id}>{p.ten_du_an}</option>
                                     ))}
                                 </select>

@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { X, ChevronDown, User, Plus } from 'lucide-react';
+import { X, ChevronDown, User, Plus, Search } from 'lucide-react';
 import { customerService, Customer } from '../../lib/services/customerService';
 import { employeeService } from '../../lib/services/employeeService';
 
@@ -11,6 +11,7 @@ interface Props {
 }
 
 export function ThemDuAnModal({ isOpen, onClose, onSave, initialData }: Props) {
+    const normalizeText = (value: string) => value.trim().toLowerCase();
     const [formData, setFormData] = useState({
         customerName: '',
         customerId: '',
@@ -26,6 +27,7 @@ export function ThemDuAnModal({ isOpen, onClose, onSave, initialData }: Props) {
     const [employees, setEmployees] = useState<Array<{ id: string; full_name: string; code: string; anh_nhan_su?: string | null }>>([]);
     const [loadingCustomers, setLoadingCustomers] = useState(false);
     const [loadingEmployees, setLoadingEmployees] = useState(false);
+    const [customerError, setCustomerError] = useState('');
 
     // Load danh sách khách hàng và nhân sự từ database
     useEffect(() => {
@@ -126,8 +128,11 @@ export function ThemDuAnModal({ isOpen, onClose, onSave, initialData }: Props) {
     const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
         const { name, value } = e.target;
         if (name === 'customerName') {
-            const selectedCustomer = customers.find(c => c.ten_don_vi === value);
+            const selectedCustomer = customers.find(
+                c => normalizeText(c.ten_don_vi || '') === normalizeText(value || '')
+            );
             const newCustomerId = selectedCustomer?.id?.toString() || '';
+            setCustomerError('');
             setFormData(prev => ({ ...prev, customerName: value, customerId: newCustomerId }));
         } else {
             setFormData(prev => ({ ...prev, [name]: value }));
@@ -153,13 +158,27 @@ export function ThemDuAnModal({ isOpen, onClose, onSave, initialData }: Props) {
         let finalCustomerId = formData.customerId && formData.customerId.trim() !== '' ? formData.customerId.trim() : null;
         let finalTenKhachHang = formData.customerName && formData.customerName.trim() !== '' ? formData.customerName.trim() : null;
         
-        // Nếu customerId rỗng nhưng có customerName, thử tìm lại
+        // Nếu customerId rỗng nhưng có customerName, thử tìm lại (exact + partial unique)
         if (!finalCustomerId && formData.customerName) {
-            const foundCustomer = customers.find(c => c.ten_don_vi === formData.customerName);
+            const normalizedInput = normalizeText(formData.customerName);
+            const foundCustomer = customers.find(
+                c => normalizeText(c.ten_don_vi || '') === normalizedInput
+            );
             if (foundCustomer && foundCustomer.id) {
                 console.log('[ThemDuAnModal] Found customer by name, using id:', foundCustomer.id);
                 finalCustomerId = foundCustomer.id.toString();
                 finalTenKhachHang = foundCustomer.ten_don_vi;
+            } else {
+                const partialMatches = customers.filter(
+                    c => normalizeText(c.ten_don_vi || '').includes(normalizedInput)
+                );
+                if (partialMatches.length === 1 && partialMatches[0].id) {
+                    finalCustomerId = partialMatches[0].id.toString();
+                    finalTenKhachHang = partialMatches[0].ten_don_vi;
+                } else if (partialMatches.length !== 1) {
+                    setCustomerError('Vui lòng chọn đúng tên khách hàng từ danh sách gợi ý.');
+                    return;
+                }
             }
         }
         
@@ -219,26 +238,30 @@ export function ThemDuAnModal({ isOpen, onClose, onSave, initialData }: Props) {
                             <div className="space-y-1 md:col-span-2">
                                 <label className="text-[12px] font-bold text-slate-500 uppercase tracking-wider ml-1">Tên khách hàng</label>
                                 <div className="relative group">
-                                    <select
+                                    <input
+                                        type="text"
                                         name="customerName"
                                         value={formData.customerName}
                                         onChange={handleChange}
-                                        disabled={loadingCustomers}
-                                        className="w-full pl-4 pr-10 py-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500/10 focus:border-blue-500 focus:bg-white text-sm text-slate-800 bg-white appearance-none transition-all disabled:bg-slate-100 disabled:cursor-not-allowed group-hover:border-slate-300"
-                                    >
-                                        <option value="">{loadingCustomers ? 'Đang tải...' : 'Chọn khách hàng...'}</option>
+                                        list="customer-list"
+                                        autoComplete="off"
+                                        placeholder={loadingCustomers ? 'Đang tải...' : 'Gõ để tìm khách hàng...'}
+                                        className="w-full pl-10 pr-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500/10 focus:border-blue-500 focus:bg-white text-sm text-slate-800 transition-all disabled:bg-slate-100 disabled:cursor-not-allowed group-hover:border-slate-300"
+                                    />
+                                    <datalist id="customer-list">
                                         {customers.map((customer) => (
-                                            <option key={customer.id} value={customer.ten_don_vi}>
-                                                {customer.ten_don_vi}
-                                            </option>
+                                            <option key={customer.id} value={customer.ten_don_vi} />
                                         ))}
                                         {formData.customerName && 
                                             !customers.some(c => c.ten_don_vi === formData.customerName) && (
-                                            <option value={formData.customerName}>{formData.customerName}</option>
+                                            <option value={formData.customerName} />
                                         )}
-                                    </select>
-                                    <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none group-hover:text-slate-600 transition-colors" size={18} />
+                                    </datalist>
+                                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none group-hover:text-slate-600 transition-colors" size={16} />
                                 </div>
+                                {customerError && (
+                                    <p className="text-xs text-red-500 mt-1 ml-1">{customerError}</p>
+                                )}
                             </div>
 
                             {/* Tên dự án */}

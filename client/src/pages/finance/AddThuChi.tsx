@@ -110,6 +110,7 @@ export function AddThuChi() {
     });
     const [projects, setProjects] = useState<ProjectOpt[]>([]);
     const [customers, setCustomers] = useState<Array<{ id: string; ten_don_vi: string }>>([]);
+    const [customerSearch, setCustomerSearch] = useState('');
     const [contracts, setContracts] = useState<ContractRow[]>([]);
     const [existingNhanSuChiTotal, setExistingNhanSuChiTotal] = useState(0);
     const [employees, setEmployees] = useState<NhanSuOption[]>([]);
@@ -119,6 +120,14 @@ export function AddThuChi() {
         () => customers.find((c) => String(c.id) === String(formData.customerId))?.ten_don_vi || '',
         [customers, formData.customerId],
     );
+    const filteredCustomers = useMemo(() => {
+        const term = customerSearch.trim().toLowerCase();
+        const sorted = [...customers].sort((a, b) =>
+            a.ten_don_vi.localeCompare(b.ten_don_vi, 'vi', { sensitivity: 'base' }),
+        );
+        if (!term) return sorted;
+        return sorted.filter((c) => c.ten_don_vi.toLowerCase().includes(term));
+    }, [customers, customerSearch]);
 
     const projectsForSelect = useMemo(() => {
         const cid = String(formData.customerId || '').trim();
@@ -489,7 +498,15 @@ export function AddThuChi() {
                                 Khách hàng <span className="text-red-500">*</span>
                             </label>
                         </div>
-                        <div className="md:w-2/3 relative flex-1">
+                        <div className="md:w-2/3 flex-1 space-y-2">
+                            <input
+                                type="text"
+                                value={customerSearch}
+                                onChange={(e) => setCustomerSearch(e.target.value)}
+                                placeholder="Gõ để tìm khách hàng..."
+                                className="w-full px-4 py-2 bg-white border border-slate-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 text-slate-700"
+                            />
+                            <div className="relative">
                             <select
                                 value={formData.customerId}
                                 onChange={(e) =>
@@ -503,17 +520,14 @@ export function AddThuChi() {
                                 className="w-full max-w-full px-4 py-2.5 bg-white border border-slate-300 rounded-md appearance-none focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 text-slate-700"
                             >
                                 <option value="">-- Chọn khách hàng --</option>
-                                {[...customers]
-                                    .sort((a, b) =>
-                                        a.ten_don_vi.localeCompare(b.ten_don_vi, 'vi', { sensitivity: 'base' }),
-                                    )
-                                    .map((c) => (
-                                        <option key={c.id} value={c.id}>
-                                            {c.ten_don_vi}
-                                        </option>
-                                    ))}
+                                {filteredCustomers.map((c) => (
+                                    <option key={c.id} value={c.id}>
+                                        {c.ten_don_vi}
+                                    </option>
+                                ))}
                             </select>
                             <ChevronDown size={16} className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
+                            </div>
                         </div>
                     </div>
 
