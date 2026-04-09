@@ -11,57 +11,93 @@ const normalizeKey = (s: any): string => {
   return cleanString(s).toLowerCase();
 };
 
+/** PostgREST/Supabase thường giới hạn ~1000 dòng mỗi response nếu không dùng range lặp */
+const HOP_DONG_FETCH_CHUNK = 1000;
+
+function mapHopDongRows(data: any[] | null | undefined) {
+  return (data || []).map((row: any) => {
+    const contractId = row.contract_id || row.id;
+    const nhanSu = row.nhan_su;
+    const duAn = row.du_an;
+
+    const nhanSuTen = nhanSu ? (nhanSu.full_name || nhanSu.name || nhanSu.hoTen || '') : null;
+    const nhanSuCode = nhanSu?.code || null;
+
+    return {
+      ...row,
+      id: contractId,
+      contract_id: contractId,
+      hop_dong_row_id: row.id,
+      project_name: duAn?.ten_du_an || row.project_name || null,
+      nhan_su_ten: nhanSuTen,
+      nhan_su_code: nhanSuCode,
+      nhan_su_ids: Array.isArray(row.nhan_su_ids) ? row.nhan_su_ids : (row.nhan_su_ids ? [row.nhan_su_ids] : [])
+    };
+  });
+}
+
 export const contractService = {
   async getAll(options: { page?: number; pageSize?: number; search?: string } = {}) {
     const { page, pageSize, search } = options;
     const supabase = getSupabase();
-    
-    let query = supabase
-      .from('hop_dong')
-      .select(`
+
+    const buildOrderedQuery = () => {
+      let query = supabase
+        .from('hop_dong')
+        .select(
+          `
         *,
         du_an:du_an_id(id, ten_du_an),
         nhan_su:nhan_su_id(id, code, full_name, name, hoTen)
-      `, { count: 'exact' });
+      `,
+          { count: 'exact' }
+        );
 
-    if (search) {
-      // Search in multiple columns
-      query = query.or(`so_hop_dong.ilike.%${search}%,ten_goi_thau.ilike.%${search}%,project_name.ilike.%${search}%`);
-    }
+      if (search) {
+        query = query.or(
+          `so_hop_dong.ilike.%${search}%,ten_goi_thau.ilike.%${search}%,project_name.ilike.%${search}%`
+        );
+      }
+
+      return query.order('ngay_ky_hd', { ascending: false });
+    };
 
     if (page !== undefined && pageSize !== undefined) {
       const from = (page - 1) * pageSize;
       const to = from + pageSize - 1;
-      query = query.range(from, to);
+      const { data, error, count } = await buildOrderedQuery().range(from, to);
+      if (error) throw error;
+      const rows = mapHopDongRows(data);
+      return {
+        data: rows,
+        total: count || 0
+      };
     }
 
-    const { data, error, count } = await query.order('ngay_ky_hd', { ascending: false });
-    
-    if (error) throw error;
+    // Không truyền page: lấy toàn bộ (nhiều batch) — tránh mất hợp đồng do giới hạn mặc định
+    const allRaw: any[] = [];
+    let offset = 0;
+    let totalCount: number | null = null;
 
-    const rows = (data || []).map((row: any) => {
-      const contractId = row.contract_id || row.id;
-      const nhanSu = row.nhan_su;
-      const duAn = row.du_an;
-      
-      const nhanSuTen = nhanSu ? (nhanSu.full_name || nhanSu.name || nhanSu.hoTen || '') : null;
-      const nhanSuCode = nhanSu?.code || null;
-      
-      return {
-        ...row,
-        id: contractId,
-        contract_id: contractId,
-        hop_dong_row_id: row.id,
-        project_name: duAn?.ten_du_an || row.project_name || null,
-        nhan_su_ten: nhanSuTen,
-        nhan_su_code: nhanSuCode,
-        nhan_su_ids: Array.isArray(row.nhan_su_ids) ? row.nhan_su_ids : (row.nhan_su_ids ? [row.nhan_su_ids] : [])
-      };
-    });
+    while (true) {
+      const { data, error, count } = await buildOrderedQuery().range(
+        offset,
+        offset + HOP_DONG_FETCH_CHUNK - 1
+      );
+      if (error) throw error;
+      if (totalCount === null && count !== null && count !== undefined) {
+        totalCount = count;
+      }
+      const batch = data || [];
+      allRaw.push(...batch);
+      if (batch.length < HOP_DONG_FETCH_CHUNK) break;
+      offset += HOP_DONG_FETCH_CHUNK;
+    }
 
+    const rows = mapHopDongRows(allRaw);
     return {
       data: rows,
-      total: count || 0
+      total: totalCount ?? rows.length
     };
   },
 

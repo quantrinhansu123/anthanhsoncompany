@@ -36,9 +36,10 @@ import { employeeService } from '../../lib/services/employeeService';
 import { customerService, type Customer } from '../../lib/services/customerService';
 import { useThuChiModal } from '../../contexts/ThuChiModalContext';
 import { normalizeNguongLoai, tienQuyDoiNguongChiNhanSu } from '../../lib/nguongChiNhanSu';
-import { ExcelImportExportBar } from '../../components/ExcelImportExportBar';
+import { ExcelImportExportBar, type ExcelImportResult } from '../../components/ExcelImportExportBar';
 import type { ExcelColumnDef } from '../../lib/excelTableTools';
 import { parseMoneyVi, parseExcelDate } from '../../lib/excelTableTools';
+import { cn } from '../../lib/utils';
 
 interface ToastProps {
     message: string;
@@ -120,6 +121,9 @@ export function ThuChi() {
     
     // Column filter dropdown states
     const [openColumnFilter, setOpenColumnFilter] = useState<string | null>(null);
+
+    const [customerSearchInput, setCustomerSearchInput] = useState('');
+    const [customerPickerOpen, setCustomerPickerOpen] = useState(false);
 
     const itemsPerPage = 10;
     const [toast, setToast] = useState<{ message: string, type: 'success' | 'error' | 'info' } | null>(null);
@@ -223,6 +227,22 @@ export function ThuChi() {
             }
         })();
     }, []);
+
+    useEffect(() => {
+        const id = selectedCustomerIds[0];
+        if (!id) {
+            setCustomerSearchInput('');
+            return;
+        }
+        const c = customers.find((x) => x.id === id);
+        if (c?.ten_don_vi) setCustomerSearchInput(c.ten_don_vi);
+    }, [selectedCustomerIds, customers]);
+
+    const filteredCustomersPick = useMemo(() => {
+        const q = customerSearchInput.trim().toLowerCase();
+        if (!q) return customers;
+        return customers.filter((c) => (c.ten_don_vi || '').toLowerCase().includes(q));
+    }, [customers, customerSearchInput]);
 
     /** Khớp `thu_chi.hop_dong_id` (thường là PK bảng hop_dong) với bản ghi hợp đồng từ API */
     const hopDongRef = (c: (typeof contracts)[number]) => String(c.hop_dong_row_id || c.id || '').trim();
@@ -354,8 +374,8 @@ export function ThuChi() {
         });
     }, [rawThuChi, projects, contracts, customers]);
 
-    const handleDelete = (id: string | number) => {
-        openDelete(id, loadRecords);
+    const handleDelete = (item: (typeof items)[0]) => {
+        openDelete({ id: item.id, code: item.code });
     };
 
     const handleAddClick = () => {
@@ -623,54 +643,195 @@ export function ThuChi() {
     const startIndex = (currentPage - 1) * itemsPerPage;
     const currentItems = filteredItems.slice(startIndex, startIndex + itemsPerPage);
 
+    const selectedInTab = useMemo(
+        () => filteredItems.filter((i) => selectedIds.includes(i.id)).map((i) => String(i.id)),
+        [filteredItems, selectedIds],
+    );
+
+    const handleDeleteSelected = async () => {
+        if (selectedInTab.length === 0) return;
+        if (
+            !window.confirm(
+                `Xóa ${selectedInTab.length} chứng từ đã chọn trong tab hiện tại? Hành động không hoàn tác.`,
+            )
+        ) {
+            return;
+        }
+        let failed = 0;
+        for (const id of selectedInTab) {
+            try {
+                const ok = await thuChiService.delete(id);
+                if (!ok) failed++;
+            } catch {
+                failed++;
+            }
+        }
+        setSelectedIds((prev) => prev.filter((id) => !selectedInTab.includes(String(id))));
+        await loadRecords();
+        if (failed > 0) {
+            setToast({
+                type: 'error',
+                message: `Đã xóa ${selectedInTab.length - failed} bản ghi; ${failed} bản ghi không xóa được.`,
+            });
+        } else {
+            setToast({ type: 'success', message: `Đã xóa ${selectedInTab.length} chứng từ.` });
+        }
+    };
+
+    useEffect(() => {
+        setSelectedIds([]);
+    }, [activeTab]);
+
+    const handleThuChiExcelImport = useCallback(
+        async (
+            rows: Record<string, string>[],
+            onProgress: (current: number, total: number) => void,
+        ): Promise<ExcelImportResult> => {
+            const errors: string[] = [];
+            let ok = 0;
+            const totalRows = rows.length;
+            const isCdtTemplate = rows.some((r) => r.cdt_thanh_toan || r.ngay_tien_ve || r.ten_da);
+
+            if (isCdtTemplate) {
+                const grouped = new Map<string, any>();
+                for (let i = 0; i < rows.length; i++) {
+                    const r = rows[i];
+                    onProgress(i + 1, totalRows);
+                    const tenDa = (r.ten_da || '').trim();
+                    if (!tenDa) continue;
+                    const soTien =
+                        parseMoneyVi(r.cdt_thanh_toan || '0') || parseMoneyVi(r.cdt_tam_ung || '0');
+                    if (soTien <= 0) continue;
+                    const ngayRaw = r.ngay_tien_ve || r.ngay_xuat_hd || '';
+                    const ngayP = parseExcelDate(ngayRaw, (r.nam_xuat_hd || '').trim());
+                    const ngayFinal = ngayP || new Date().toISOString().split('T')[0];
+                    const key = `${tenDa}_${ngayFinal}`;
+                    if (grouped.has(key)) grouped.get(key).so_tien += soTien;
+                    else
+                        grouped.set(key, {
+                            ten_da: tenDa,
+                            so_tien: soTien,
+                            ngay: ngayFinal,
+                            noi_dung: `Thu tiền từ CDT (${tenDa})`,
+                        });
+                }
+                const rows2 = Array.from(grouped.values());
+                const denom = Math.max(rows.length + rows2.length, 1);
+                for (let i = 0; i < rows2.length; i++) {
+                    const r = rows2[i];
+                    onProgress(rows.length + i + 1, denom);
+                    const project = projects.find(
+                        (p) =>
+                            (p.ten_du_an || '').trim().toLowerCase() ===
+                            String(r.ten_da || '').toLowerCase(),
+                    );
+                    if (!project) {
+                        errors.push(`Dòng CDT ${i + 2}: không tìm thấy dự án '${r.ten_da}'`);
+                        continue;
+                    }
+                    try {
+                        await thuChiService.create({
+                            loai_phieu: 'Phiếu thu',
+                            so_tien: Number(r.so_tien || 0),
+                            ngay: r.ngay,
+                            du_an_id: project.id,
+                            noi_dung: r.noi_dung,
+                            tinh_trang_phieu: 'thanh_toan',
+                        });
+                        ok++;
+                    } catch (e: any) {
+                        errors.push(`Dòng CDT ${i + 2}: ${e?.message || 'Lỗi tạo phiếu thu'}`);
+                    }
+                }
+            } else {
+                for (let i = 0; i < rows.length; i++) {
+                    const r = rows[i];
+                    onProgress(i + 1, totalRows);
+                    const loai = String(r.loai_phieu || '').trim();
+                    const soTien =
+                        parseMoneyVi(r.so_tien) || Number(String(r.so_tien || '').replace(/[, ]/g, ''));
+                    const tenDuAn = String(r.ten_du_an || '').trim();
+                    const project = projects.find(
+                        (p) => (p.ten_du_an || '').trim().toLowerCase() === tenDuAn.toLowerCase(),
+                    );
+                    const loaiL = loai.toLowerCase();
+                    const isPhieuThu =
+                        loaiL.includes('thu') && (loaiL.includes('phiếu') || loaiL.includes('phieu'));
+                    const isPhieuChi =
+                        loaiL.includes('chi') && (loaiL.includes('phiếu') || loaiL.includes('phieu'));
+                    if (!(isPhieuThu || isPhieuChi) || !project || !(soTien > 0)) {
+                        errors.push(`Dòng ${i + 2}: dữ liệu không hợp lệ (loại phiếu / dự án / số tiền)`);
+                        continue;
+                    }
+                    const loaiPhieu = isPhieuThu ? 'Phiếu thu' : 'Phiếu chi';
+                    try {
+                        await thuChiService.create({
+                            loai_phieu: loaiPhieu,
+                            so_tien: soTien,
+                            ngay:
+                                parseExcelDate(r.ngay) || new Date().toISOString().split('T')[0],
+                            du_an_id: project.id,
+                            noi_dung: String(r.noi_dung || '').trim() || null,
+                        });
+                        ok++;
+                    } catch (e: any) {
+                        errors.push(`Dòng ${i + 2}: ${e?.message || 'Lỗi tạo phiếu'}`);
+                    }
+                }
+            }
+            return { ok, errors };
+        },
+        [projects],
+    );
+
     return (
-        <div className="bg-[#faf8ff] text-[#131b2e] min-h-screen animate-in fade-in duration-500">
+        <div className="bg-slate-50 text-slate-900 min-h-screen animate-in fade-in duration-500">
             {toast && <Toast message={toast.message} type={toast.type} onClose={() => setToast(null)} />}
 
-            <header className="flex justify-between items-center w-full px-6 md:px-8 py-4 sticky top-0 z-40 bg-white border-b border-slate-100 shadow-sm">
+            <header className="flex justify-between items-center w-full px-6 md:px-8 py-4 sticky top-0 z-40 bg-white border-b border-slate-200/80 shadow-sm">
                 <div className="flex items-center gap-4">
                     <button
                         type="button"
                         onClick={() => navigate('/tai-chinh')}
                         className="p-2 rounded-full text-slate-500 hover:bg-slate-100"
-                        aria-label="Quay lai"
+                        aria-label="Quay lại"
                     >
                         <ArrowLeft size={18} />
                     </button>
-                    <h1 className="text-xl font-bold text-slate-900">Quan ly thu chi</h1>
-                    <span className="hidden md:inline-flex rounded-full bg-slate-100 px-2.5 py-1 text-xs font-semibold text-slate-600">
-                        Thu {demPhieuThu} | Chi {demPhieuChi} | Tong {demPhieuTong}
+                    <h1 className="text-xl font-bold text-slate-900">Quản lý thu chi</h1>
+                    <span className="hidden md:inline-flex rounded-full bg-slate-100 px-2.5 py-1 text-xs font-semibold text-slate-600 border border-slate-200/80">
+                        Thu {demPhieuThu} | Chi {demPhieuChi} | Tổng {demPhieuTong}
                     </span>
                 </div>
                 <button
                     onClick={handleAddClick}
-                    className="flex items-center gap-2 bg-[#004bcb] text-white px-5 py-2 rounded-lg font-semibold hover:opacity-90 transition-opacity"
+                    className="flex items-center gap-2 bg-blue-600 text-white px-5 py-2 rounded-lg font-semibold hover:bg-blue-700 shadow-sm transition-colors"
                 >
                     <Plus size={16} />
-                    <span>{activeTab === 'thu' ? 'Them phieu thu' : 'Them phieu chi'}</span>
+                    <span>{activeTab === 'thu' ? 'Thêm phiếu thu' : 'Thêm phiếu chi'}</span>
                 </button>
             </header>
 
             <main className="p-6 md:p-8 space-y-6">
                 <section className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                    <div className="bg-[#283044] text-[#f2f2ff] p-8 rounded-xl shadow-lg">
-                        <p className="uppercase tracking-wider text-slate-300 text-sm font-semibold mb-2">Tong tien</p>
+                    <div className="bg-slate-800 text-white p-8 rounded-xl shadow-md border border-slate-700/50">
+                        <p className="uppercase tracking-wider text-slate-300 text-sm font-semibold mb-2">Tổng tiền</p>
                         <h2 className="text-3xl md:text-4xl font-extrabold tracking-tight">{formattedTotalAmount}</h2>
                         <div className="mt-4 flex items-center gap-2 text-emerald-300 text-sm font-semibold">
                             <TrendingUp size={16} />
-                            <span>{activeTab === 'thu' ? 'Dang xem phieu thu' : 'Dang xem phieu chi'}</span>
+                            <span>{activeTab === 'thu' ? 'Đang xem phiếu thu' : 'Đang xem phiếu chi'}</span>
                         </div>
                     </div>
                     <div className="bg-white p-8 rounded-xl shadow-sm border border-slate-200">
-                        <p className="uppercase tracking-wider text-slate-500 text-sm font-semibold mb-2">So phieu</p>
-                        <h2 className="text-3xl md:text-4xl font-extrabold tracking-tight">{filteredItems.length}</h2>
-                        <div className="mt-4 text-sm text-slate-500">Theo bo loc hien tai</div>
+                        <p className="uppercase tracking-wider text-slate-500 text-sm font-semibold mb-2">Số phiếu</p>
+                        <h2 className="text-3xl md:text-4xl font-extrabold tracking-tight text-slate-900">{filteredItems.length}</h2>
+                        <div className="mt-4 text-sm text-slate-500">Theo bộ lọc hiện tại</div>
                     </div>
-                    <div className="bg-[#eaedff] p-8 rounded-xl border border-[#dae2fd] flex flex-col justify-center items-center text-center">
-                        <div className="w-12 h-12 rounded-full bg-white flex items-center justify-center mb-3">
-                            <Gauge size={18} className="text-[#004bcb]" />
+                    <div className="bg-indigo-50 p-8 rounded-xl border border-indigo-100 flex flex-col justify-center items-center text-center">
+                        <div className="w-12 h-12 rounded-full bg-white flex items-center justify-center mb-3 shadow-sm border border-indigo-100">
+                            <Gauge size={18} className="text-blue-600" />
                         </div>
-                        <p className="text-sm font-medium text-slate-600">Dat nguong chi NS</p>
+                        <p className="text-sm font-medium text-slate-600">Đạt ngưỡng chi NS</p>
                         <p className="text-xl font-bold text-slate-900 mt-1">
                             {activeTab === 'chi' && chiNhanSuSummary.pct != null
                                 ? `${(Math.round(chiNhanSuSummary.pct * 10) / 10).toLocaleString('vi-VN')}%`
@@ -679,10 +840,10 @@ export function ThuChi() {
                     </div>
                 </section>
 
-                <section className="bg-[#f2f3ff] rounded-xl p-6 space-y-5 border border-[#dae2fd]">
+                <section className="bg-slate-100 rounded-xl p-6 space-y-5 border border-slate-200">
                     <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
                         <div>
-                            <label className="block mb-1.5 text-sm text-slate-600 font-medium">Loai phieu</label>
+                            <label className="block mb-1.5 text-sm text-slate-600 font-medium">Loại phiếu</label>
                             <select
                                 value={activeTab}
                                 onChange={(e) => {
@@ -691,27 +852,115 @@ export function ThuChi() {
                                 }}
                                 className="w-full bg-white border border-slate-200 rounded-lg text-sm py-2 px-3"
                             >
-                                <option value="thu">Phieu thu</option>
-                                <option value="chi">Phieu chi</option>
+                                <option value="thu">Phiếu thu</option>
+                                <option value="chi">Phiếu chi</option>
                             </select>
                         </div>
 
-                        <div>
-                            <label className="block mb-1.5 text-sm text-slate-600 font-medium">Khach hang</label>
-                            <select
-                                value={selectedCustomerIds[0] || ''}
-                                onChange={(e) => setSelectedCustomerIds(e.target.value ? [e.target.value] : [])}
-                                className="w-full bg-white border border-slate-200 rounded-lg text-sm py-2 px-3"
-                            >
-                                <option value="">Tat ca khach hang</option>
-                                {customers.map((c) => (
-                                    <option key={c.id} value={c.id}>{c.ten_don_vi}</option>
-                                ))}
-                            </select>
+                        <div className="relative z-30">
+                            <label className="block mb-1.5 text-sm text-slate-600 font-medium">Khách hàng</label>
+                            <div className="relative">
+                                <Search
+                                    size={16}
+                                    className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none"
+                                />
+                                <input
+                                    type="text"
+                                    role="combobox"
+                                    aria-expanded={customerPickerOpen}
+                                    aria-autocomplete="list"
+                                    placeholder="Gõ để tìm khách hàng..."
+                                    autoComplete="off"
+                                    value={customerSearchInput}
+                                    onChange={(e) => {
+                                        const v = e.target.value;
+                                        setCustomerSearchInput(v);
+                                        setCustomerPickerOpen(true);
+                                        const selId = selectedCustomerIds[0];
+                                        if (selId) {
+                                            const cur = customers.find((x) => x.id === selId);
+                                            if (cur && v !== cur.ten_don_vi) {
+                                                setSelectedCustomerIds([]);
+                                            }
+                                        }
+                                    }}
+                                    onFocus={() => setCustomerPickerOpen(true)}
+                                    onBlur={() => {
+                                        window.setTimeout(() => setCustomerPickerOpen(false), 200);
+                                    }}
+                                    className="w-full pl-9 pr-9 py-2 bg-white border border-slate-200 rounded-lg text-sm text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500/25 focus:border-blue-400"
+                                />
+                                {customerSearchInput && (
+                                    <button
+                                        type="button"
+                                        className="absolute right-2 top-1/2 -translate-y-1/2 p-1 rounded text-slate-400 hover:text-slate-600 hover:bg-slate-100"
+                                        aria-label="Xóa"
+                                        onMouseDown={(e) => e.preventDefault()}
+                                        onClick={() => {
+                                            setSelectedCustomerIds([]);
+                                            setCustomerSearchInput('');
+                                            setCustomerPickerOpen(false);
+                                        }}
+                                    >
+                                        <X size={14} />
+                                    </button>
+                                )}
+                            </div>
+                            {customerPickerOpen && (
+                                <ul
+                                    role="listbox"
+                                    className="absolute left-0 right-0 top-full mt-1 max-h-48 overflow-auto rounded-lg border border-slate-200 bg-white shadow-lg py-1 z-40"
+                                >
+                                    <li>
+                                        <button
+                                            type="button"
+                                            role="option"
+                                            className={cn(
+                                                'w-full text-left px-3 py-2 text-sm hover:bg-slate-50',
+                                                selectedCustomerIds.length === 0 ? 'bg-blue-50 text-blue-800 font-medium' : 'text-slate-700',
+                                            )}
+                                            onMouseDown={(e) => e.preventDefault()}
+                                            onClick={() => {
+                                                setSelectedCustomerIds([]);
+                                                setCustomerSearchInput('');
+                                                setCustomerPickerOpen(false);
+                                            }}
+                                        >
+                                            Tất cả khách hàng
+                                        </button>
+                                    </li>
+                                    {filteredCustomersPick.length === 0 ? (
+                                        <li className="px-3 py-2 text-sm text-slate-500">Không tìm thấy khách hàng</li>
+                                    ) : (
+                                        filteredCustomersPick.map((c) => (
+                                            <li key={c.id}>
+                                                <button
+                                                    type="button"
+                                                    role="option"
+                                                    className={cn(
+                                                        'w-full text-left px-3 py-2 text-sm hover:bg-slate-50 truncate',
+                                                        selectedCustomerIds[0] === c.id
+                                                            ? 'bg-blue-50 text-blue-800 font-medium'
+                                                            : 'text-slate-800',
+                                                    )}
+                                                    onMouseDown={(e) => e.preventDefault()}
+                                                    onClick={() => {
+                                                        setSelectedCustomerIds([c.id]);
+                                                        setCustomerSearchInput(c.ten_don_vi || '');
+                                                        setCustomerPickerOpen(false);
+                                                    }}
+                                                >
+                                                    {c.ten_don_vi}
+                                                </button>
+                                            </li>
+                                        ))
+                                    )}
+                                </ul>
+                            )}
                         </div>
 
                         <div className="xl:col-span-2">
-                            <label className="block mb-1.5 text-sm text-slate-600 font-medium">Khoang thoi gian</label>
+                            <label className="block mb-1.5 text-sm text-slate-600 font-medium">Khoảng thời gian</label>
                             <div className="flex items-center gap-2">
                                 <input type="date" value={dateFrom} onChange={(e) => { setDateFrom(e.target.value); setQuickDateFilter(''); setSelectedMonth(''); }} className="bg-white border border-slate-200 rounded-lg text-sm py-2 px-3 flex-1" />
                                 <span className="text-slate-400">-&gt;</span>
@@ -721,110 +970,110 @@ export function ThuChi() {
                     </div>
 
                     <div className="flex flex-wrap items-center gap-2">
-                        <button onClick={() => handleQuickDateFilter('today')} className={`px-3 py-1.5 text-xs font-semibold rounded-full ${quickDateFilter === 'today' ? 'bg-[#004bcb] text-white' : 'bg-white hover:bg-slate-100'}`}>Hom nay</button>
-                        <button onClick={() => handleQuickDateFilter('thisMonth')} className={`px-3 py-1.5 text-xs font-semibold rounded-full ${quickDateFilter === 'thisMonth' ? 'bg-[#004bcb] text-white' : 'bg-white hover:bg-slate-100'}`}>Thang nay</button>
+                        <button type="button" onClick={() => handleQuickDateFilter('today')} className={`px-3 py-1.5 text-xs font-semibold rounded-full border border-transparent ${quickDateFilter === 'today' ? 'bg-blue-600 text-white' : 'bg-white border-slate-200 hover:bg-slate-50 text-slate-700'}`}>Hôm nay</button>
+                        <button type="button" onClick={() => handleQuickDateFilter('thisMonth')} className={`px-3 py-1.5 text-xs font-semibold rounded-full border border-transparent ${quickDateFilter === 'thisMonth' ? 'bg-blue-600 text-white' : 'bg-white border-slate-200 hover:bg-slate-50 text-slate-700'}`}>Tháng này</button>
                         <div className="relative flex-1 min-w-[220px]">
                             <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
-                            <input type="text" placeholder="Tim ma, noi dung..." value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} className="w-full pl-10 pr-4 py-2 bg-white border border-slate-200 rounded-lg text-sm" />
+                            <input type="text" placeholder="Tìm mã, nội dung..." value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} className="w-full pl-10 pr-4 py-2 bg-white border border-slate-200 rounded-lg text-sm text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500/25 focus:border-blue-400" />
                         </div>
-                        <ExcelImportExportBar
-                            compact
-                            className="shrink-0"
-                            columns={[...thuChiExcelColumns, ...customCdtExcelColumns]}
-                            templateFileName="mau-thu-chi"
-                            sheetName="Thu chi"
-                            onImport={async (rows, onProgress) => {
-                                const errors: string[] = [];
-                                let ok = 0;
-                                const total = rows.length;
-                                const isCdtTemplate = rows.some((r) => r.cdt_thanh_toan || r.ngay_tien_ve || r.ten_da);
-
-                                if (isCdtTemplate) {
-                                    const grouped = new Map<string, any>();
-                                    for (let i = 0; i < rows.length; i++) {
-                                        const r = rows[i];
-                                        const tenDa = (r.ten_da || '').trim();
-                                        if (!tenDa) continue;
-                                        const soTien = parseMoneyVi(r.cdt_thanh_toan || '0') || parseMoneyVi(r.cdt_tam_ung || '0');
-                                        if (soTien <= 0) continue;
-                                        const ngayRaw = r.ngay_tien_ve || r.ngay_xuat_hd || '';
-                                        const ngayP = parseExcelDate(ngayRaw, (r.nam_xuat_hd || '').trim());
-                                        const ngayFinal = ngayP || new Date().toISOString().split('T')[0];
-                                        const key = `${tenDa}_${ngayFinal}`;
-                                        if (grouped.has(key)) grouped.get(key).so_tien += soTien;
-                                        else grouped.set(key, { ten_da: tenDa, so_tien: soTien, ngay: ngayFinal, noi_dung: `Thu tien tu CDT (${tenDa})` });
-                                        onProgress?.({ processed: i + 1, total, current: `Dang tong hop dong ${i + 2}` });
-                                    }
-                                    const rows2 = Array.from(grouped.values());
-                                    for (let i = 0; i < rows2.length; i++) {
-                                        const r = rows2[i];
-                                        const project = projects.find((p) => (p.ten_du_an || '').trim().toLowerCase() === String(r.ten_da || '').toLowerCase());
-                                        if (!project) { errors.push(`Dong CDT ${i + 2}: khong tim thay du an '${r.ten_da}'`); continue; }
-                                        try {
-                                            await thuChiService.create({ loai_phieu: 'Phieu thu', so_tien: Number(r.so_tien || 0), ngay: r.ngay, du_an_id: project.id, noi_dung: r.noi_dung, tinh_trang: 'thanh_toan' });
-                                            ok++;
-                                        } catch (e: any) { errors.push(`Dong CDT ${i + 2}: ${e?.message || 'Loi tao phieu thu'}`); }
-                                    }
-                                } else {
-                                    for (let i = 0; i < rows.length; i++) {
-                                        const r = rows[i];
-                                        const loai = String(r.loai_phieu || '').trim();
-                                        const soTien = parseMoneyVi(r.so_tien) || Number(String(r.so_tien || '').replace(/[, ]/g, ''));
-                                        const tenDuAn = String(r.ten_du_an || '').trim();
-                                        const project = projects.find((p) => (p.ten_du_an || '').trim().toLowerCase() === tenDuAn.toLowerCase());
-                                        if (!(loai === 'Phi???u thu' || loai === 'Phi???u chi') || !project || !(soTien > 0)) { errors.push(`Dong ${i + 2}: du lieu khong hop le`); continue; }
-                                        try {
-                                            await thuChiService.create({ loai_phieu: loai, so_tien: soTien, ngay: parseExcelDate(r.ngay) || new Date().toISOString().split('T')[0], du_an_id: project.id, noi_dung: String(r.noi_dung || '').trim() || null });
-                                            ok++;
-                                        } catch (e: any) { errors.push(`Dong ${i + 2}: ${e?.message || 'Loi tao phieu'}`); }
-                                    }
-                                }
-                                return { ok, errors };
-                            }}
-                            onDone={loadRecords}
-                        />
                     </div>
                 </section>
 
                 <section className="bg-white rounded-xl shadow-sm overflow-hidden border border-slate-200">
                     {loading ? (
-                        <div className="p-8 text-center"><Loader2 className="w-8 h-8 animate-spin text-blue-600 mx-auto mb-2" /><p className="text-sm text-slate-500">Dang tai du lieu...</p></div>
+                        <div className="p-8 text-center"><Loader2 className="w-8 h-8 animate-spin text-blue-600 mx-auto mb-2" /><p className="text-sm text-slate-500">Đang tải dữ liệu...</p></div>
                     ) : error ? (
-                        <div className="p-8 text-center"><p className="text-sm text-red-600 mb-4">{error}</p><button onClick={loadRecords} className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700">Thu lai</button></div>
+                        <div className="p-8 text-center"><p className="text-sm text-red-600 mb-4">{error}</p><button type="button" onClick={loadRecords} className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700">Thử lại</button></div>
                     ) : (
                         <>
+                            <div className="flex flex-col gap-3 px-4 py-3 border-b border-slate-200 bg-slate-50/90 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between">
+                                <div className="flex flex-wrap items-center gap-2">
+                                    <button
+                                        type="button"
+                                        disabled={selectedInTab.length === 0 || loading}
+                                        onClick={handleDeleteSelected}
+                                        className="inline-flex items-center gap-1.5 rounded-lg border border-red-200 bg-white px-3 py-1.5 text-xs font-bold text-red-700 shadow-sm hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-45"
+                                    >
+                                        <Trash2 className="w-3.5 h-3.5" />
+                                        Xóa đã chọn
+                                        {selectedInTab.length > 0 ? ` (${selectedInTab.length})` : ''}
+                                    </button>
+                                    <span className="text-[11px] text-slate-500">
+                                        Chọn từng dòng hoặc tick đầu cột để chọn/bỏ tất cả phiếu đang lọc (có thể nhiều trang).
+                                    </span>
+                                </div>
+                                <ExcelImportExportBar
+                                    className="shrink-0 min-w-0"
+                                    columns={[...thuChiExcelColumns, ...customCdtExcelColumns]}
+                                    templateFileName="mau-thu-chi"
+                                    sheetName="Thu chi"
+                                    onImport={handleThuChiExcelImport}
+                                    onDone={loadRecords}
+                                    disabled={loading}
+                                />
+                            </div>
                             <div className="overflow-x-auto">
                                 <table className="w-full text-left border-collapse">
                                     <thead>
-                                        <tr className="bg-slate-50 border-b border-slate-100 text-xs uppercase tracking-wider text-slate-500">
-                                            <th className="px-4 py-4 w-10"><button onClick={toggleSelectAll}>{isAllSelected ? <CheckSquare size={16} className="text-blue-600" /> : <Square size={16} className="text-slate-400" />}</button></th>
-                                            <th className="px-6 py-4 font-bold">Ma chung tu</th>
-                                            <th className="px-6 py-4 font-bold">Khach hang</th>
-                                            <th className="px-6 py-4 font-bold">Ngay</th>
-                                            <th className="px-6 py-4 font-bold">Loai phieu</th>
-                                            <th className="px-6 py-4 font-bold text-right">So tien</th>
-                                            <th className="px-6 py-4 font-bold">Noi dung</th>
-                                            <th className="px-6 py-4 font-bold text-center">Hanh dong</th>
+                                        <tr className="bg-blue-950 border-b border-blue-900 text-[11px] uppercase tracking-wider text-white">
+                                            <th className="px-4 py-3.5 w-12">
+                                                <button
+                                                    type="button"
+                                                    title="Chọn tất cả trên các dòng đang lọc"
+                                                    onClick={toggleSelectAll}
+                                                    className="rounded p-0.5 text-white/90 hover:bg-white/10 hover:text-white"
+                                                >
+                                                    {isAllSelected ? (
+                                                        <CheckSquare size={16} className="text-sky-200" />
+                                                    ) : (
+                                                        <Square size={16} className="text-white/70" />
+                                                    )}
+                                                </button>
+                                            </th>
+                                            <th className="px-6 py-3.5 font-bold">Mã chứng từ</th>
+                                            <th className="px-6 py-3.5 font-bold">Đối tượng</th>
+                                            <th className="px-6 py-3.5 font-bold">Ngày chứng từ</th>
+                                            <th className="px-6 py-3.5 font-bold">Loại</th>
+                                            <th className="px-6 py-3.5 font-bold text-right">Số tiền</th>
+                                            <th className="px-6 py-3.5 font-bold">Nội dung</th>
+                                            <th className="px-6 py-3.5 font-bold text-center">Thao tác</th>
                                         </tr>
                                     </thead>
-                                    <tbody className="divide-y divide-slate-50">
+                                    <tbody className="divide-y divide-slate-100">
                                         {currentItems.length === 0 ? (
-                                            <tr><td colSpan={8} className="px-6 py-10 text-center text-sm text-slate-500">Khong co du lieu phu hop bo loc hien tai</td></tr>
+                                            <tr><td colSpan={8} className="px-6 py-10 text-center text-sm text-slate-500">Không có dữ liệu phù hợp bộ lọc hiện tại</td></tr>
                                         ) : (
                                             currentItems.map((item) => (
                                                 <tr key={item.id} className="hover:bg-slate-50/60 transition-colors">
-                                                    <td className="px-4 py-4"><button onClick={() => toggleSelect(item.id)}>{isSelected(item.id) ? <CheckSquare size={16} className="text-blue-600" /> : <Square size={16} className="text-slate-400" />}</button></td>
-                                                    <td className="px-6 py-4 text-sm font-bold text-[#004bcb]">{item.code || '-'}</td>
+                                                    <td className="px-4 py-4">
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => toggleSelect(item.id)}
+                                                            className="rounded p-0.5 text-slate-500 hover:bg-slate-100"
+                                                            aria-label="Chọn dòng"
+                                                        >
+                                                            {isSelected(item.id) ? (
+                                                                <CheckSquare size={16} className="text-blue-600" />
+                                                            ) : (
+                                                                <Square size={16} className="text-slate-400" />
+                                                            )}
+                                                        </button>
+                                                    </td>
+                                                    <td className="px-6 py-4 text-sm font-bold text-blue-600">{item.code || '-'}</td>
                                                     <td className="px-6 py-4 text-sm text-slate-900">{(item as any).customer_name || '-'}</td>
-                                                    <td className="px-6 py-4 text-sm text-slate-500">{item.date ? new Date(item.date).toLocaleDateString('vi-VN') : '-'}</td>
-                                                    <td className="px-6 py-4"><span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-bold ${item.type === 'Phi???u thu' ? 'bg-blue-100 text-blue-700' : 'bg-rose-100 text-rose-700'}`}>{item.type}</span></td>
+                                                    <td className="px-6 py-4 text-sm text-slate-500 tabular-nums">
+                                                        {item.ngay
+                                                            ? new Date(item.ngay).toLocaleDateString('vi-VN')
+                                                            : '-'}
+                                                    </td>
+                                                    <td className="px-6 py-4"><span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-bold ${item.type === 'Phiếu thu' ? 'bg-blue-100 text-blue-800' : 'bg-rose-100 text-rose-800'}`}>{item.type}</span></td>
                                                     <td className="px-6 py-4 text-sm font-black text-right text-slate-900">{new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND' }).format(Number(item.so_tien || 0))}</td>
                                                     <td className="px-6 py-4 text-sm text-slate-500 max-w-[280px] truncate">{item.description || '-'}</td>
                                                     <td className="px-6 py-4 text-center">
                                                         <div className="flex justify-center gap-2">
-                                                            <button onClick={() => handleViewClick(item)} className="text-slate-400 hover:text-[#004bcb]"><Eye size={18} /></button>
-                                                            <button onClick={() => handleEditClick(item)} className="text-slate-400 hover:text-slate-700"><Edit size={18} /></button>
-                                                            <button onClick={() => handleDelete(item.id)} className="text-slate-400 hover:text-red-600"><Trash2 size={18} /></button>
+                                                            <button type="button" onClick={() => handleViewClick(item)} className="text-slate-400 hover:text-blue-600"><Eye size={18} /></button>
+                                                            <button type="button" onClick={() => handleEditClick(item)} className="text-slate-400 hover:text-slate-700"><Edit size={18} /></button>
+                                                            <button type="button" onClick={() => handleDelete(item)} className="text-slate-400 hover:text-red-600"><Trash2 size={18} /></button>
                                                         </div>
                                                     </td>
                                                 </tr>
@@ -835,11 +1084,11 @@ export function ThuChi() {
                             </div>
 
                             <div className="px-6 py-4 flex items-center justify-between border-t border-slate-100 bg-slate-50">
-                                <p className="text-sm text-slate-500">Hien thi <span className="font-bold">{currentItems.length ? startIndex + 1 : 0} - {Math.min(startIndex + itemsPerPage, filteredItems.length)}</span> cua <span className="font-bold">{filteredItems.length}</span> ban ghi</p>
+                                <p className="text-sm text-slate-500">Hiển thị <span className="font-bold text-slate-800">{currentItems.length ? startIndex + 1 : 0} – {Math.min(startIndex + itemsPerPage, filteredItems.length)}</span> của <span className="font-bold text-slate-800">{filteredItems.length}</span> bản ghi</p>
                                 <div className="flex items-center gap-2">
-                                    <button onClick={() => setCurrentPage(Math.max(1, currentPage - 1))} disabled={currentPage === 1} className="p-1 rounded border border-slate-300 text-slate-400 hover:bg-white disabled:opacity-50"><ChevronLeft size={16} /></button>
-                                    <button className="w-8 h-8 rounded-lg bg-[#004bcb] text-white text-sm font-bold">{currentPage}</button>
-                                    <button onClick={() => setCurrentPage(Math.min(totalPages || 1, currentPage + 1))} disabled={currentPage >= (totalPages || 1)} className="p-1 rounded border border-slate-300 text-slate-400 hover:bg-white disabled:opacity-50"><ChevronRight size={16} /></button>
+                                    <button type="button" onClick={() => setCurrentPage(Math.max(1, currentPage - 1))} disabled={currentPage === 1} className="p-1 rounded border border-slate-300 text-slate-400 hover:bg-white disabled:opacity-50"><ChevronLeft size={16} /></button>
+                                    <button type="button" className="w-8 h-8 rounded-lg bg-blue-600 text-white text-sm font-bold shadow-sm">{currentPage}</button>
+                                    <button type="button" onClick={() => setCurrentPage(Math.min(totalPages || 1, currentPage + 1))} disabled={currentPage >= (totalPages || 1)} className="p-1 rounded border border-slate-300 text-slate-400 hover:bg-white disabled:opacity-50"><ChevronRight size={16} /></button>
                                 </div>
                             </div>
                         </>

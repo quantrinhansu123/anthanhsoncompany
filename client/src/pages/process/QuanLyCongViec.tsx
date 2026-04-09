@@ -25,6 +25,8 @@ import {
 } from 'lucide-react';
 import type { TaskRow } from '../../lib/services/taskService';
 import { contractService } from '../../lib/services/contractService';
+import { customerService, type Customer } from '../../lib/services/customerService';
+import { projectService, type Project } from '../../lib/services/projectService';
 import { employeeService } from '../../lib/services/employeeService';
 import {
   thuVienLoiService,
@@ -62,6 +64,13 @@ function isTrangThaiDaXong(s?: string | null): boolean {
 
 function isTrangThaiChoDuyet(s?: string | null): boolean {
   return String(s ?? '').trim() === 'Chờ duyệt';
+}
+
+/** Hiển thị trạng thái ở danh sách trái (đồng bộ nhãn với giao diện mẫu). */
+function displayTrangThaiList(s: string | null | undefined): string {
+  const t = String(s ?? '').trim();
+  if (t === 'Đang thực hiện') return 'Đang làm';
+  return t || '—';
 }
 
 /** Hiển thị mô tả: giữ \n từ DB; tách các cụm bắt đầu bằng "+)" (sau khoảng trắng) xuống dòng. */
@@ -304,6 +313,130 @@ function taskMatchesAssigneeFilter(
   return false;
 }
 
+type ContractFilterRow = {
+  id: string;
+  so_hop_dong: string;
+  ten_goi_thau: string;
+  du_an_id: string | null;
+  customer_id: string | null;
+  customer_name: string | null;
+  /** Tên chủ đầu tư (text) — dùng ghép với danh mục khách khi thiếu UUID */
+  ten_day_du_chu_dau_tu?: string | null;
+  nhan_su_ids?: string[] | null;
+};
+
+function normalizeTenDonVi(s: string | null | undefined): string {
+  return String(s ?? '')
+    .trim()
+    .normalize('NFC')
+    .toLowerCase()
+    .replace(/\s+/g, ' ');
+}
+
+/** Khớp tên đơn vị với bảng khách hàng (khi hợp đồng/dự án chỉ có text, không có customer_id). */
+function findCustomerIdByTenDonVi(
+  raw: string | null | undefined,
+  catalog: Customer[],
+): string | null {
+  const n = normalizeTenDonVi(raw);
+  if (!n) return null;
+  for (const row of catalog) {
+    if (normalizeTenDonVi(row.ten_don_vi) === n) return String(row.id);
+  }
+  return null;
+}
+
+/** `customer_id` trên dự án hoặc suy từ `ten_khach_hang` + bảng khách hàng */
+function projectResolvedCustomerId(
+  p: Project,
+  catalog: Customer[],
+): string | null {
+  const cid = String(p.customer_id ?? '').trim();
+  if (cid) return cid;
+  if (catalog.length > 0) {
+    const g = findCustomerIdByTenDonVi(p.ten_khach_hang, catalog);
+    if (g) return g;
+  }
+  return null;
+}
+
+/** Khách hàng từ hợp đồng, dự án, hoặc ghép tên với danh mục khách_hang */
+function resolveCustomerIdAndLabel(
+  c: ContractFilterRow,
+  projects: Project[],
+  catalog: Customer[],
+): { customerId: string; label: string } | null {
+  let id = (c.customer_id || '').trim();
+  let name = (c.customer_name || '').trim();
+
+  if (!id && c.du_an_id) {
+    const p = projects.find((x) => String(x.id) === String(c.du_an_id));
+    if (p) {
+      if (p.customer_id) {
+        id = String(p.customer_id).trim();
+        name = (p.customer_name || p.ten_khach_hang || '').trim() || name;
+      } else if (catalog.length > 0) {
+        const guess = findCustomerIdByTenDonVi(p.ten_khach_hang, catalog);
+        if (guess) {
+          id = guess;
+          name = (p.ten_khach_hang || '').trim() || name;
+        }
+      }
+    }
+  }
+
+  if (!id && name && catalog.length > 0) {
+    const guess = findCustomerIdByTenDonVi(name, catalog);
+    if (guess) id = guess;
+  }
+
+  if (!id && (c.ten_day_du_chu_dau_tu || '').trim() && catalog.length > 0) {
+    const guess = findCustomerIdByTenDonVi(c.ten_day_du_chu_dau_tu, catalog);
+    if (guess) {
+      id = guess;
+      name = name || String(c.ten_day_du_chu_dau_tu).trim();
+    }
+  }
+
+  if (!id) return null;
+
+  const catRow = catalog.find((x) => String(x.id) === id);
+  if (catRow?.ten_don_vi) name = catRow.ten_don_vi;
+
+  return { customerId: id, label: (name || '').trim() || id };
+}
+
+function taskMatchesKhachHangFilter(
+  task: TaskRow,
+  filterCustomerId: string,
+  contracts: ContractFilterRow[],
+  projects: Project[],
+  catalog: Customer[],
+): boolean {
+  if (!filterCustomerId.trim()) return true;
+  const hid = (task.hop_dong_id || '').trim();
+  if (!hid) return false;
+  const c = contracts.find((x) => x.id === hid);
+  if (!c) return false;
+  const resolved = resolveCustomerIdAndLabel(c, projects, catalog);
+  return resolved?.customerId === filterCustomerId;
+}
+
+/** Id nhân sự gán cho dự án (QLDA / Thực hiện / mảng) */
+function collectProjectPhuTrachIds(p: Project | null | undefined): Set<string> {
+  const s = new Set<string>();
+  if (!p) return s;
+  const add = (x: string | null | undefined) => {
+    const t = String(x ?? '').trim();
+    if (t) s.add(t);
+  };
+  add(p.manager_id as string | undefined);
+  add(p.executor_id as string | undefined);
+  (p.manager_ids || []).forEach((x) => add(x));
+  (p.executor_ids || []).forEach((x) => add(x));
+  return s;
+}
+
 function taskNgayKetThucInRange(task: TaskRow, tu: string, den: string): boolean {
   const hasTu = tu.trim().length > 0;
   const hasDen = den.trim().length > 0;
@@ -453,6 +586,8 @@ export function QuanLyCongViec() {
   const deferredSearch = useDeferredValue(search);
   /** Rỗng = tất cả hợp đồng; có phần tử = chỉ công việc thuộc các hợp đồng đã chọn */
   const [filterHopDongIds, setFilterHopDongIds] = useState<string[]>([]);
+  /** Rỗng = tất cả khách hàng (theo hợp đồng / dự án) */
+  const [filterKhachHangId, setFilterKhachHangId] = useState('');
   /** Rỗng = tất cả nhân sự; khớp với `nguoi_phu_trach` (tên/code đã lưu) */
   const [filterNhanSuId, setFilterNhanSuId] = useState('');
   /** Lọc theo ngày kết thúc (YYYY-MM-DD), để trống = không giới hạn cạnh đó */
@@ -462,24 +597,33 @@ export function QuanLyCongViec() {
   const [contractFilterSearch, setContractFilterSearch] = useState('');
   const contractFilterRef = useRef<HTMLDivElement>(null);
   const contractFilterSearchRef = useRef<HTMLInputElement>(null);
+  const [khachHangFilterOpen, setKhachHangFilterOpen] = useState(false);
+  const [khachHangFilterSearch, setKhachHangFilterSearch] = useState('');
+  const khachHangFilterRef = useRef<HTMLDivElement>(null);
+  const khachHangFilterSearchRef = useRef<HTMLInputElement>(null);
+  const [nhanSuFilterOpen, setNhanSuFilterOpen] = useState(false);
+  const [nhanSuFilterSearch, setNhanSuFilterSearch] = useState('');
+  const nhanSuFilterRef = useRef<HTMLDivElement>(null);
+  const nhanSuFilterSearchRef = useRef<HTMLInputElement>(null);
   const [activeTab, setActiveTab] = useState<StatusTab>('all');
   const [selected, setSelected] = useState<TaskRow | null>(null);
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const taskIdFromUrl = searchParams.get('taskId');
-  const [contracts, setContracts] = useState<
-    Array<{
-      id: string;
-      so_hop_dong: string;
-      ten_goi_thau: string;
-      du_an_id: string | null;
-      /** Người phụ trách của chính hợp đồng (multi) */
-      nhan_su_ids?: string[] | null;
-    }>
-  >([]);
+  const [contracts, setContracts] = useState<ContractFilterRow[]>([]);
+  const [projects, setProjects] = useState<Project[]>([]);
+  /** Danh mục khách từ bảng khach_hang — đủ mục lọc; ghép thêm từ hợp đồng/dự án nếu thiếu */
+  const [customersCatalog, setCustomersCatalog] = useState<Customer[]>([]);
   const [isModalOpen, setIsModalOpen] = useState(false);
   /** `null` = thêm mới; có giá trị = đang sửa công việc (id hiển thị trong list = task_id hoặc id chi tiết) */
   const [taskModalEditingId, setTaskModalEditingId] = useState<string | null>(null);
+  /** Form thêm/sửa CV: cascade Khách hàng → Dự án → Hợp đồng */
+  const [modalKhachHangId, setModalKhachHangId] = useState('');
+  const [modalDuAnId, setModalDuAnId] = useState('');
+  const [modalKhachHangOpen, setModalKhachHangOpen] = useState(false);
+  const [modalKhachHangSearch, setModalKhachHangSearch] = useState('');
+  const modalKhachHangPickerRef = useRef<HTMLDivElement>(null);
+  const modalKhachHangSearchRef = useRef<HTMLInputElement>(null);
   const [docPreviewUrl, setDocPreviewUrl] = useState<string | null>(null);
   const [docDraftRows, setDocDraftRows] = useState<DocDraftRow[]>([newDocDraftRow()]);
   const [docSaving, setDocSaving] = useState(false);
@@ -589,14 +733,84 @@ export function QuanLyCongViec() {
     return () => document.removeEventListener('mousedown', onDown);
   }, [contractFilterOpen]);
 
+  useEffect(() => {
+    if (!khachHangFilterOpen) {
+      setKhachHangFilterSearch('');
+      return;
+    }
+    const t = window.setTimeout(() => khachHangFilterSearchRef.current?.focus(), 0);
+    return () => window.clearTimeout(t);
+  }, [khachHangFilterOpen]);
+
+  useEffect(() => {
+    if (!khachHangFilterOpen) return;
+    const onDown = (e: MouseEvent) => {
+      const el = e.target as HTMLElement;
+      if (khachHangFilterRef.current?.contains(el)) return;
+      setKhachHangFilterOpen(false);
+    };
+    document.addEventListener('mousedown', onDown);
+    return () => document.removeEventListener('mousedown', onDown);
+  }, [khachHangFilterOpen]);
+
+  useEffect(() => {
+    if (!nhanSuFilterOpen) {
+      setNhanSuFilterSearch('');
+      return;
+    }
+    const t = window.setTimeout(() => nhanSuFilterSearchRef.current?.focus(), 0);
+    return () => window.clearTimeout(t);
+  }, [nhanSuFilterOpen]);
+
+  useEffect(() => {
+    if (!nhanSuFilterOpen) return;
+    const onDown = (e: MouseEvent) => {
+      const el = e.target as HTMLElement;
+      if (nhanSuFilterRef.current?.contains(el)) return;
+      setNhanSuFilterOpen(false);
+    };
+    document.addEventListener('mousedown', onDown);
+    return () => document.removeEventListener('mousedown', onDown);
+  }, [nhanSuFilterOpen]);
+
+  /** Hợp đồng thuộc khách đang chọn (hoặc tất cả nếu chưa chọn khách) */
+  const contractsScopedByKhach = useMemo(() => {
+    const kid = filterKhachHangId.trim();
+    if (!kid) return contracts;
+    return contracts.filter((c) => {
+      const r = resolveCustomerIdAndLabel(c, projects, customersCatalog);
+      return r?.customerId === kid;
+    });
+  }, [contracts, filterKhachHangId, projects, customersCatalog]);
+
   const contractsMatchingFilter = useMemo(() => {
     const q = contractFilterSearch.trim().toLowerCase();
-    if (!q) return contracts;
-    return contracts.filter((c) => {
+    const base = contractsScopedByKhach;
+    if (!q) return base;
+    return base.filter((c) => {
       const label = (c.ten_goi_thau || c.so_hop_dong || c.id).toLowerCase();
       return label.includes(q) || String(c.id).toLowerCase().includes(q);
     });
-  }, [contracts, contractFilterSearch]);
+  }, [contractsScopedByKhach, contractFilterSearch]);
+
+  useEffect(() => {
+    const kid = filterKhachHangId.trim();
+    setFilterHopDongIds((prev) => {
+      if (prev.length === 0) return prev;
+      const allowed = new Set(
+        contracts
+          .filter((c) => {
+            if (!kid) return true;
+            const r = resolveCustomerIdAndLabel(c, projects, customersCatalog);
+            return r?.customerId === kid;
+          })
+          .map((c) => c.id),
+      );
+      const next = prev.filter((id) => allowed.has(id));
+      if (next.length === prev.length && next.every((id, i) => id === prev[i])) return prev;
+      return next;
+    });
+  }, [filterKhachHangId, contracts, projects, customersCatalog]);
 
   useLayoutEffect(() => {
     if (!loiNguoiViPhamOpen) {
@@ -769,10 +983,19 @@ export function QuanLyCongViec() {
         if (emp && !epIds.includes(emp.id)) epIds.push(emp.id);
       }
       setSelectedEmployeeIds(epIds);
+      const ct = contracts.find((x) => x.id === (task.hop_dong_id || ''));
+      if (ct) {
+        const r = resolveCustomerIdAndLabel(ct, projects, customersCatalog);
+        setModalKhachHangId(r?.customerId ?? '');
+        setModalDuAnId(ct.du_an_id != null ? String(ct.du_an_id) : '');
+      } else {
+        setModalKhachHangId('');
+        setModalDuAnId('');
+      }
       setTaskModalEditingId(task.id);
       setIsModalOpen(true);
     },
-    [employees],
+    [employees, contracts, projects, customersCatalog],
   );
 
   useEffect(() => {
@@ -791,20 +1014,39 @@ export function QuanLyCongViec() {
     (async () => {
       try {
         setLoading(true);
-        const [data, contractsData, employeesData] = await Promise.all([
-          taskDetailService.getAllAsTasks(),
-          contractService.getAll(),
-          employeeService.getAll(),
-        ]);
+        const [data, contractsData, projectsData, employeesData, khachHangData] =
+          await Promise.all([
+            taskDetailService.getAllAsTasks(),
+            contractService.getAll(),
+            projectService.getAll().catch((err) => {
+              console.warn('[QuanLyCongViec] projects:', err);
+              return [] as Project[];
+            }),
+            employeeService.getAll(),
+            customerService.getAll().catch((err) => {
+              console.warn('[QuanLyCongViec] khach_hang:', err);
+              return [] as Customer[];
+            }),
+          ]);
         if (cancelled) return;
 
         setTasks(data || []);
+        setProjects(projectsData || []);
+        setCustomersCatalog(Array.isArray(khachHangData) ? khachHangData : []);
         setContracts(
           (contractsData || []).map((c) => ({
             id: c.id!,
             so_hop_dong: c.so_hop_dong || '',
             ten_goi_thau: c.ten_goi_thau || '',
             du_an_id: c.du_an_id != null ? String(c.du_an_id) : null,
+            customer_id:
+              c.customer_id != null && String(c.customer_id).trim() !== ''
+                ? String(c.customer_id).trim()
+                : null,
+            customer_name: c.customer_name?.trim() ? c.customer_name : null,
+            ten_day_du_chu_dau_tu: (c.ten_day_du_chu_dau_tu || '').trim()
+              ? String(c.ten_day_du_chu_dau_tu).trim()
+              : null,
             nhan_su_ids: Array.isArray((c as any).nhan_su_ids)
               ? (c as any).nhan_su_ids
                   .map((x: any) => String(x))
@@ -854,8 +1096,138 @@ export function QuanLyCongViec() {
     return tasks.filter((t) => set.has((t.hop_dong_id || '').trim()));
   }, [tasks, filterHopDongIds]);
 
+  const khachHangFilterOptions = useMemo(() => {
+    const byId = new Map<string, string>();
+    for (const row of customersCatalog) {
+      const id = String(row.id ?? '').trim();
+      if (!id) continue;
+      const label = (row.ten_don_vi || '').trim() || id;
+      byId.set(id, label);
+    }
+    for (const c of contracts) {
+      const r = resolveCustomerIdAndLabel(c, projects, customersCatalog);
+      if (r && !byId.has(r.customerId)) byId.set(r.customerId, r.label);
+    }
+    for (const p of projects) {
+      const cid = String(p.customer_id ?? '').trim();
+      if (!cid) continue;
+      const plab = (p.customer_name || p.ten_khach_hang || '').trim() || cid;
+      if (!byId.has(cid)) byId.set(cid, plab);
+    }
+    return Array.from(byId.entries())
+      .map(([id, label]) => ({ id, label }))
+      .sort((a, b) => a.label.localeCompare(b.label, 'vi'));
+  }, [customersCatalog, contracts, projects]);
+
+  const khachHangMatchingFilter = useMemo(() => {
+    const q = khachHangFilterSearch.trim().toLowerCase();
+    if (!q) return khachHangFilterOptions;
+    return khachHangFilterOptions.filter(
+      (k) =>
+        k.label.toLowerCase().includes(q) || String(k.id).toLowerCase().includes(q),
+    );
+  }, [khachHangFilterOptions, khachHangFilterSearch]);
+
+  /** Ô tìm trong modal Thêm/Sửa công việc */
+  const khachHangModalSearchMatching = useMemo(() => {
+    const q = modalKhachHangSearch.trim().toLowerCase();
+    if (!q) return khachHangFilterOptions;
+    return khachHangFilterOptions.filter(
+      (k) =>
+        k.label.toLowerCase().includes(q) || String(k.id).toLowerCase().includes(q),
+    );
+  }, [khachHangFilterOptions, modalKhachHangSearch]);
+
+  const khachHangLabelById = (id: string) =>
+    khachHangFilterOptions.find((x) => x.id === id)?.label || id;
+
+  const employeesSorted = useMemo(
+    () =>
+      employees
+        .slice()
+        .sort((a, b) =>
+          (a.full_name || a.code).localeCompare(b.full_name || b.code, 'vi'),
+        ),
+    [employees],
+  );
+
+  const nhanSuMatchingFilter = useMemo(() => {
+    const q = nhanSuFilterSearch.trim().toLowerCase();
+    if (!q) return employeesSorted;
+    return employeesSorted.filter((e) => {
+      const name = (e.full_name || '').toLowerCase();
+      const code = (e.code || '').toLowerCase();
+      const id = String(e.id || '').toLowerCase();
+      return name.includes(q) || code.includes(q) || id.includes(q);
+    });
+  }, [employeesSorted, nhanSuFilterSearch]);
+
+  const nhanSuLabelById = (id: string) => {
+    const e = employees.find((x) => x.id === id);
+    return e ? e.full_name || e.code || id : id;
+  };
+
+  const projectsForTaskModal = useMemo(() => {
+    const kid = modalKhachHangId.trim();
+    if (!kid) return [] as Project[];
+    return projects
+      .filter((p) => projectResolvedCustomerId(p, customersCatalog) === kid)
+      .slice()
+      .sort((a, b) =>
+        (a.ten_du_an || '').localeCompare(b.ten_du_an || '', 'vi'),
+      );
+  }, [projects, modalKhachHangId, customersCatalog]);
+
+  const contractsForTaskModal = useMemo(() => {
+    const du = modalDuAnId.trim();
+    if (!du) return [] as ContractFilterRow[];
+    const kid = modalKhachHangId.trim();
+    return contracts.filter((c) => {
+      if (String(c.du_an_id ?? '').trim() !== du) return false;
+      if (!kid) return true;
+      const r = resolveCustomerIdAndLabel(c, projects, customersCatalog);
+      return r?.customerId === kid;
+    });
+  }, [contracts, modalDuAnId, modalKhachHangId, projects, customersCatalog]);
+
+  useEffect(() => {
+    if (!isModalOpen) {
+      setModalKhachHangId('');
+      setModalDuAnId('');
+      setModalKhachHangOpen(false);
+      setModalKhachHangSearch('');
+    }
+  }, [isModalOpen]);
+
+  useEffect(() => {
+    if (!modalKhachHangOpen) {
+      setModalKhachHangSearch('');
+      return;
+    }
+    const t = window.setTimeout(() => modalKhachHangSearchRef.current?.focus(), 0);
+    return () => window.clearTimeout(t);
+  }, [modalKhachHangOpen]);
+
+  useEffect(() => {
+    if (!modalKhachHangOpen) return;
+    const onDown = (e: MouseEvent) => {
+      const el = e.target as HTMLElement;
+      if (modalKhachHangPickerRef.current?.contains(el)) return;
+      setModalKhachHangOpen(false);
+    };
+    document.addEventListener('mousedown', onDown);
+    return () => document.removeEventListener('mousedown', onDown);
+  }, [modalKhachHangOpen]);
+
+  const tasksInCustomerScope = useMemo(() => {
+    if (!filterKhachHangId.trim()) return tasksInContractScope;
+    return tasksInContractScope.filter((t) =>
+      taskMatchesKhachHangFilter(t, filterKhachHangId, contracts, projects, customersCatalog),
+    );
+  }, [tasksInContractScope, filterKhachHangId, contracts, projects, customersCatalog]);
+
   const tasksAfterAssigneeAndDate = useMemo(() => {
-    let list = tasksInContractScope;
+    let list = tasksInCustomerScope;
     if (filterNhanSuId.trim()) {
       list = list.filter((t) => taskMatchesAssigneeFilter(t, filterNhanSuId, employees));
     }
@@ -864,7 +1236,7 @@ export function QuanLyCongViec() {
     }
     return list;
   }, [
-    tasksInContractScope,
+    tasksInCustomerScope,
     filterNhanSuId,
     filterKetThucTu,
     filterKetThucDen,
@@ -920,6 +1292,7 @@ export function QuanLyCongViec() {
     setActiveTab('all');
     setSearch('');
     setFilterHopDongIds([]);
+    setFilterKhachHangId('');
     setFilterNhanSuId('');
     setFilterKetThucTu('');
     setFilterKetThucDen('');
@@ -1131,28 +1504,48 @@ export function QuanLyCongViec() {
   };
 
   return (
-    <div className="animate-in fade-in slide-in-from-bottom-4 duration-500 pb-3 space-y-4 h-[calc(100vh-96px)] min-h-0 flex flex-col">
-      <div className="flex items-center justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-extrabold text-slate-900 uppercase tracking-tight">
-            Quản lý công việc
-          </h1>
-        </div>
-        <div className="flex flex-wrap items-center gap-2 justify-end">
+    <div className="animate-in fade-in slide-in-from-bottom-4 duration-500 flex flex-col min-h-0 h-[calc(100vh-96px)] max-w-[100vw] rounded-xl border border-slate-200 bg-[#f0f2f5] shadow-sm overflow-hidden">
+      <header className="bg-white border-b border-slate-200 px-4 sm:px-6 py-2 flex items-center justify-between shrink-0 z-20 shadow-sm">
+        <h1 className="text-xl font-bold text-[#1e293b] uppercase tracking-tight">
+          Quản Lý Công Việc
+        </h1>
+        <div className="flex items-center gap-2 sm:gap-3">
           <button
             type="button"
             onClick={() => navigate('/quy-trinh/thu-vien-loi')}
-            className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg border-2 border-indigo-600 bg-indigo-200 text-indigo-950 text-sm font-bold hover:bg-indigo-300 shadow-sm"
+            className="flex items-center gap-2 px-3 sm:px-4 py-1.5 border border-[#3b82f6] text-[#3b82f6] rounded-lg hover:bg-blue-50 transition-colors font-medium text-sm"
             title="Mở Thư viện lỗi"
           >
-            <BookOpen className="w-4 h-4 text-indigo-700" />
-            Thư viện lỗi
+            <BookOpen className="w-4 h-4 shrink-0" />
+            <span className="hidden sm:inline">Thư viện lỗi</span>
           </button>
           <button
             type="button"
             onClick={() => {
+              /** Gợi ý form từ lọc trái: Khách hàng + (nếu chỉ 1 HĐ) Hợp đồng & Dự án */
+              let nextKhachHangId = filterKhachHangId.trim();
+              let nextDuAnId = '';
+              let nextHopDongId = '';
+              if (filterHopDongIds.length === 1) {
+                const hid = filterHopDongIds[0];
+                const ct = contracts.find((x) => x.id === hid);
+                if (ct) {
+                  nextHopDongId = ct.id;
+                  if (ct.du_an_id != null && String(ct.du_an_id).trim() !== '') {
+                    nextDuAnId = String(ct.du_an_id);
+                  }
+                  const r = resolveCustomerIdAndLabel(
+                    ct,
+                    projects,
+                    customersCatalog,
+                  );
+                  if (r?.customerId) nextKhachHangId = r.customerId;
+                }
+              }
+              setModalKhachHangId(nextKhachHangId);
+              setModalDuAnId(nextDuAnId);
               setFormData({
-                hop_dong_id: '',
+                hop_dong_id: nextHopDongId,
                 ten_task: '',
                 mo_ta: '',
                 trang_thai: 'Chờ duyệt',
@@ -1168,105 +1561,197 @@ export function QuanLyCongViec() {
               setTaskModalEditingId(null);
               setIsModalOpen(true);
             }}
-            className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-blue-700 text-white text-sm font-bold shadow-lg shadow-blue-700/35 hover:bg-blue-800 active:scale-95 border border-blue-900"
+            className="flex items-center gap-2 px-3 sm:px-4 py-1.5 bg-[#2563eb] text-white rounded-lg hover:bg-blue-700 transition-colors font-medium text-sm shadow-md"
           >
-            <Plus className="w-4 h-4" />
+            <Plus className="w-4 h-4 shrink-0" />
             Thêm mới
           </button>
         </div>
-      </div>
+      </header>
 
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-3 lg:gap-4 flex-1 min-h-0">
-        {/* Danh sách công việc (trái) — cột hẹp, gọn */}
-        <div className="lg:col-span-3 bg-white border-2 border-slate-400 rounded-xl shadow-lg flex flex-col min-h-0 min-w-0">
-          <div className="px-2 py-2 border-b-2 border-slate-300 flex items-center justify-between gap-1">
-          <div className="flex gap-0.5 text-[10px] font-bold rounded-full bg-slate-200/90 p-0.5 min-w-0 overflow-x-auto [scrollbar-width:thin]">
-            {[
-              {
-                id: 'all',
-                label: 'Tất cả',
-                color: 'text-slate-900',
-                count: statusCounts.all,
-              },
-              {
-                id: 'doing',
-                label: 'Đang làm',
-                color: 'text-blue-800',
-                count: statusCounts.doing,
-              },
-              {
-                id: 'pending',
-                label: 'Chờ duyệt',
-                color: 'text-amber-900',
-                count: statusCounts.pending,
-              },
-              {
-                id: 'done',
-                label: 'Đã xong',
-                color: 'text-emerald-900',
-                count: statusCounts.done,
-              },
-            ].map((tab) => (
-              <button
-                key={tab.id}
-                onClick={() => setActiveTab(tab.id as StatusTab)}
-                className={`px-1.5 py-0.5 rounded-full flex items-center gap-0.5 shrink-0 transition-colors ${
-                  activeTab === tab.id
-                    ? 'bg-white shadow-sm ring-1 ring-slate-400/60'
-                    : 'bg-transparent'
-                }`}
-              >
-                <span
-                  className={`whitespace-nowrap ${
-                    activeTab === tab.id
-                      ? `${tab.color} font-bold`
-                      : 'text-slate-700 font-bold'
-                  }`}
-                >
-                  {tab.label}
-                </span>
-                <span
-                  className={`inline-flex items-center justify-center min-w-[16px] h-[16px] rounded-full text-[9px] font-bold ${
-                    tab.id === 'done'
-                      ? 'bg-emerald-600 text-white'
-                      : tab.id === 'doing'
-                      ? 'bg-blue-800 text-white'
-                      : tab.id === 'pending'
-                      ? 'bg-amber-500 text-amber-950'
-                      : 'bg-slate-700 text-white'
-                  }`}
-                >
-                  {tab.count}
-                </span>
-              </button>
-            ))}
-          </div>
-          </div>
-
-          <div className="px-2 py-1.5 border-b border-slate-300">
-            <div className="grid grid-cols-1 gap-1.5 items-start">
-            <div className="relative min-w-0">
-              <Search className="w-3.5 h-3.5 text-slate-600 absolute left-2 top-1/2 -translate-y-1/2 pointer-events-none" />
+      <main className="flex flex-1 min-h-0 flex-col lg:flex-row overflow-hidden">
+        {/* Danh sách — ~20% */}
+        <section className="task-explorer-section flex flex-col border-r border-slate-200 bg-white w-full lg:w-[20%] lg:min-w-[220px] lg:max-w-[22rem] shrink-0 min-h-0 min-w-0">
+          <div className="p-4 border-b border-slate-100 flex flex-col gap-4 bg-slate-50/50">
+            <div className="relative w-full">
               <input
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
-                placeholder="Tìm tên công việc"
-                className="w-full pl-7 pr-2 py-1 rounded-md border border-slate-400 text-[11px] focus:outline-none focus:ring-1 focus:ring-blue-600/40 focus:border-blue-600 bg-slate-200 font-semibold text-slate-900"
+                placeholder="Tìm tên công việc..."
+                type="search"
+                autoComplete="off"
+                className="w-full pl-9 pr-3 py-2 text-xs border border-slate-200 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent outline-none transition-all bg-white"
               />
+              <Search className="pointer-events-none absolute left-3 top-2.5 h-3.5 w-3.5 text-slate-400" />
+            </div>
+
+            <div className="flex flex-col space-y-1">
+              {(
+                [
+                  { id: 'all' as const, label: 'Tất cả', count: statusCounts.all },
+                  { id: 'doing' as const, label: 'Đang làm', count: statusCounts.doing },
+                  { id: 'pending' as const, label: 'Chờ duyệt', count: statusCounts.pending },
+                  { id: 'done' as const, label: 'Đã xong', count: statusCounts.done },
+                ] as const
+              ).map((tab) => {
+                const isOn = activeTab === tab.id;
+                const pillClass =
+                  tab.id === 'done'
+                    ? 'bg-emerald-500 text-white'
+                    : tab.id === 'doing'
+                      ? 'bg-blue-600 text-white'
+                      : tab.id === 'pending'
+                        ? 'bg-orange-500 text-white'
+                        : 'bg-slate-700 text-white';
+                return (
+                  <button
+                    key={tab.id}
+                    type="button"
+                    onClick={() => setActiveTab(tab.id)}
+                    className={`w-full text-left px-3 py-1.5 text-xs font-semibold rounded flex items-center justify-between transition-colors ${
+                      isOn
+                        ? 'bg-[#1e293b] text-white'
+                        : 'text-slate-600 hover:bg-slate-100'
+                    }`}
+                  >
+                    <span>{tab.label}</span>
+                    <span
+                      className={`rounded-full px-1.5 text-[10px] font-bold ${
+                        isOn && tab.id === 'all' ? 'bg-white text-[#1e293b]' : pillClass
+                      }`}
+                    >
+                      {tab.count}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+
+            <div className="space-y-3">
+            <div className="relative min-w-0" ref={khachHangFilterRef}>
+              <label className="block text-[9px] font-bold text-slate-600 uppercase tracking-wide mb-0.5">
+                Khách hàng
+              </label>
+              <button
+                type="button"
+                onClick={() => {
+                  setKhachHangFilterOpen((o) => !o);
+                  setContractFilterOpen(false);
+                  setNhanSuFilterOpen(false);
+                }}
+                className="w-full flex items-center justify-between gap-1 rounded-md border border-slate-400 px-2 py-1 text-[11px] bg-slate-200 focus:outline-none focus:ring-1 focus:ring-blue-600/40 focus:border-blue-600 text-slate-900 font-semibold text-left"
+                title="Chỉ hiện công việc thuộc hợp đồng của khách đã chọn — gõ để tìm"
+                aria-expanded={khachHangFilterOpen}
+                aria-haspopup="listbox"
+              >
+                <span className="truncate min-w-0">
+                  {!filterKhachHangId.trim()
+                    ? 'Tất cả khách hàng'
+                    : khachHangLabelById(filterKhachHangId)}
+                </span>
+                <ChevronDown
+                  className={`w-4 h-4 shrink-0 text-slate-600 transition-transform ${
+                    khachHangFilterOpen ? 'rotate-180' : ''
+                  }`}
+                  aria-hidden
+                />
+              </button>
+              {khachHangFilterOpen ? (
+                <div
+                  className="absolute left-0 right-0 top-full z-50 mt-1 max-h-72 flex flex-col rounded-lg border-2 border-slate-400 bg-white shadow-lg overflow-hidden"
+                  role="listbox"
+                  aria-label="Lọc theo khách hàng"
+                >
+                  <div className="shrink-0 p-2 border-b border-slate-200 bg-slate-50">
+                    <div className="relative">
+                      <Search
+                        className="w-3.5 h-3.5 text-slate-500 absolute left-2.5 top-1/2 -translate-y-1/2 pointer-events-none"
+                        aria-hidden
+                      />
+                      <input
+                        ref={khachHangFilterSearchRef}
+                        type="search"
+                        value={khachHangFilterSearch}
+                        onChange={(e) => setKhachHangFilterSearch(e.target.value)}
+                        placeholder="Tìm khách hàng…"
+                        autoComplete="off"
+                        className="w-full pl-8 pr-2 py-1.5 rounded-md border border-slate-300 text-xs text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-600/30 focus:border-blue-600 bg-white"
+                      />
+                    </div>
+                  </div>
+                  <div className="overflow-y-auto flex-1 min-h-0 py-1 max-h-[min(13rem,50vh)] [scrollbar-gutter:stable]">
+                    <button
+                      type="button"
+                      role="option"
+                      aria-selected={!filterKhachHangId.trim()}
+                      onClick={() => {
+                        setFilterKhachHangId('');
+                        setKhachHangFilterOpen(false);
+                      }}
+                      className={`w-full text-left px-3 py-2 text-xs font-bold hover:bg-slate-100 ${
+                        !filterKhachHangId.trim() ? 'bg-slate-100 text-blue-900' : 'text-slate-900'
+                      }`}
+                    >
+                      Tất cả khách hàng
+                    </button>
+                    <div className="mx-2 border-t border-slate-200" />
+                    {khachHangFilterOptions.length === 0 ? (
+                      <p className="px-3 py-2 text-[11px] text-slate-600">
+                        Chưa có dữ liệu khách hàng (bảng khách hàng và hợp đồng).
+                      </p>
+                    ) : khachHangMatchingFilter.length === 0 ? (
+                      <p className="px-3 py-2 text-[11px] text-slate-600">
+                        Không có khách hàng khớp &quot;{khachHangFilterSearch.trim()}&quot;.
+                      </p>
+                    ) : (
+                      khachHangMatchingFilter.map((k) => {
+                        const isKhachChosen = filterKhachHangId === k.id;
+                        return (
+                          <button
+                            key={k.id}
+                            type="button"
+                            role="option"
+                            aria-selected={isKhachChosen}
+                            onClick={() => {
+                              setFilterKhachHangId(k.id);
+                              setKhachHangFilterOpen(false);
+                            }}
+                            className={`w-full text-left px-3 py-2 text-xs hover:bg-slate-100 break-words ${
+                              isKhachChosen ? 'bg-slate-100 text-blue-900 font-bold' : 'text-slate-800'
+                            }`}
+                          >
+                            {k.label}
+                          </button>
+                        );
+                      })
+                    )}
+                  </div>
+                </div>
+              ) : null}
             </div>
             <div className="relative min-w-0" ref={contractFilterRef}>
               <label className="sr-only">Lọc theo hợp đồng</label>
               <button
                 type="button"
-                onClick={() => setContractFilterOpen((o) => !o)}
+                onClick={() => {
+                  setContractFilterOpen((o) => !o);
+                  setKhachHangFilterOpen(false);
+                  setNhanSuFilterOpen(false);
+                }}
                 className="w-full flex items-center justify-between gap-1 rounded-md border border-slate-400 px-2 py-1 text-[11px] bg-slate-200 focus:outline-none focus:ring-1 focus:ring-blue-600/40 focus:border-blue-600 text-slate-900 font-semibold text-left"
-                title="Lọc danh sách theo một hoặc nhiều hợp đồng"
+                title={
+                  filterKhachHangId.trim()
+                    ? 'Chỉ các hợp đồng của khách đang chọn — có thể chọn một hoặc nhiều'
+                    : 'Lọc danh sách theo một hoặc nhiều hợp đồng'
+                }
                 aria-expanded={contractFilterOpen}
                 aria-haspopup="listbox"
               >
                 <span className="truncate min-w-0">
                   {filterHopDongIds.length === 0
-                    ? 'Tất cả hợp đồng'
+                    ? filterKhachHangId.trim()
+                      ? 'Tất cả hợp đồng (khách này)'
+                      : 'Tất cả hợp đồng'
                     : filterHopDongIds.length === 1
                       ? contractLabelById(filterHopDongIds[0])
                       : `${filterHopDongIds.length} hợp đồng đã chọn`}
@@ -1316,6 +1801,10 @@ export function QuanLyCongViec() {
                     <div className="mx-2 border-t border-slate-200" />
                     {contracts.length === 0 ? (
                       <p className="px-3 py-2 text-[11px] text-slate-600">Chưa có hợp đồng.</p>
+                    ) : contractsScopedByKhach.length === 0 ? (
+                      <p className="px-3 py-2 text-[11px] text-slate-600">
+                        Không có hợp đồng thuộc khách hàng đã chọn.
+                      </p>
                     ) : contractsMatchingFilter.length === 0 ? (
                       <p className="px-3 py-2 text-[11px] text-slate-600">
                         Không có hợp đồng khớp &quot;{contractFilterSearch.trim()}&quot;.
@@ -1352,28 +1841,105 @@ export function QuanLyCongViec() {
                 </div>
               ) : null}
             </div>
-            <div className="min-w-0">
+            <div className="relative min-w-0" ref={nhanSuFilterRef}>
               <label className="block text-[9px] font-bold text-slate-600 uppercase tracking-wide mb-0.5">
                 Nhân sự phụ trách
               </label>
-              <select
-                value={filterNhanSuId}
-                onChange={(e) => setFilterNhanSuId(e.target.value)}
-                className="w-full min-w-0 rounded-md border border-slate-400 px-1.5 py-1 text-[10px] bg-slate-200 font-semibold text-slate-900 focus:outline-none focus:ring-1 focus:ring-blue-600/40 focus:border-blue-600"
-                title="Chỉ hiện công việc có người phụ trách đã chọn"
+              <button
+                type="button"
+                onClick={() => {
+                  setNhanSuFilterOpen((o) => !o);
+                  setContractFilterOpen(false);
+                  setKhachHangFilterOpen(false);
+                }}
+                className="w-full flex items-center justify-between gap-1 rounded-md border border-slate-400 px-2 py-1 text-[11px] bg-slate-200 focus:outline-none focus:ring-1 focus:ring-blue-600/40 focus:border-blue-600 text-slate-900 font-semibold text-left"
+                title="Chỉ hiện công việc có người phụ trách đã chọn — gõ để tìm"
+                aria-expanded={nhanSuFilterOpen}
+                aria-haspopup="listbox"
               >
-                <option value="">Tất cả nhân sự</option>
-                {employees
-                  .slice()
-                  .sort((a, b) =>
-                    (a.full_name || a.code).localeCompare(b.full_name || b.code, 'vi'),
-                  )
-                  .map((e) => (
-                    <option key={e.id} value={e.id}>
-                      {e.full_name || e.code || e.id}
-                    </option>
-                  ))}
-              </select>
+                <span className="truncate min-w-0">
+                  {!filterNhanSuId.trim()
+                    ? 'Tất cả nhân sự'
+                    : nhanSuLabelById(filterNhanSuId)}
+                </span>
+                <ChevronDown
+                  className={`w-4 h-4 shrink-0 text-slate-600 transition-transform ${
+                    nhanSuFilterOpen ? 'rotate-180' : ''
+                  }`}
+                  aria-hidden
+                />
+              </button>
+              {nhanSuFilterOpen ? (
+                <div
+                  className="absolute left-0 right-0 top-full z-50 mt-1 max-h-72 flex flex-col rounded-lg border-2 border-slate-400 bg-white shadow-lg overflow-hidden"
+                  role="listbox"
+                  aria-label="Lọc theo nhân sự phụ trách"
+                >
+                  <div className="shrink-0 p-2 border-b border-slate-200 bg-slate-50">
+                    <div className="relative">
+                      <Search
+                        className="w-3.5 h-3.5 text-slate-500 absolute left-2.5 top-1/2 -translate-y-1/2 pointer-events-none"
+                        aria-hidden
+                      />
+                      <input
+                        ref={nhanSuFilterSearchRef}
+                        type="search"
+                        value={nhanSuFilterSearch}
+                        onChange={(e) => setNhanSuFilterSearch(e.target.value)}
+                        placeholder="Tìm nhân sự…"
+                        autoComplete="off"
+                        className="w-full pl-8 pr-2 py-1.5 rounded-md border border-slate-300 text-xs text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-600/30 focus:border-blue-600 bg-white"
+                      />
+                    </div>
+                  </div>
+                  <div className="overflow-y-auto flex-1 min-h-0 py-1 max-h-[min(13rem,50vh)] [scrollbar-gutter:stable]">
+                    <button
+                      type="button"
+                      role="option"
+                      aria-selected={!filterNhanSuId.trim()}
+                      onClick={() => {
+                        setFilterNhanSuId('');
+                        setNhanSuFilterOpen(false);
+                      }}
+                      className={`w-full text-left px-3 py-2 text-xs font-bold hover:bg-slate-100 ${
+                        !filterNhanSuId.trim() ? 'bg-slate-100 text-blue-900' : 'text-slate-900'
+                      }`}
+                    >
+                      Tất cả nhân sự
+                    </button>
+                    <div className="mx-2 border-t border-slate-200" />
+                    {employeesSorted.length === 0 ? (
+                      <p className="px-3 py-2 text-[11px] text-slate-600">Chưa có nhân sự.</p>
+                    ) : nhanSuMatchingFilter.length === 0 ? (
+                      <p className="px-3 py-2 text-[11px] text-slate-600">
+                        Không có nhân sự khớp &quot;{nhanSuFilterSearch.trim()}&quot;.
+                      </p>
+                    ) : (
+                      nhanSuMatchingFilter.map((e) => {
+                        const isNsChosen = filterNhanSuId === e.id;
+                        const lab = e.full_name || e.code || e.id;
+                        return (
+                          <button
+                            key={e.id}
+                            type="button"
+                            role="option"
+                            aria-selected={isNsChosen}
+                            onClick={() => {
+                              setFilterNhanSuId(e.id);
+                              setNhanSuFilterOpen(false);
+                            }}
+                            className={`w-full text-left px-3 py-2 text-xs hover:bg-slate-100 break-words ${
+                              isNsChosen ? 'bg-slate-100 text-blue-900 font-bold' : 'text-slate-800'
+                            }`}
+                          >
+                            {lab}
+                          </button>
+                        );
+                      })
+                    )}
+                  </div>
+                </div>
+              ) : null}
             </div>
             <div className="min-w-0">
               <label className="block text-[9px] font-bold text-slate-600 uppercase tracking-wide mb-0.5">
@@ -1411,25 +1977,27 @@ export function QuanLyCongViec() {
               onDeleteTask={handleDeleteTaskFromList}
             />
           </div>
-        </div>
+        </section>
 
-        {/* Chi tiết công việc (giữa) */}
-        <div className="lg:col-span-9 bg-white border-2 border-slate-400 rounded-xl shadow-lg flex flex-col min-h-0 min-w-0">
-                          <div className="px-5 py-3 border-b-2 border-slate-300 flex items-center justify-between gap-3 flex-wrap">
-            <div className="min-w-0 flex-1">
-              <h2 className="text-sm font-bold text-slate-900 line-clamp-2">
-                {selected ? selected.ten_task : 'Chọn một công việc ở bên trái'}
-              </h2>
-              {selected && (
-                <p className="text-xs text-slate-600 mt-0.5">
-                  Mức ưu tiên: {selected.uu_tien} • Trạng thái:{' '}
-                  <span className="font-bold text-slate-700">
+        {/* Chi tiết — ~80% */}
+        <aside className="task-detail-sidebar flex flex-col bg-white overflow-hidden flex-1 min-w-0 min-h-0">
+          <div className="px-3 py-2.5 sm:px-4 sm:py-3 border-b border-slate-100 flex flex-col sm:flex-row justify-between items-start gap-2 sm:gap-3 bg-white shrink-0">
+            <div className="space-y-0.5 min-w-0 flex-1">
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="text-[10px] font-bold text-blue-600 uppercase tracking-wider">
+                  Chi tiết nhiệm vụ
+                </span>
+                {selected ? (
+                  <span className="text-[10px] bg-blue-600 text-white px-2 py-0.5 rounded-full font-bold">
                     {selected.trang_thai}
                   </span>
-                </p>
-              )}
+                ) : null}
+              </div>
+              <h2 className="text-base sm:text-lg font-bold text-slate-800 leading-snug line-clamp-2">
+                {selected ? selected.ten_task : 'Chọn một công việc ở bên trái'}
+              </h2>
             </div>
-            <div className="flex items-center gap-2 shrink-0 flex-wrap justify-end">
+            <div className="flex items-center gap-0.5 sm:gap-1.5 shrink-0 flex-wrap justify-end">
               {selected &&
               !isTrangThaiDaXong(selected.trang_thai) &&
               selected.trang_thai !== 'Đang thực hiện' ? (
@@ -1467,127 +2035,236 @@ export function QuanLyCongViec() {
                       setDuyetSaving(false);
                     }
                   }}
-                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border-2 border-blue-900 bg-blue-800 text-white text-xs font-bold hover:bg-blue-950 disabled:opacity-45 shadow-sm shadow-blue-900/30"
+                  className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg border border-blue-900 bg-blue-800 text-white text-[10px] font-bold hover:bg-blue-950 disabled:opacity-45"
                 >
-                  <CheckCircle2 className="w-4 h-4 shrink-0" aria-hidden />
+                  <CheckCircle2 className="w-3.5 h-3.5 shrink-0" aria-hidden />
                   {duyetSaving ? 'Đang duyệt...' : 'Duyệt'}
                 </button>
               ) : null}
-              {selected ? getStatusBadge(selected.trang_thai) : null}
+              {selected ? (
+                <>
+                  <button
+                    type="button"
+                    title="Sửa công việc"
+                    aria-label="Sửa công việc"
+                    className="p-1.5 text-slate-400 hover:text-orange-500 hover:bg-orange-50 rounded-lg transition-colors"
+                    onClick={() => {
+                      const task = selected;
+                      setFormData({
+                        hop_dong_id: task.hop_dong_id || '',
+                        ten_task: task.ten_task,
+                        mo_ta: task.mo_ta || '',
+                        trang_thai: task.trang_thai,
+                        uu_tien: task.uu_tien,
+                        ngay_bat_dau: task.ngay_bat_dau || '',
+                        ngay_ket_thuc: task.ngay_ket_thuc || '',
+                        ngay_hoan_thanh: task.ngay_hoan_thanh || '',
+                        nguoi_phu_trach: task.nguoi_phu_trach || '',
+                        tien_do: task.tien_do ?? 0,
+                        ghi_chu: task.ghi_chu || '',
+                      });
+                      const epIds: string[] = [];
+                      for (const n of (task.nguoi_phu_trach || '')
+                        .split(',')
+                        .map((s) => s.trim())
+                        .filter(Boolean)) {
+                        const emp = employees.find(
+                          (e) => e.full_name === n || e.code === n,
+                        );
+                        if (emp && !epIds.includes(emp.id)) epIds.push(emp.id);
+                      }
+                      setSelectedEmployeeIds(epIds);
+                      const ct = contracts.find(
+                        (x) => x.id === (task.hop_dong_id || ''),
+                      );
+                      if (ct) {
+                        const r = resolveCustomerIdAndLabel(
+                          ct,
+                          projects,
+                          customersCatalog,
+                        );
+                        setModalKhachHangId(r?.customerId ?? '');
+                        setModalDuAnId(
+                          ct.du_an_id != null ? String(ct.du_an_id) : '',
+                        );
+                      } else {
+                        setModalKhachHangId('');
+                        setModalDuAnId('');
+                      }
+                      setTaskModalEditingId(task.id);
+                      setIsModalOpen(true);
+                    }}
+                  >
+                    <Pencil className="w-4 h-4" aria-hidden />
+                  </button>
+                  <button
+                    type="button"
+                    title="Xóa công việc"
+                    aria-label="Xóa công việc"
+                    className="p-1.5 text-slate-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors"
+                    onClick={(e) => {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      if (!selected?.id) return;
+                      if (
+                        !window.confirm(
+                          'Bạn có chắc chắn muốn xóa công việc này?',
+                        )
+                      )
+                        return;
+                      (async () => {
+                        const sid = selected.id;
+                        try {
+                          await taskDetailService.deleteByTaskId(sid);
+                          setTasks((prev) =>
+                            prev.filter((t) => t.id !== sid),
+                          );
+                          setDetailByTask((prev) => {
+                            const n = { ...prev };
+                            delete n[sid];
+                            return n;
+                          });
+                          setCommentsByTask((prev) => {
+                            const n = { ...prev };
+                            delete n[sid];
+                            return n;
+                          });
+                          const next =
+                            filtered.find((t) => t.id !== sid) || null;
+                          setSelected(next);
+                        } catch (err) {
+                          console.error(
+                            '[QuanLyCongViec] Error deleting task:',
+                            err,
+                          );
+                          alert('Lỗi khi xóa công việc');
+                        }
+                      })();
+                    }}
+                  >
+                    <Trash2 className="w-4 h-4" aria-hidden />
+                  </button>
+                </>
+              ) : null}
             </div>
           </div>
 
-          <div className="p-5 space-y-4 text-xs text-slate-800 font-bold flex-1 min-h-0 overflow-y-auto overscroll-contain">
+          <div
+            className={`flex flex-col flex-1 min-h-0 text-xs text-slate-800 font-bold bg-slate-50/30 ${
+              selected ? 'overflow-hidden' : 'overflow-y-auto overscroll-contain p-5 sm:p-8'
+            }`}
+          >
             {selected ? (
               <>
-                <div className="rounded-lg border border-slate-200 bg-slate-100/80 px-2 py-1.5">
-                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-x-2 gap-y-1 leading-tight">
-                    <div className="min-w-0">
-                      <div className="text-[9px] uppercase tracking-wide text-slate-600 font-bold">
-                        Ngày bắt đầu
+                <div className="shrink-0 px-3 sm:px-4 pt-2 pb-2 space-y-2 border-b border-slate-200/90">
+                  <div className="rounded-md border border-slate-200 bg-slate-100/90 px-2 py-1">
+                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-x-2 gap-y-0.5 leading-tight">
+                      <div className="min-w-0">
+                        <div className="text-[8px] uppercase tracking-wide text-slate-500 font-bold">
+                          Ngày bắt đầu
+                        </div>
+                        <div className="text-[10px] font-extrabold text-slate-950 tabular-nums">
+                          {selected.ngay_bat_dau
+                            ? new Date(selected.ngay_bat_dau).toLocaleDateString('vi-VN')
+                            : '—'}
+                        </div>
                       </div>
-                      <div className="text-[11px] font-extrabold text-slate-950 tabular-nums">
-                        {selected.ngay_bat_dau
-                          ? new Date(selected.ngay_bat_dau).toLocaleDateString('vi-VN')
-                          : '—'}
+                      <div className="min-w-0">
+                        <div className="text-[8px] uppercase tracking-wide text-slate-500 font-bold">
+                          Ngày kết thúc
+                        </div>
+                        <div className="text-[10px] font-extrabold text-slate-950 tabular-nums">
+                          {selected.ngay_ket_thuc
+                            ? new Date(selected.ngay_ket_thuc).toLocaleDateString('vi-VN')
+                            : '—'}
+                        </div>
                       </div>
-                    </div>
-                    <div className="min-w-0">
-                      <div className="text-[9px] uppercase tracking-wide text-slate-600 font-bold">
-                        Ngày kết thúc
+                      <div className="min-w-0">
+                        <div className="text-[8px] uppercase tracking-wide text-slate-500 font-bold">
+                          Số ngày TH
+                        </div>
+                        <div className="text-[10px] font-extrabold text-slate-950 tabular-nums">
+                          {selectedNgayThongKe.soNgayThucHien != null
+                            ? `${selectedNgayThongKe.soNgayThucHien}d`
+                            : '—'}
+                        </div>
                       </div>
-                      <div className="text-[11px] font-extrabold text-slate-950 tabular-nums">
-                        {selected.ngay_ket_thuc
-                          ? new Date(selected.ngay_ket_thuc).toLocaleDateString('vi-VN')
-                          : '—'}
-                      </div>
-                    </div>
-                    <div className="min-w-0">
-                      <div className="text-[9px] uppercase tracking-wide text-slate-600 font-bold">
-                        Số ngày thực hiện
-                      </div>
-                      <div className="text-[11px] font-extrabold text-slate-950 tabular-nums">
-                        {selectedNgayThongKe.soNgayThucHien != null
-                          ? `${selectedNgayThongKe.soNgayThucHien} ngày`
-                          : '—'}
-                      </div>
-                    </div>
-                    <div className="min-w-0">
-                      <div className="text-[9px] uppercase tracking-wide text-slate-600 font-bold">
-                        Số ngày còn lại
-                      </div>
-                      <div
-                        className={`text-[11px] font-extrabold tabular-nums ${selectedNgayThongKe.conLaiClass}`}
-                      >
-                        {selectedNgayThongKe.conLaiText}
+                      <div className="min-w-0">
+                        <div className="text-[8px] uppercase tracking-wide text-slate-500 font-bold">
+                          Còn lại
+                        </div>
+                        <div
+                          className={`text-[10px] font-extrabold tabular-nums ${selectedNgayThongKe.conLaiClass}`}
+                        >
+                          {selectedNgayThongKe.conLaiText}
+                        </div>
                       </div>
                     </div>
                   </div>
-                </div>
-                <div>
-                  <div className="text-[11px] text-slate-600 mb-0.5 font-bold">
-                    Người phụ trách
-                  </div>
-                    {selected.nguoi_phu_trach ? (
-                      <div className="flex flex-wrap gap-1.5">
-                        {selected.nguoi_phu_trach
-                          .split(',')
-                          .map((name) => name.trim())
-                          .filter(Boolean)
-                          .map((name) => {
-                            const emp =
-                              employees.find(
-                                (e) =>
-                                  e.full_name === name ||
-                                  e.code === name,
-                              ) || null;
-                            const initials =
-                              name
-                                .split(' ')
-                                .map((p) => p[0])
-                                .join('')
-                                .slice(0, 2)
-                                .toUpperCase() || '?';
-                            return (
-                              <span
-                                key={name}
-                                className="inline-flex items-center px-0.5 py-0.5"
-                                title={name}
-                              >
-                                {emp?.avatar ? (
-                                  <img
-                                    src={emp.avatar}
-                                    alt={name}
-                                    className="h-7 w-7 rounded-full object-cover border border-slate-200"
-                                  />
-                                ) : (
-                                  <span className="inline-flex h-7 w-7 items-center justify-center rounded-full bg-blue-800 text-[9px] font-bold text-white">
-                                    {initials}
-                                  </span>
-                                )}
-                              </span>
-                            );
-                          })}
-                      </div>
-                    ) : (
-                      <span className="inline-flex items-center gap-1.5 text-[11px] text-amber-600">
-                        <AlertCircle className="w-3 h-3" />
-                        Chưa gán
+                  <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5">
+                    <div className="flex items-center gap-1.5 min-w-0">
+                      <span className="text-[10px] text-slate-500 font-bold shrink-0">
+                        Người phụ trách
                       </span>
-                    )}
-                </div>
-                <div>
-                    <div className="text-[11px] text-slate-600 mb-1 font-bold">
-                      Hợp đồng (gán id hợp đồng)
+                      {selected.nguoi_phu_trach ? (
+                        <div className="flex flex-wrap gap-1">
+                          {selected.nguoi_phu_trach
+                            .split(',')
+                            .map((name) => name.trim())
+                            .filter(Boolean)
+                            .map((name) => {
+                              const emp =
+                                employees.find(
+                                  (e) =>
+                                    e.full_name === name ||
+                                    e.code === name,
+                                ) || null;
+                              const initials =
+                                name
+                                  .split(' ')
+                                  .map((p) => p[0])
+                                  .join('')
+                                  .slice(0, 2)
+                                  .toUpperCase() || '?';
+                              return (
+                                <span
+                                  key={name}
+                                  className="inline-flex items-center"
+                                  title={name}
+                                >
+                                  {emp?.avatar ? (
+                                    <img
+                                      src={emp.avatar}
+                                      alt={name}
+                                      className="h-6 w-6 rounded-full object-cover border border-slate-200"
+                                    />
+                                  ) : (
+                                    <span className="inline-flex h-6 w-6 items-center justify-center rounded-full bg-blue-800 text-[8px] font-bold text-white">
+                                      {initials}
+                                    </span>
+                                  )}
+                                </span>
+                              );
+                            })}
+                        </div>
+                      ) : (
+                        <span className="inline-flex items-center gap-1 text-[10px] text-amber-600 font-semibold">
+                          <AlertCircle className="w-3 h-3 shrink-0" />
+                          Chưa gán
+                        </span>
+                      )}
                     </div>
-                    <div className="flex flex-col sm:flex-row gap-2 items-stretch">
+                    <div className="flex flex-wrap items-center gap-1.5 flex-1 min-w-[min(100%,14rem)]">
+                      <span className="text-[10px] text-slate-500 font-bold shrink-0">
+                        Hợp đồng
+                      </span>
                       <select
                         value={hopDongDraft}
                         onChange={(e) => setHopDongDraft(e.target.value)}
                         disabled={contractAssignSaving}
-                        className="flex-1 rounded-lg border border-slate-200 px-2 py-1.5 text-xs bg-white focus:outline-none focus:ring-2 focus:ring-blue-700/35 focus:border-blue-700"
+                        className="flex-1 min-w-0 max-w-md rounded-md border border-slate-200 px-2 py-1 text-[10px] bg-white focus:outline-none focus:ring-1 focus:ring-blue-700/40 focus:border-blue-700"
                       >
-                        <option value="">-- Chưa gán hợp đồng --</option>
+                        <option value="">— Chưa gán —</option>
                         {contracts.map((c) => (
                           <option key={c.id} value={c.id}>
                             {c.ten_goi_thau || c.so_hop_dong || c.id}
@@ -1631,36 +2308,41 @@ export function QuanLyCongViec() {
                             setContractAssignSaving(false);
                           }
                         }}
-                        className="px-3 py-1.5 rounded-lg bg-slate-800 text-white text-[11px] font-bold hover:bg-slate-900 disabled:opacity-40 shrink-0"
+                        className="px-2 py-1 rounded-md bg-slate-800 text-white text-[10px] font-bold hover:bg-slate-900 disabled:opacity-40 shrink-0"
                       >
-                        {contractAssignSaving ? 'Đang lưu...' : 'Lưu hợp đồng'}
+                        {contractAssignSaving ? '…' : 'Lưu'}
                       </button>
                     </div>
+                  </div>
                 </div>
 
-                {/* Tabs chi tiết: Nội dung / Bình luận / Tài liệu / Lịch sử */}
-                <div className="mt-2">
-                  <div className="border-b border-slate-200 flex gap-4 text-[11px] font-bold">
+                {/* Tabs: thanh tab cố định, nội dung tab cuộn riêng — ưu tiên chiều cao LIST */}
+                <div
+                  className="flex flex-col flex-1 min-h-0 overflow-hidden"
+                  data-purpose="detail-tabs"
+                >
+                  <div className="shrink-0 border-b border-slate-100 flex flex-wrap gap-x-3 sm:gap-x-5 px-3 sm:px-4 bg-white/60">
                     {[
                       { id: 'NOI_DUNG', label: 'NỘI DUNG' },
                       { id: 'BINH_LUAN', label: 'BÌNH LUẬN' },
-                      { id: 'TAI_LIEU', label: 'TÀI LIỆU' },
+                      { id: 'TAI_LIEU', label: 'TỆP ĐÍNH KÈM' },
                       { id: 'LIST_CONG_VIEC', label: 'LIST CÔNG VIỆC' },
                       { id: 'LOI_GHI_NHAN', label: 'GHI NHẬN LỖI' },
                       { id: 'LICH_SU', label: 'LỊCH SỬ' },
                     ].map((tab) => (
                       <button
                         key={tab.id}
+                        type="button"
                         onClick={() => setDetailTabState(tab.id as any)}
-                        className={`py-2 px-1 -mb-px border-b-2 ${
+                        className={`py-2 sm:py-2.5 text-[11px] font-bold border-b-2 transition-colors -mb-px ${
                           detailTabState === tab.id
-                            ? 'border-blue-800 text-blue-800 font-bold'
-                            : 'border-transparent text-slate-600'
+                            ? 'border-blue-600 text-blue-600'
+                            : 'border-transparent text-slate-400 hover:text-slate-600'
                         }`}
                       >
                         {tab.label}
                         {tab.id === 'BINH_LUAN' && (
-                          <span className="ml-1 inline-flex items-center justify-center rounded-full bg-slate-300 text-slate-700 text-[9px] px-1.5">
+                          <span className="ml-1 inline-flex items-center justify-center rounded bg-slate-100 text-slate-600 text-[10px] px-1.5 py-0.5">
                             {(
                               (detailByTask[selected.id]?.binh_luan as
                                 | TaskDetailComment[]
@@ -1671,7 +2353,7 @@ export function QuanLyCongViec() {
                           </span>
                         )}
                         {tab.id === 'TAI_LIEU' && (
-                          <span className="ml-1 inline-flex items-center justify-center rounded-full bg-slate-300 text-slate-700 text-[9px] px-1.5">
+                          <span className="ml-1 inline-flex items-center justify-center rounded bg-slate-100 text-slate-600 text-[10px] px-1.5 py-0.5">
                             {
                               (detailByTask[selected.id]?.tai_lieu || []).filter(
                                 (d: TaskDetailDocument) => String(d?.link || '').trim(),
@@ -1692,7 +2374,7 @@ export function QuanLyCongViec() {
                           </span>
                         )}
                         {tab.id === 'LICH_SU' && (
-                          <span className="ml-1 inline-flex items-center justify-center rounded-full bg-slate-300 text-slate-700 text-[9px] px-1.5">
+                          <span className="ml-1 inline-flex items-center justify-center rounded bg-slate-100 text-slate-600 text-[10px] px-1.5 py-0.5">
                             {(detailByTask[selected.id]?.lich_su || []).length}
                           </span>
                         )}
@@ -1700,8 +2382,15 @@ export function QuanLyCongViec() {
                     ))}
                   </div>
 
+                  <div
+                    className={`flex flex-col flex-1 min-h-0 min-w-0 px-3 sm:px-4 py-1.5 ${
+                      detailTabState === 'LIST_CONG_VIEC'
+                        ? 'overflow-hidden'
+                        : 'overflow-y-auto overscroll-contain'
+                    }`}
+                  >
                   {detailTabState === 'NOI_DUNG' && (
-                    <div className="mt-3 rounded-xl border border-slate-200 bg-slate-200 px-3 py-3 text-xs text-slate-700 min-h-[80px] whitespace-pre-line">
+                    <div className="mt-1 rounded-xl border border-slate-200 bg-slate-200 px-3 py-3 text-xs text-slate-700 min-h-[80px] whitespace-pre-line">
                       {(() => {
                         const text = formatMoTaDisplay(selected.mo_ta);
                         return text || 'Chưa có mô tả cho công việc này.';
@@ -1900,16 +2589,16 @@ export function QuanLyCongViec() {
                   )}
 
                   {detailTabState === 'LIST_CONG_VIEC' && selected && (
-                    <div className="mt-3 rounded-xl border border-slate-200 bg-slate-200 px-3 py-3 text-xs text-slate-700 space-y-3">
-                      <div className="flex flex-wrap items-center justify-between gap-2">
+                    <div className="mt-1 flex flex-col flex-1 min-h-0 rounded-xl border border-slate-200 bg-slate-200 px-3 py-2 text-xs text-slate-700 gap-2">
+                      <div className="shrink-0 flex flex-wrap items-center justify-between gap-2">
                         <div>
                           <p className="font-bold text-slate-800 text-[11px]">
                             Danh sách việc cần làm
                           </p>
                           <p className="text-[10px] text-slate-600 mt-0.5">
-                            Mỗi dòng hiển thị gọn; bấm <span className="font-semibold">Xem</span> để chỉnh
-                            trạng thái, nhân sự, ngày giờ, ghi chú. Dòng mới thêm sẽ tự mở. Lưu chỉ ghi các
-                            dòng có nội dung.
+                            Chỉnh trạng thái và nội dung ngay trên dòng; bấm{' '}
+                            <span className="font-semibold">Xem</span> để chỉnh nhân sự, ngày giờ, ghi chú.
+                            Dòng mới thêm sẽ tự mở. Lưu chỉ ghi các dòng có nội dung.
                           </p>
                         </div>
                         <div className="flex flex-wrap items-center gap-2">
@@ -1982,7 +2671,7 @@ export function QuanLyCongViec() {
                           </button>
                         </div>
                       </div>
-                      <ul className="space-y-2 max-h-[min(420px,55vh)] overflow-y-auto pr-0.5">
+                      <ul className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden space-y-2 pr-0.5 [scrollbar-gutter:stable]">
                         {listCongViecDraftRows.map((row, idx) => {
                           const listCvExpanded = Boolean(listCvRowExpanded[row.key]);
                           return (
@@ -1995,18 +2684,50 @@ export function QuanLyCongViec() {
                             {!listCvExpanded ? (
                               <div className="space-y-1">
                                 <div className="flex items-center gap-2 min-w-0">
-                                  <span
-                                    className={`shrink-0 text-[9px] font-bold px-1.5 py-0.5 rounded border ${listCvStatusBadgeClass(row.trang_thai)}`}
+                                  <select
+                                    value={row.trang_thai}
+                                    disabled={listCongViecSaving}
+                                    title="Trạng thái"
+                                    onChange={(e) => {
+                                      const v = e.target.value as TrangThaiDanhSachCongViec;
+                                      if (v === 'Từ chối') {
+                                        setListCvTuChoiModal({
+                                          rowKey: row.key,
+                                          lyDo: row.ly_do_tu_choi || '',
+                                        });
+                                        return;
+                                      }
+                                      setListCongViecDraftRows((rows) =>
+                                        rows.map((r) =>
+                                          r.key === row.key
+                                            ? { ...r, trang_thai: v, ly_do_tu_choi: '' }
+                                            : r,
+                                        ),
+                                      );
+                                    }}
+                                    className={`shrink-0 max-w-[7rem] sm:max-w-none text-[9px] font-bold px-1.5 py-0.5 rounded border cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed ${listCvStatusBadgeClass(row.trang_thai)}`}
                                   >
-                                    {row.trang_thai}
-                                  </span>
-                                  <span
-                                    className="flex-1 min-w-0 text-[11px] font-semibold text-slate-900 truncate"
+                                    {LIST_CV_TRANG_THAI_OPTIONS.map((opt) => (
+                                      <option key={opt} value={opt}>
+                                        {opt}
+                                      </option>
+                                    ))}
+                                  </select>
+                                  <input
+                                    type="text"
+                                    value={row.noi_dung}
+                                    disabled={listCongViecSaving}
+                                    onChange={(e) =>
+                                      setListCongViecDraftRows((rows) =>
+                                        rows.map((r) =>
+                                          r.key === row.key ? { ...r, noi_dung: e.target.value } : r,
+                                        ),
+                                      )
+                                    }
+                                    className="flex-1 min-w-0 text-[11px] font-semibold text-slate-900 rounded-md border border-transparent hover:border-slate-200 focus:border-indigo-400 focus:ring-1 focus:ring-indigo-200/80 px-1.5 py-0.5 bg-white/80"
+                                    placeholder={`Dòng ${idx + 1} — nhập nội dung`}
                                     title={row.noi_dung.trim() || undefined}
-                                  >
-                                    {row.noi_dung.trim() ||
-                                      `Dòng ${idx + 1} — chưa có nội dung`}
-                                  </span>
+                                  />
                                   <div className="hidden sm:flex items-center gap-1.5 shrink-0 text-[9px] text-slate-500 tabular-nums">
                                     {row.nhan_su_phu_trach_ids.length > 0 ? (
                                       <span title="Nhân sự phụ trách">
@@ -2043,17 +2764,16 @@ export function QuanLyCongViec() {
                                   </button>
                                   <button
                                     type="button"
-                                    disabled={listCongViecSaving || listCongViecDraftRows.length <= 1}
+                                    disabled={listCongViecSaving}
                                     onClick={() => {
-                                      setListCongViecDraftRows((rows) =>
-                                        rows.length <= 1
-                                          ? rows
-                                          : rows.filter((r) => r.key !== row.key),
-                                      );
+                                      setListCongViecDraftRows((rows) => {
+                                        const next = rows.filter((r) => r.key !== row.key);
+                                        return next.length === 0 ? [newListCongViecDraftRow()] : next;
+                                      });
                                       setListCvRowExpanded((p) => {
-                                        const next = { ...p };
-                                        delete next[row.key];
-                                        return next;
+                                        const n = { ...p };
+                                        delete n[row.key];
+                                        return n;
                                       });
                                     }}
                                     className="p-1.5 rounded-lg text-slate-500 hover:text-red-600 hover:bg-red-50 disabled:opacity-40 shrink-0"
@@ -2143,15 +2863,16 @@ export function QuanLyCongViec() {
                               </div>
                               <button
                                 type="button"
-                                disabled={listCongViecSaving || listCongViecDraftRows.length <= 1}
+                                disabled={listCongViecSaving}
                                 onClick={() => {
-                                  setListCongViecDraftRows((rows) =>
-                                    rows.length <= 1 ? rows : rows.filter((r) => r.key !== row.key),
-                                  );
+                                  setListCongViecDraftRows((rows) => {
+                                    const next = rows.filter((r) => r.key !== row.key);
+                                    return next.length === 0 ? [newListCongViecDraftRow()] : next;
+                                  });
                                   setListCvRowExpanded((p) => {
-                                    const next = { ...p };
-                                    delete next[row.key];
-                                    return next;
+                                    const n = { ...p };
+                                    delete n[row.key];
+                                    return n;
                                   });
                                 }}
                                 className="p-1.5 rounded-lg text-slate-500 hover:text-red-600 hover:bg-red-50 disabled:opacity-40 shrink-0 self-end sm:self-start sm:mt-5"
@@ -2907,6 +3628,7 @@ export function QuanLyCongViec() {
                     </div>
                   )}
 
+                  </div>
                 </div>
               </>
             ) : (
@@ -2915,16 +3637,112 @@ export function QuanLyCongViec() {
               </div>
             )}
           </div>
+          {selected ? (
+            <div className="px-3 py-2 sm:px-4 border-t border-slate-100 bg-white flex flex-wrap justify-end gap-2 shrink-0">
+              <button
+                type="button"
+                className="px-4 py-2 bg-slate-100 text-slate-700 text-[11px] font-bold rounded-lg hover:bg-slate-200 transition-colors uppercase"
+                onClick={async () => {
+                  if (!selected?.id) return;
+                  if (!window.confirm('Chuyển công việc sang trạng thái Tạm dừng?')) return;
+                  try {
+                    await taskDetailService.setTrangThaiFromQuanLy(selected.id, 'Tạm dừng');
+                    const data = await taskDetailService.getAllAsTasks();
+                    setTasks(data || []);
+                    const next = (data || []).find((t) => t.id === selected.id);
+                    if (next) setSelected(next);
+                  } catch (err) {
+                    console.error('[QuanLyCongViec] Tạm dừng:', err);
+                    alert(
+                      err instanceof Error
+                        ? err.message
+                        : 'Không cập nhật được trạng thái.',
+                    );
+                  }
+                }}
+              >
+                Tạm dừng
+              </button>
+              <button
+                type="button"
+                className="px-5 py-2 bg-[#1e293b] text-white text-[11px] font-bold rounded-lg hover:bg-slate-800 transition-colors shadow-md shadow-slate-300/40 uppercase"
+                onClick={() => {
+                  if (!selected) return;
+                  const task = selected;
+                  setFormData({
+                    hop_dong_id: task.hop_dong_id || '',
+                    ten_task: task.ten_task,
+                    mo_ta: task.mo_ta || '',
+                    trang_thai: task.trang_thai,
+                    uu_tien: task.uu_tien,
+                    ngay_bat_dau: task.ngay_bat_dau || '',
+                    ngay_ket_thuc: task.ngay_ket_thuc || '',
+                    ngay_hoan_thanh: task.ngay_hoan_thanh || '',
+                    nguoi_phu_trach: task.nguoi_phu_trach || '',
+                    tien_do: task.tien_do ?? 0,
+                    ghi_chu: task.ghi_chu || '',
+                  });
+                  const epIds: string[] = [];
+                  for (const n of (task.nguoi_phu_trach || '')
+                    .split(',')
+                    .map((s) => s.trim())
+                    .filter(Boolean)) {
+                    const emp = employees.find(
+                      (e) => e.full_name === n || e.code === n,
+                    );
+                    if (emp && !epIds.includes(emp.id)) epIds.push(emp.id);
+                  }
+                  setSelectedEmployeeIds(epIds);
+                  const ct = contracts.find(
+                    (x) => x.id === (task.hop_dong_id || ''),
+                  );
+                  if (ct) {
+                    const r = resolveCustomerIdAndLabel(
+                      ct,
+                      projects,
+                      customersCatalog,
+                    );
+                    setModalKhachHangId(r?.customerId ?? '');
+                    setModalDuAnId(
+                      ct.du_an_id != null ? String(ct.du_an_id) : '',
+                    );
+                  } else {
+                    setModalKhachHangId('');
+                    setModalDuAnId('');
+                  }
+                  setTaskModalEditingId(task.id);
+                  setIsModalOpen(true);
+                }}
+              >
+                Cập nhật trạng thái
+              </button>
+            </div>
+          ) : null}
+        </aside>
+      </main>
+      <footer
+        className="h-auto min-h-8 sm:h-8 bg-slate-100 border-t border-slate-200 px-4 py-1.5 sm:py-0 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-1 text-[10px] text-slate-500 shrink-0 rounded-b-xl"
+        data-purpose="footer-bar"
+      >
+        <div className="flex flex-wrap items-center gap-x-4 gap-y-0.5">
+          <span className="font-medium">Hệ thống quản lý công việc v2.1</span>
+          <span className="text-slate-300 hidden sm:inline">|</span>
+          <span>Công ty Công nghệ XYZ</span>
         </div>
-
-      </div>
-
-
+        <div className="flex items-center gap-2">
+          <div className="w-2 h-2 rounded-full bg-green-500 animate-pulse" />
+          <span className="font-medium">Hệ thống đang hoạt động ổn định</span>
+        </div>
+      </footer>
 
       {isModalOpen && (
-        <div className="fixed inset-0 z-[120] flex items-center justify-center bg-black/50 p-4">
-          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl overflow-hidden">
-            <div className="px-5 py-3 border-b border-slate-200 flex items-center justify-between">
+        <div className="fixed inset-0 z-[120] flex items-start justify-center overflow-y-auto overscroll-y-contain bg-black/50 p-4 sm:items-center">
+          <div
+            role="dialog"
+            aria-modal="true"
+            className="bg-white rounded-2xl shadow-2xl w-full max-w-4xl max-h-[min(92vh,100dvh)] my-4 sm:my-0 flex flex-col min-h-0 overflow-hidden"
+          >
+            <div className="px-5 py-3 border-b border-slate-200 flex items-center justify-between shrink-0">
               <h2 className="text-sm font-bold text-slate-800 uppercase tracking-wide">
                 {taskModalEditingId ? 'Sửa công việc' : 'Thêm công việc mới'}
               </h2>
@@ -2938,10 +3756,139 @@ export function QuanLyCongViec() {
                 <X className="w-4 h-4" />
               </button>
             </div>
-            <div className="p-5 space-y-4 max-h-[70vh] overflow-y-auto text-xs">
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden p-4 sm:p-5 space-y-3 text-xs touch-pan-y">
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                <div className="relative min-w-0" ref={modalKhachHangPickerRef}>
+                  <label className="block text-[11px] font-bold text-slate-600 mb-0.5">
+                    Khách hàng
+                  </label>
+                  <button
+                    type="button"
+                    onClick={() => setModalKhachHangOpen((o) => !o)}
+                    className="w-full flex items-center justify-between gap-1 rounded-lg border border-slate-200 px-3 py-1.5 text-xs bg-slate-200 focus:outline-none focus:ring-2 focus:ring-blue-700/35 focus:border-blue-700 text-left font-semibold text-slate-900"
+                    title="Chọn khách hàng — gõ để tìm"
+                    aria-expanded={modalKhachHangOpen}
+                    aria-haspopup="listbox"
+                  >
+                    <span className="truncate min-w-0">
+                      {!modalKhachHangId.trim()
+                        ? '— Chọn khách hàng —'
+                        : khachHangLabelById(modalKhachHangId)}
+                    </span>
+                    <ChevronDown
+                      className={`w-4 h-4 shrink-0 text-slate-600 transition-transform ${
+                        modalKhachHangOpen ? 'rotate-180' : ''
+                      }`}
+                      aria-hidden
+                    />
+                  </button>
+                  {modalKhachHangOpen ? (
+                    <div
+                      className="absolute left-0 right-0 top-full z-[130] mt-1 max-h-72 flex flex-col rounded-lg border-2 border-slate-400 bg-white shadow-lg overflow-hidden"
+                      role="listbox"
+                      aria-label="Chọn khách hàng"
+                    >
+                      <div className="shrink-0 p-2 border-b border-slate-200 bg-slate-50">
+                        <div className="relative">
+                          <Search
+                            className="w-3.5 h-3.5 text-slate-500 absolute left-2.5 top-1/2 -translate-y-1/2 pointer-events-none"
+                            aria-hidden
+                          />
+                          <input
+                            ref={modalKhachHangSearchRef}
+                            type="search"
+                            value={modalKhachHangSearch}
+                            onChange={(e) => setModalKhachHangSearch(e.target.value)}
+                            placeholder="Tìm khách hàng…"
+                            autoComplete="off"
+                            className="w-full pl-8 pr-2 py-1.5 rounded-md border border-slate-300 text-xs text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-600/30 focus:border-blue-600 bg-white"
+                          />
+                        </div>
+                      </div>
+                      <div className="overflow-y-auto flex-1 min-h-0 py-1 max-h-[min(13rem,40vh)] [scrollbar-gutter:stable]">
+                        <button
+                          type="button"
+                          role="option"
+                          aria-selected={!modalKhachHangId.trim()}
+                          onClick={() => {
+                            setModalKhachHangId('');
+                            setModalDuAnId('');
+                            setFormData((prev) => ({ ...prev, hop_dong_id: '' }));
+                            setModalKhachHangOpen(false);
+                          }}
+                          className={`w-full text-left px-3 py-2 text-xs font-bold hover:bg-slate-100 ${
+                            !modalKhachHangId.trim()
+                              ? 'bg-slate-100 text-blue-900'
+                              : 'text-slate-900'
+                          }`}
+                        >
+                          — Chọn khách hàng —
+                        </button>
+                        <div className="mx-2 border-t border-slate-200" />
+                        {khachHangFilterOptions.length === 0 ? (
+                          <p className="px-3 py-2 text-[11px] text-slate-600">
+                            Chưa có dữ liệu khách hàng.
+                          </p>
+                        ) : khachHangModalSearchMatching.length === 0 ? (
+                          <p className="px-3 py-2 text-[11px] text-slate-600">
+                            Không có khách hàng khớp &quot;{modalKhachHangSearch.trim()}&quot;.
+                          </p>
+                        ) : (
+                          khachHangModalSearchMatching.map((k) => {
+                            const chosen = modalKhachHangId === k.id;
+                            return (
+                              <button
+                                key={k.id}
+                                type="button"
+                                role="option"
+                                aria-selected={chosen}
+                                onClick={() => {
+                                  setModalKhachHangId(k.id);
+                                  setModalDuAnId('');
+                                  setFormData((prev) => ({ ...prev, hop_dong_id: '' }));
+                                  setModalKhachHangOpen(false);
+                                }}
+                                className={`w-full text-left px-3 py-2 text-xs hover:bg-slate-100 break-words ${
+                                  chosen ? 'bg-slate-100 text-blue-900 font-bold' : 'text-slate-800'
+                                }`}
+                              >
+                                {k.label}
+                              </button>
+                            );
+                          })
+                        )}
+                      </div>
+                    </div>
+                  ) : null}
+                </div>
                 <div>
-                  <label className="block text-[11px] font-bold text-slate-600 mb-1">
+                  <label className="block text-[11px] font-bold text-slate-600 mb-0.5">
+                    Dự án
+                  </label>
+                  <select
+                    value={modalDuAnId}
+                    onChange={(e) => {
+                      const v = e.target.value;
+                      setModalDuAnId(v);
+                      setFormData((prev) => ({ ...prev, hop_dong_id: '' }));
+                    }}
+                    disabled={!modalKhachHangId.trim()}
+                    className="w-full rounded-lg border border-slate-200 px-3 py-1.5 text-xs bg-slate-200 focus:outline-none focus:ring-2 focus:ring-blue-700/35 focus:border-blue-700 disabled:opacity-60 disabled:cursor-not-allowed"
+                  >
+                    <option value="">
+                      {!modalKhachHangId.trim()
+                        ? '— Chọn khách hàng trước —'
+                        : '— Chọn dự án —'}
+                    </option>
+                    {projectsForTaskModal.map((p) => (
+                      <option key={p.id} value={String(p.id)}>
+                        {p.ten_du_an || p.id}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-[11px] font-bold text-slate-600 mb-0.5">
                     Hợp đồng
                   </label>
                   <select
@@ -2952,18 +3899,26 @@ export function QuanLyCongViec() {
                         hop_dong_id: e.target.value,
                       }))
                     }
-                    className="w-full rounded-lg border border-slate-200 px-3 py-1.5 text-xs bg-slate-200 focus:outline-none focus:ring-2 focus:ring-blue-700/35 focus:border-blue-700"
+                    disabled={!modalDuAnId.trim()}
+                    className="w-full rounded-lg border border-slate-200 px-3 py-1.5 text-xs bg-slate-200 focus:outline-none focus:ring-2 focus:ring-blue-700/35 focus:border-blue-700 disabled:opacity-60 disabled:cursor-not-allowed"
                   >
-                    <option value="">-- Chọn hợp đồng (không bắt buộc) --</option>
-                    {contracts.map((c) => (
+                    <option value="">
+                      {!modalDuAnId.trim()
+                        ? '— Chọn dự án trước —'
+                        : '— Chọn hợp đồng (không bắt buộc) —'}
+                    </option>
+                    {contractsForTaskModal.map((c) => (
                       <option key={c.id} value={c.id}>
                         {c.ten_goi_thau || c.so_hop_dong || c.id}
                       </option>
                     ))}
                   </select>
                 </div>
-                <div>
-                  <label className="block text-[11px] font-bold text-slate-600 mb-1">
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                <div className="min-w-0">
+                  <label className="block text-[11px] font-bold text-slate-600 mb-0.5">
                     Người phụ trách
                   </label>
                   <div className="relative">
@@ -2977,7 +3932,7 @@ export function QuanLyCongViec() {
                           ? 'Chọn nhân sự phụ trách'
                           : `${selectedEmployeeIds.length} nhân sự được chọn`}
                       </span>
-                      <span className="ml-2 text-[10px] text-slate-600">
+                      <span className="ml-2 text-[10px] text-slate-600 shrink-0">
                         {showEmployeeDropdown ? '▲' : '▼'}
                       </span>
                     </button>
@@ -3020,10 +3975,35 @@ export function QuanLyCongViec() {
                     )}
                   </div>
                 </div>
+                <div className="min-w-0">
+                  <label className="block text-[11px] font-bold text-slate-600 mb-0.5">
+                    Trạng thái công việc
+                  </label>
+                  <select
+                    value={formData.trang_thai}
+                    onChange={(e) => {
+                      const v = e.target.value;
+                      setFormData((prev) => {
+                        let td = prev.tien_do ?? 0;
+                        if (isTrangThaiDaXong(v)) td = 100;
+                        else if (isTrangThaiDaXong(prev.trang_thai)) td = 0;
+                        return { ...prev, trang_thai: v, tien_do: td };
+                      });
+                    }}
+                    className="w-full rounded-lg border border-slate-200 px-3 py-1.5 text-xs bg-slate-200 focus:outline-none focus:ring-2 focus:ring-blue-700/35 focus:border-blue-700"
+                  >
+                    <option value="Chưa bắt đầu">Chưa bắt đầu</option>
+                    <option value="Chờ duyệt">Chờ duyệt</option>
+                    <option value="Đang thực hiện">Đang thực hiện</option>
+                    <option value="Tạm dừng">Tạm dừng</option>
+                    <option value="Đã xong">Đã xong</option>
+                    <option value="Hoàn thành">Hoàn thành</option>
+                  </select>
+                </div>
               </div>
 
               <div>
-                <label className="block text-[11px] font-bold text-slate-600 mb-1">
+                <label className="block text-[11px] font-bold text-slate-600 mb-0.5">
                   Tên công việc *
                 </label>
                 <input
@@ -3036,9 +4016,9 @@ export function QuanLyCongViec() {
                 />
               </div>
 
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
                 <div>
-                  <label className="block text-[11px] font-bold text-slate-600 mb-1">
+                  <label className="block text-[11px] font-bold text-slate-600 mb-0.5">
                     Mức ưu tiên
                   </label>
                   <select
@@ -3055,7 +4035,7 @@ export function QuanLyCongViec() {
                   </select>
                 </div>
                 <div>
-                  <label className="block text-[11px] font-bold text-slate-600 mb-1">
+                  <label className="block text-[11px] font-bold text-slate-600 mb-0.5">
                     Ngày bắt đầu
                   </label>
                   <input
@@ -3068,7 +4048,7 @@ export function QuanLyCongViec() {
                   />
                 </div>
                 <div>
-                  <label className="block text-[11px] font-bold text-slate-600 mb-1">
+                  <label className="block text-[11px] font-bold text-slate-600 mb-0.5">
                     Ngày kết thúc
                   </label>
                   <input
@@ -3082,61 +4062,8 @@ export function QuanLyCongViec() {
                 </div>
               </div>
 
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-[11px] font-bold text-slate-600 mb-1">
-                    Trạng thái công việc
-                  </label>
-                  <select
-                    value={formData.trang_thai}
-                    onChange={(e) => {
-                      const v = e.target.value;
-                      setFormData((prev) => ({
-                        ...prev,
-                        trang_thai: v,
-                        tien_do: isTrangThaiDaXong(v) ? 100 : prev.tien_do,
-                      }));
-                    }}
-                    className="w-full rounded-lg border border-slate-200 px-3 py-1.5 text-xs bg-slate-200 focus:outline-none focus:ring-2 focus:ring-blue-700/35 focus:border-blue-700"
-                  >
-                    <option value="Chưa bắt đầu">Chưa bắt đầu</option>
-                    <option value="Chờ duyệt">Chờ duyệt</option>
-                    <option value="Đang thực hiện">Đang thực hiện</option>
-                    <option value="Tạm dừng">Tạm dừng</option>
-                    <option value="Đã xong">Đã xong</option>
-                    <option value="Hoàn thành">Hoàn thành</option>
-                  </select>
-                </div>
-                <div>
-                  <label className="block text-[11px] font-bold text-slate-600 mb-1">
-                    Tiến độ (%)
-                  </label>
-                  <input
-                    type="number"
-                    min={0}
-                    max={100}
-                    value={formData.tien_do ?? 0}
-                    onChange={(e) => {
-                      const raw = Number(e.target.value);
-                      const v = Number.isFinite(raw)
-                        ? Math.min(100, Math.max(0, Math.round(raw)))
-                        : 0;
-                      setFormData((prev) => ({
-                        ...prev,
-                        tien_do: v,
-                        trang_thai: v >= 100 ? 'Đã xong' : prev.trang_thai,
-                      }));
-                    }}
-                    className="w-full rounded-lg border border-slate-200 px-3 py-1.5 text-xs bg-slate-200 focus:outline-none focus:ring-2 focus:ring-blue-700/35 focus:border-blue-700 tabular-nums"
-                  />
-                  <p className="text-[10px] text-slate-500 mt-0.5 font-semibold">
-                    Quy trình đạt 100% sẽ tự chuyển Đã xong khi lưu; nhập 100 ở đây cũng gán Đã xong.
-                  </p>
-                </div>
-              </div>
-
-              <div>
-                <label className="block text-[11px] font-bold text-slate-600 mb-1">
+              <div className="pt-1 border-t border-slate-100">
+                <label className="block text-[11px] font-bold text-slate-700 mb-1">
                   Mô tả
                 </label>
                 <textarea
@@ -3144,13 +4071,13 @@ export function QuanLyCongViec() {
                   onChange={(e) =>
                     setFormData((prev) => ({ ...prev, mo_ta: e.target.value }))
                   }
-                  rows={3}
-                  className="w-full rounded-lg border border-slate-200 px-3 py-1.5 text-xs bg-slate-200 focus:outline-none focus:ring-2 focus:ring-blue-700/35 focus:border-blue-700"
-                  placeholder="Nhập mô tả chi tiết công việc..."
+                  rows={12}
+                  className="w-full min-h-[14rem] sm:min-h-[16rem] rounded-lg border border-slate-300 px-3 py-2 text-sm leading-relaxed bg-white text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-600/30 focus:border-blue-600 resize-y shadow-sm"
+                  placeholder="Nhập mô tả chi tiết công việc…"
                 />
               </div>
             </div>
-            <div className="px-5 py-3 border-t border-slate-200 flex items-center justify-end gap-2 bg-slate-200">
+            <div className="px-5 py-3 border-t border-slate-200 flex items-center justify-end gap-2 bg-slate-200 shrink-0">
               <button
                 onClick={() => {
                   setTaskModalEditingId(null);

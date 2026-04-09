@@ -1,51 +1,78 @@
-import React, { useState, useEffect } from 'react';
-import { addMonths, isBefore, parse, parseISO, startOfDay } from 'date-fns';
-import {
-  Search,
-  Plus,
-  Edit,
-  Trash2,
-  Eye,
-  ChevronLeft,
-  ChevronRight,
-  ChevronsLeft,
-  ChevronsRight,
-  CheckSquare,
-  Square,
-  Loader2,
-  X,
-  User,
-  Mail,
-  Phone,
-  MapPin,
-  CreditCard,
-  Calendar as CalendarIcon,
-  FileText,
-  Users
-} from 'lucide-react';
+import React, { useEffect, useMemo, useState } from 'react';
+import { Loader2 } from 'lucide-react';
 import { Link, useNavigate } from 'react-router-dom';
+import { parse, parseISO } from 'date-fns';
 import { employeeService, type Employee } from '../lib/services/employeeService';
 import { testNhanSuConnection } from '../lib/utils/testDatabaseConnection';
-import { certificateService, type ProfessionalCertificate } from '../lib/services/certificateService';
-import { dependentPersonService, type DependentPerson } from '../lib/services/dependentPersonService';
-import { contractService, ContractRow } from '../lib/services/contractService';
-import { thuChiService, ThuChiRow } from '../lib/services/thuChiService';
-import { projectService } from '../lib/services/projectService';
 import { useNhanSuModal } from '../contexts/NhanSuModalContext';
 import { ExcelImportExportBar } from '../components/ExcelImportExportBar';
 import type { ExcelColumnDef } from '../lib/excelTableTools';
+
+function MIcon({
+  name,
+  className = 'text-lg',
+  style,
+}: {
+  name: string;
+  className?: string;
+  style?: React.CSSProperties;
+}) {
+  return (
+    <span className={`material-symbols-outlined ${className}`} style={style} aria-hidden>
+      {name}
+    </span>
+  );
+}
+
+function parseJoinDate(raw: string | undefined): Date | null {
+  if (!raw) return null;
+  try {
+    if (raw.includes('/')) {
+      const d = parse(raw, 'dd/MM/yyyy', new Date());
+      return Number.isNaN(d.getTime()) ? null : d;
+    }
+    if (raw.includes('-')) {
+      const d = parseISO(raw);
+      return Number.isNaN(d.getTime()) ? null : d;
+    }
+  } catch {
+    return null;
+  }
+  return null;
+}
+
+function countJoinedInMonth(emps: Employee[], year: number, month: number): number {
+  return emps.filter((e) => {
+    const raw = e.ngayVaoLam || e.joinDate;
+    const d = parseJoinDate(raw);
+    return d && d.getFullYear() === year && d.getMonth() === month;
+  }).length;
+}
+
+function getPaginationRange(current: number, total: number): (number | 'ellipsis')[] {
+  if (total <= 1) return [1];
+  if (total <= 7) return Array.from({ length: total }, (_, i) => i + 1);
+  const s = new Set(
+    [1, total, current, current - 1, current + 1].filter((n) => n >= 1 && n <= total),
+  );
+  const arr = [...s].sort((a, b) => a - b);
+  const out: (number | 'ellipsis')[] = [];
+  for (let i = 0; i < arr.length; i++) {
+    if (i > 0 && arr[i] - arr[i - 1] > 1) out.push('ellipsis');
+    out.push(arr[i]);
+  }
+  return out;
+}
 
 export function HumanResources() {
   const navigate = useNavigate();
   const [employees, setEmployees] = useState<Employee[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [selectedIds, setSelectedIds] = useState<(string | number)[]>([]);
   const [searchTerm, setSearchTerm] = useState('');
   const [currentPage, setCurrentPage] = useState(1);
-  const [loadingThuChi, setLoadingThuChi] = useState(false);
+  const [itemsPerPage, setItemsPerPage] = useState(20);
   const { openChiTietNhanVien } = useNhanSuModal();
-  const itemsPerPage = 10;
 
   const nhanSuExcelColumns: ExcelColumnDef[] = [
     { key: 'ho_ten', header: 'Họ và tên', example: 'Nguyễn Văn A' },
@@ -56,12 +83,8 @@ export function HumanResources() {
     { key: 'chuc_vu', header: 'Chức vụ', example: 'Nhân viên' },
   ];
 
-  // Load employees from Supabase
   useEffect(() => {
-    // Test connection first
-    testNhanSuConnection().then(result => {
-      // test result handled
-    });
+    testNhanSuConnection().then(() => {});
     loadEmployees();
   }, []);
 
@@ -71,10 +94,8 @@ export function HumanResources() {
       setError(null);
       const data = await employeeService.getAll();
 
-      // Normalize dữ liệu để đảm bảo có các trường cần thiết
       const normalizedData = (data || []).map((emp: any) => ({
         ...emp,
-        // Đảm bảo có các trường fallback - ưu tiên snake_case từ database
         code: emp.code || emp.ma_nv || emp.employee_code || '',
         full_name: emp.full_name || emp.name || emp.hoTen || emp.ho_ten || '',
         phongBan: emp.phong_ban || emp.phongBan || emp.department || '',
@@ -83,97 +104,24 @@ export function HumanResources() {
         phone: emp.sdt_nhan_vien || emp.sdtNhanVien || emp.phone || emp.dien_thoai || '',
         status: emp.status || 'active',
         ngayVaoLam: emp.ngay_vao_lam || emp.ngayVaoLam || emp.joinDate || '',
-        // Giữ lại anh_nhan_su từ database (snake_case)
-        anh_nhan_su: emp.anh_nhan_su || null
+        anh_nhan_su: emp.anh_nhan_su || null,
       }));
-      
-      console.log('[HumanResources] Normalized employees with avatars:', normalizedData.map((e: any) => ({
-        name: e.full_name,
-        avatar: e.anh_nhan_su
-      })));
 
       setEmployees(normalizedData);
     } catch (err: any) {
       const errorMessage = err.message || 'Có lỗi xảy ra khi tải dữ liệu';
       setError(errorMessage);
       console.error('Error loading employees:', err);
-      console.error('Error details:', {
-        message: err.message,
-        details: err.details,
-        hint: err.hint,
-        code: err.code
-      });
     } finally {
       setLoading(false);
     }
   };
 
-  const toggleSelect = (id: string | number) => {
-    setSelectedIds(prev => prev.includes(id) ? prev.filter(i => i !== id) : [...prev, id]);
-  };
-
-  const isSelected = (id: string | number) => selectedIds.includes(id);
-
-  const isAllSelected = employees.length > 0 && employees.every(emp => selectedIds.includes(emp.id));
-
-  const toggleSelectAll = () => {
-    setSelectedIds(isAllSelected ? [] : employees.map(emp => emp.id));
-  };
-
-  const getStatusBadge = (status: string) => {
-    switch (status) {
-      case 'active':
-        return <span className="px-2 py-1 text-xs font-medium bg-emerald-100 text-emerald-600 rounded-md">Đang làm việc</span>;
-      case 'inactive':
-        return <span className="px-2 py-1 text-xs font-medium bg-red-100 text-red-600 rounded-md">Nghỉ việc</span>;
-      case 'on-leave':
-        return <span className="px-2 py-1 text-xs font-medium bg-orange-100 text-orange-600 rounded-md">Nghỉ phép</span>;
-      default:
-        return null;
-    }
-  };
-
-  const parseExpiryDate = (value: string): Date | null => {
-    if (!value) return null;
-    try {
-      if (value.includes('/')) {
-        const d = parse(value, 'dd/MM/yyyy', new Date());
-        return Number.isNaN(d.getTime()) ? null : d;
-      }
-      if (value.includes('-')) {
-        const d = parseISO(value);
-        return Number.isNaN(d.getTime()) ? null : d;
-      }
-      return null;
-    } catch {
-      return null;
-    }
-  };
-
-  const isExpiryWithinTwoMonths = (expiryValue: string): boolean => {
-    const expiry = parseExpiryDate(expiryValue);
-    if (!expiry) return false;
-    const today = startOfDay(new Date());
-    const threshold = addMonths(today, 2);
-    return isBefore(startOfDay(expiry), threshold) || startOfDay(expiry).getTime() === threshold.getTime();
-  };
-
-  const formatExpiryDate = (value: string): string => {
-    const d = parseExpiryDate(value);
-    if (!d) return '(Trống)';
-    return d.toLocaleDateString('vi-VN');
-  };
-
-  // Filter employees locally or use search API
   const filteredEmployees = searchTerm
     ? employees.filter((emp) => {
         const q = searchTerm.toLowerCase();
         const ten =
-          (emp as any).full_name ||
-          emp.name ||
-          (emp as any).hoTen ||
-          (emp as any).ho_ten ||
-          '';
+          (emp as any).full_name || emp.name || (emp as any).hoTen || (emp as any).ho_ten || '';
         return (
           String(ten).toLowerCase().includes(q) ||
           (emp.phongBan || emp.department || (emp as any).phong_ban || '')
@@ -184,10 +132,67 @@ export function HumanResources() {
       })
     : employees;
 
-  const totalPages = Math.ceil(filteredEmployees.length / itemsPerPage);
+  const totalPages = Math.max(1, Math.ceil(filteredEmployees.length / itemsPerPage));
+
+  useEffect(() => {
+    setCurrentPage((p) => Math.min(p, totalPages));
+  }, [filteredEmployees.length, itemsPerPage, totalPages]);
+
   const startIndex = (currentPage - 1) * itemsPerPage;
-  const endIndex = startIndex + itemsPerPage;
-  const currentEmployees = filteredEmployees.slice(startIndex, endIndex);
+  const currentEmployees = filteredEmployees.slice(startIndex, startIndex + itemsPerPage);
+
+  const stats = useMemo(() => {
+    const now = new Date();
+    const y = now.getFullYear();
+    const m = now.getMonth();
+    const newThisMonth = countJoinedInMonth(employees, y, m);
+    const prev = m === 0 ? { y: y - 1, m: 11 } : { y, m: m - 1 };
+    const newPrevMonth = countJoinedInMonth(employees, prev.y, prev.m);
+    const pctVsPrev =
+      newPrevMonth > 0
+        ? (((newThisMonth - newPrevMonth) / newPrevMonth) * 100).toFixed(1)
+        : newThisMonth > 0
+          ? '100'
+          : '0';
+
+    const workingCount = employees.filter((e) => (e.status || 'active') === 'active').length;
+    const leaveCount = employees.filter((e) => e.status === 'on-leave').length;
+    const participation =
+      employees.length > 0 ? Math.round((workingCount / employees.length) * 100) : 0;
+
+    return {
+      newThisMonth,
+      pctVsPrev,
+      workingCount,
+      leaveCount,
+      participation,
+    };
+  }, [employees]);
+
+  const getStatusBadge = (status: string) => {
+    switch (status) {
+      case 'active':
+        return (
+          <span className="px-3 py-1 bg-[#00322d]/10 text-[#2ca397] text-[10px] font-bold uppercase rounded-full border border-[#00322d]/20">
+            Đang làm việc
+          </span>
+        );
+      case 'inactive':
+        return (
+          <span className="px-3 py-1 bg-slate-100 text-slate-600 text-[10px] font-bold uppercase rounded-full border border-slate-200">
+            Nghỉ việc
+          </span>
+        );
+      case 'on-leave':
+        return (
+          <span className="px-3 py-1 bg-[#ffdad6]/80 text-[#93000a] text-[10px] font-bold uppercase rounded-full border border-[#ffdad6]">
+            Đang nghỉ phép
+          </span>
+        );
+      default:
+        return null;
+    }
+  };
 
   const handleView = async (employee: Employee) => {
     openChiTietNhanVien(employee);
@@ -201,38 +206,46 @@ export function HumanResources() {
     if (window.confirm('Bạn có chắc chắn muốn xóa nhân viên này?')) {
       try {
         await employeeService.delete(id);
-        await loadEmployees(); // Reload data
+        await loadEmployees();
       } catch (err: any) {
         alert('Có lỗi xảy ra khi xóa nhân viên: ' + (err.message || 'Unknown error'));
       }
     }
   };
 
-  return (
-    <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-500 pb-10">
-      <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden">
-        {/* Header */}
-        <div className="px-4 md:px-6 py-4 border-b border-slate-200 bg-slate-50">
-          <h2 className="text-lg font-bold text-slate-700 uppercase">
-            Quản lý Nhân sự
-          </h2>
-        </div>
+  const pageItems = getPaginationRange(currentPage, totalPages);
 
-        {/* Toolbar */}
-        <div className="px-4 md:px-6 py-4 border-b border-slate-200 flex flex-col md:flex-row gap-4 justify-between items-start md:items-center">
-          <div className="relative w-full md:w-80">
-            <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+  return (
+    <div className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500 pb-24 [font-family:Inter,system-ui,sans-serif]">
+      {/* Page header — TalentCurator-style */}
+      <div className="flex flex-col gap-6">
+        <div>
+          <h1 className="text-3xl font-extrabold tracking-tight text-[#0b1c30] mb-2 [font-family:Manrope,system-ui,sans-serif]">
+            QUẢN LÝ NHÂN SỰ
+          </h1>
+          <p className="text-[#44474e] font-medium">Danh sách nhân sự toàn hệ thống</p>
+        </div>
+        <div className="flex flex-col lg:flex-row flex-wrap items-stretch lg:items-center gap-3">
+          <div className="relative flex-1 min-w-[200px] max-w-md">
+            <MIcon
+              name="search"
+              className="absolute left-3 top-1/2 -translate-y-1/2 text-[#44474e] text-lg pointer-events-none"
+            />
             <input
               type="text"
-              placeholder="Tìm theo tên, phòng ban, email..."
+              placeholder="Tìm kiếm nhân viên..."
               value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-              className="w-full pl-9 pr-4 py-2 text-sm border border-slate-200 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all"
+              onChange={(e) => {
+                setSearchTerm(e.target.value);
+                setCurrentPage(1);
+              }}
+              className="w-full pl-10 pr-4 py-2.5 bg-[#eff4ff] border-none rounded-lg text-sm text-[#0b1c30] placeholder:text-slate-400 focus:ring-2 focus:ring-[#031635]/20 transition-all"
             />
           </div>
-
-          <div className="flex flex-wrap items-center gap-2">
+          <div className="flex flex-wrap items-center gap-3 lg:ml-auto">
+          <div className="[&_button]:rounded-lg [&_button]:border-[#c5c6cf]/30 [&_button]:text-[#364768] [&_button]:bg-[#dce9ff] [&_button]:hover:brightness-105 [&_button]:text-sm [&_button]:font-semibold">
             <ExcelImportExportBar
+              compact
               columns={nhanSuExcelColumns}
               templateFileName="mau-nhan-su"
               sheetName="Nhan su"
@@ -250,7 +263,8 @@ export function HumanResources() {
                     typeof crypto !== 'undefined' && 'randomUUID' in crypto
                       ? crypto.randomUUID()
                       : `${Date.now()}-${i}`;
-                  const code = (r.ma_nhan_vien || '').trim() || `NV-${uuid}`.replace(/[^a-zA-Z0-9-]/g, '').slice(0, 48);
+                  const code =
+                    (r.ma_nhan_vien || '').trim() || `NV-${uuid}`.replace(/[^a-zA-Z0-9-]/g, '').slice(0, 48);
                   try {
                     await employeeService.create({
                       code,
@@ -274,233 +288,345 @@ export function HumanResources() {
               }}
               onDone={() => loadEmployees()}
             />
-            <Link
-              to="/nhan-su/lich-lam-viec"
-              className="flex items-center gap-2 px-4 py-2 text-sm font-semibold text-slate-700 bg-white border border-slate-200 hover:bg-slate-50 rounded-md transition-colors shadow-sm"
-            >
-              <CalendarIcon size={18} />
-              Lịch làm việc
-            </Link>
-            <button
-              onClick={() => navigate('/nhan-su/them')}
-              className="flex items-center gap-2 px-4 py-2 text-sm font-bold text-white bg-blue-600 hover:bg-blue-700 rounded-md transition-colors shadow-sm"
-            >
-              <Plus size={18} />
-              Thêm nhân viên
-            </button>
+          </div>
+          <Link
+            to="/nhan-su/lich-lam-viec"
+            className="flex items-center gap-2 px-4 py-2.5 bg-[#dce9ff] text-[#364768] font-semibold text-sm rounded-lg hover:brightness-105 transition-all active:scale-95"
+          >
+            <MIcon name="calendar_month" className="text-lg" />
+            Lịch làm việc
+          </Link>
+          <button
+            type="button"
+            onClick={() => navigate('/nhan-su/them')}
+            className="flex items-center gap-2 px-5 py-2.5 bg-gradient-to-br from-[#031635] to-[#1a2b4b] text-white font-semibold text-sm rounded-lg shadow-lg shadow-[#031635]/10 hover:brightness-110 transition-all active:scale-95"
+          >
+            <MIcon name="person_add" className="text-lg" />
+            Thêm nhân viên
+          </button>
           </div>
         </div>
+      </div>
 
-        {/* Loading State */}
+      {/* Table */}
+      <div className="bg-white rounded-xl shadow-sm border border-[#c5c6cf]/15 overflow-hidden">
         {loading && (
-          <div className="p-8 text-center">
-            <Loader2 className="w-8 h-8 animate-spin text-blue-600 mx-auto mb-2" />
-            <p className="text-sm text-slate-500">Đang tải dữ liệu...</p>
+          <div className="p-12 text-center">
+            <Loader2 className="w-8 h-8 animate-spin text-[#031635] mx-auto mb-2" />
+            <p className="text-sm text-[#44474e]">Đang tải dữ liệu...</p>
           </div>
         )}
 
-        {/* Error State */}
         {error && !loading && (
-          <div className="p-8 text-center">
+          <div className="p-12 text-center">
             <p className="text-sm text-red-600 mb-4">{error}</p>
             <button
+              type="button"
               onClick={loadEmployees}
-              className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 transition-colors"
+              className="px-4 py-2 bg-[#031635] text-white rounded-lg hover:brightness-110 transition-colors"
             >
               Thử lại
             </button>
           </div>
         )}
 
-        {/* Table */}
         {!loading && !error && (
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm text-left">
-              <thead className="bg-slate-50 text-slate-700 font-semibold border-b border-slate-200">
-                <tr>
-                  <th className="p-4 w-10">
-                    <button onClick={toggleSelectAll} className="flex items-center">
-                      {isAllSelected ? (
-                        <CheckSquare size={18} className="text-blue-600" />
-                      ) : (
-                        <Square size={18} className="text-slate-400" />
-                      )}
-                    </button>
-                  </th>
-                  <th className="p-4 whitespace-nowrap">Ảnh</th>
-                  <th className="p-4 whitespace-nowrap">Họ và tên</th>
-                  <th className="p-4 whitespace-nowrap">Phòng ban</th>
-                  <th className="p-4 whitespace-nowrap">Chức vụ</th>
-                  <th className="p-4 whitespace-nowrap">Email</th>
-                  <th className="p-4 whitespace-nowrap">Số điện thoại</th>
-                  <th className="p-4 whitespace-nowrap">Trạng thái</th>
-                  <th className="p-4 whitespace-nowrap text-center">Hành động</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100">
-                {currentEmployees.length > 0 ? (
-                  currentEmployees.map((employee) => (
-                    <tr
-                      key={employee.id}
-                      className="hover:bg-slate-50 transition-colors group"
-                    >
-                      <td className="p-4">
-                        <button onClick={() => toggleSelect(employee.id)} className="flex items-center">
-                          {isSelected(employee.id) ? (
-                            <CheckSquare size={18} className="text-blue-600" />
-                          ) : (
-                            <Square size={18} className="text-slate-400" />
-                          )}
-                        </button>
-                      </td>
-                      <td className="p-4">
-                        {(() => {
-                          const avatarUrl = (employee as any).anh_nhan_su || employee.anh_nhan_su;
-                          console.log('[HumanResources] Employee avatar URL:', avatarUrl, 'for employee:', employee.full_name || employee.name);
-                          if (avatarUrl && avatarUrl.trim() !== '') {
-                            return (
-                              <img
-                                src={avatarUrl}
-                                alt={employee.full_name || employee.name || employee.hoTen || 'Nhân sự'}
-                                className="w-10 h-10 rounded-full object-cover border-2 border-slate-200"
-                                onError={(e) => {
-                                  console.error('[HumanResources] Error loading avatar:', avatarUrl);
-                                  (e.target as HTMLImageElement).src = 'https://ui-avatars.com/api/?name=' + encodeURIComponent(employee.full_name || employee.name || employee.hoTen || 'NV');
-                                }}
-                                onLoad={() => {
-                                  console.log('[HumanResources] Avatar loaded successfully:', avatarUrl);
-                                }}
-                              />
-                            );
-                          }
-                          return (
-                            <div className="w-10 h-10 rounded-full bg-slate-200 flex items-center justify-center">
-                              <User size={18} className="text-slate-400" />
-                            </div>
-                          );
-                        })()}
-                      </td>
-                      <td className="p-4 font-medium text-slate-800">
-                        {employee.full_name || employee.name || employee.hoTen || employee.ho_ten || '(Trống)'}
-                      </td>
-                      <td className="p-4 text-slate-600">
-                        {employee.phongBan || employee.department || employee.phong_ban || '(Trống)'}
-                      </td>
-                      <td className="p-4 text-slate-600">
-                        {(employee as any).chuc_vu || employee.chucVu || employee.position || '(Trống)'}
-                      </td>
-                      <td className="p-4 text-slate-600">
-                        {employee.email || '(Trống)'}
-                      </td>
-                      <td className="p-4 text-slate-600">
-                        {(employee as any).sdt_nhan_vien || employee.sdtNhanVien || employee.phone || employee.dien_thoai || '(Trống)'}
-                      </td>
-                      <td className="p-4">
-                        {getStatusBadge(employee.status || 'active')}
-                      </td>
-                      <td className="p-4">
-                        <div className="flex items-center justify-center gap-2 transition-opacity">
-                          <button
-                            onClick={() => handleView(employee)}
-                            className="action-btn p-1.5 text-purple-600 bg-purple-50 border border-purple-100 rounded-md hover:bg-purple-100"
-                            title="Xem"
-                          >
-                            <Eye size={14} />
-                          </button>
-                          <button
-                            onClick={() => handleEdit(employee.id)}
-                            className="action-btn p-1.5 text-orange-500 bg-orange-50 border border-orange-100 rounded-md hover:bg-orange-100"
-                            title="Sửa"
-                          >
-                            <Edit size={14} />
-                          </button>
-                          <button
-                            onClick={() => handleDelete(employee.id)}
-                            className="action-btn p-1.5 text-red-500 bg-red-50 border border-red-100 rounded-md hover:bg-red-100"
-                            title="Xóa"
-                          >
-                            <Trash2 size={14} />
-                          </button>
-                        </div>
-                      </td>
-                    </tr>
-                  ))
-                ) : (
+          <>
+            <div className="overflow-x-auto">
+              <table className="w-full text-left border-collapse min-w-[900px]">
+                <thead className="bg-[#1a2b4b]">
                   <tr>
-                    <td colSpan={9} className="p-8 text-center text-slate-500">
-                      <div className="flex flex-col items-center gap-2">
-                        <p className="text-sm">Không có dữ liệu trong bảng nhan_su</p>
-                        <p className="text-xs text-slate-400">Vui lòng thêm nhân viên mới hoặc kiểm tra kết nối database</p>
+                    <th className="px-6 py-4 text-xs font-bold text-[#8293b8] uppercase tracking-wider">
+                      Họ tên &amp; Ảnh
+                    </th>
+                    <th className="px-6 py-4 text-xs font-bold text-[#8293b8] uppercase tracking-wider">
+                      Phòng ban
+                    </th>
+                    <th className="px-6 py-4 text-xs font-bold text-[#8293b8] uppercase tracking-wider">
+                      Chức vụ
+                    </th>
+                    <th className="px-6 py-4 text-xs font-bold text-[#8293b8] uppercase tracking-wider">
+                      Email
+                    </th>
+                    <th className="px-6 py-4 text-xs font-bold text-[#8293b8] uppercase tracking-wider">
+                      Số điện thoại
+                    </th>
+                    <th className="px-6 py-4 text-xs font-bold text-[#8293b8] uppercase tracking-wider text-center">
+                      Trạng thái
+                    </th>
+                    <th className="px-6 py-4 text-xs font-bold text-[#8293b8] uppercase tracking-wider text-right">
+                      Thao tác
+                    </th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-[#c5c6cf]/10">
+                  {currentEmployees.length > 0 ? (
+                    currentEmployees.map((employee, index) => {
+                      const avatarUrl = (employee as any).anh_nhan_su || employee.anh_nhan_su;
+                      const name =
+                        employee.full_name ||
+                        employee.name ||
+                        employee.hoTen ||
+                        (employee as any).ho_ten ||
+                        '(Trống)';
+                      const zebra = index % 2 === 1 ? 'bg-[#eff4ff]/40' : '';
+                      return (
+                        <tr
+                          key={employee.id}
+                          className={`hover:bg-[#dce9ff]/60 transition-colors group ${zebra}`}
+                        >
+                          <td className="px-6 py-5 align-middle">
+                            <div className="flex items-center gap-4 min-w-[14rem]">
+                              <div className="relative h-[4.5rem] w-[4.5rem] sm:h-[5rem] sm:w-[5rem] shrink-0 rounded-full bg-gradient-to-br from-[#d8e2ff] via-[#b6c6ef] to-[#8293b8]/90 p-[3px] shadow-[0_8px_24px_rgba(3,22,53,0.14),0_2px_6px_rgba(3,22,53,0.06)]">
+                                <div className="h-full w-full rounded-full overflow-hidden bg-[#eff4ff] ring-[1.5px] ring-white/90">
+                                  {avatarUrl && String(avatarUrl).trim() !== '' ? (
+                                    <img
+                                      src={avatarUrl}
+                                      alt={name}
+                                      className="h-full w-full object-cover object-center scale-[1.02]"
+                                      loading="lazy"
+                                      decoding="async"
+                                      onError={(e) => {
+                                        (e.target as HTMLImageElement).src =
+                                          'https://ui-avatars.com/api/?background=1a2b4b&color=fff&size=256&bold=true&name=' +
+                                          encodeURIComponent(name);
+                                      }}
+                                    />
+                                  ) : (
+                                    <div className="h-full w-full flex items-center justify-center bg-gradient-to-br from-[#1a2b4b] to-[#031635] text-white text-xl font-bold tracking-tight">
+                                      {name.charAt(0).toUpperCase()}
+                                    </div>
+                                  )}
+                                </div>
+                              </div>
+                              <div className="min-w-0 flex flex-col justify-center">
+                                <span className="font-semibold text-[#0b1c30] text-[15px] sm:text-base leading-snug tracking-tight">
+                                  {name}
+                                </span>
+                              </div>
+                            </div>
+                          </td>
+                          <td className="px-6 py-4 text-sm text-[#44474e] font-medium">
+                            {employee.phongBan || employee.department || (employee as any).phong_ban || '—'}
+                          </td>
+                          <td className="px-6 py-4 text-sm text-[#44474e]">
+                            {(employee as any).chuc_vu || employee.chucVu || employee.position || '—'}
+                          </td>
+                          <td className="px-6 py-4 text-sm text-[#44474e] italic">
+                            {employee.email || '—'}
+                          </td>
+                          <td className="px-6 py-4 text-sm text-[#44474e]">
+                            {(employee as any).sdt_nhan_vien ||
+                              employee.sdtNhanVien ||
+                              employee.phone ||
+                              employee.dien_thoai ||
+                              '—'}
+                          </td>
+                          <td className="px-6 py-4 text-center">
+                            {getStatusBadge(employee.status || 'active')}
+                          </td>
+                          <td className="px-6 py-4 text-right">
+                            <div className="flex items-center justify-end gap-1">
+                              <button
+                                type="button"
+                                onClick={() => handleView(employee)}
+                                className="p-2 text-[#44474e] hover:text-[#031635] hover:bg-white rounded-lg transition-all"
+                                title="Xem"
+                              >
+                                <MIcon name="visibility" className="text-lg" />
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => handleEdit(employee.id)}
+                                className="p-2 text-[#44474e] hover:text-[#43617c] hover:bg-white rounded-lg transition-all"
+                                title="Sửa"
+                              >
+                                <MIcon name="edit" className="text-lg" />
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => handleDelete(employee.id)}
+                                className="p-2 text-[#44474e] hover:text-[#ba1a1a] hover:bg-white rounded-lg transition-all"
+                                title="Xóa"
+                              >
+                                <MIcon name="delete" className="text-lg" />
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                      );
+                    })
+                  ) : (
+                    <tr>
+                      <td colSpan={7} className="px-6 py-12 text-center text-[#44474e]">
+                        <p className="text-sm mb-2">Không có dữ liệu nhân sự</p>
                         <button
+                          type="button"
                           onClick={() => navigate('/nhan-su/them')}
-                          className="mt-2 px-4 py-2 text-sm bg-blue-600 text-white rounded-md hover:bg-blue-700 transition-colors"
+                          className="mt-2 px-5 py-2.5 text-sm font-semibold bg-gradient-to-br from-[#031635] to-[#1a2b4b] text-white rounded-lg shadow-md hover:brightness-110"
                         >
                           Thêm nhân viên đầu tiên
                         </button>
-                      </div>
-                    </td>
-                  </tr>
-                )}
-              </tbody>
-            </table>
-          </div>
-        )}
-
-        {/* Pagination */}
-        {!loading && !error && (
-          <div className="px-4 md:px-6 py-3 border-t border-slate-200 flex items-center justify-between bg-slate-50/50">
-            <div className="flex items-center gap-2 text-sm text-slate-600">
-              <span className="font-semibold">{filteredEmployees.length}</span> bản ghi
-              <div className="h-4 w-px bg-slate-300 mx-2"></div>
-              <select
-                className="bg-white border border-slate-200 rounded px-2 py-1 text-xs focus:outline-none focus:border-blue-500"
-                defaultValue={itemsPerPage}
-              >
-                <option value={10}>10</option>
-                <option value={20}>20</option>
-                <option value={50}>50</option>
-                <option value={100}>100</option>
-              </select>
-              <span>/ trang</span>
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
             </div>
 
-            <div className="flex items-center gap-1">
-              <button
-                onClick={() => setCurrentPage(1)}
-                disabled={currentPage === 1}
-                className="p-1.5 rounded hover:bg-slate-200 text-slate-400 disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                <ChevronsLeft size={16} />
-              </button>
-              <button
-                onClick={() => setCurrentPage(prev => Math.max(1, prev - 1))}
-                disabled={currentPage === 1}
-                className="p-1.5 rounded hover:bg-slate-200 text-slate-400 disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                <ChevronLeft size={16} />
-              </button>
-              <span className="px-3 py-1 text-sm text-slate-600">
-                Trang {currentPage} / {totalPages || 1}
-              </span>
-              <button
-                onClick={() => setCurrentPage(prev => Math.min(totalPages, prev + 1))}
-                disabled={currentPage >= totalPages}
-                className="p-1.5 rounded hover:bg-slate-200 text-slate-400 disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                <ChevronRight size={16} />
-              </button>
-              <button
-                onClick={() => setCurrentPage(totalPages)}
-                disabled={currentPage >= totalPages}
-                className="p-1.5 rounded hover:bg-slate-200 text-slate-400 disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                <ChevronsRight size={16} />
-              </button>
+            <div className="px-6 py-4 bg-[#eff4ff]/50 flex flex-col sm:flex-row items-center justify-between gap-4 border-t border-[#c5c6cf]/10">
+              <div className="flex flex-wrap items-center gap-6 text-sm text-[#44474e]">
+                <span className="font-medium">
+                  Tổng cộng:{' '}
+                  <span className="text-[#031635] font-bold">{filteredEmployees.length}</span> bản ghi
+                </span>
+                <div className="flex items-center gap-2">
+                  <span>Hiển thị</span>
+                  <select
+                    value={itemsPerPage}
+                    onChange={(e) => {
+                      setItemsPerPage(Number(e.target.value));
+                      setCurrentPage(1);
+                    }}
+                    className="bg-white border border-[#c5c6cf]/30 rounded px-2 py-1 text-xs text-[#0b1c30] focus:ring-1 focus:ring-[#031635] outline-none"
+                  >
+                    <option value={10}>10 bản ghi</option>
+                    <option value={20}>20 bản ghi</option>
+                    <option value={50}>50 bản ghi</option>
+                    <option value={100}>100 bản ghi</option>
+                  </select>
+                </div>
+              </div>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => setCurrentPage(1)}
+                  disabled={currentPage === 1}
+                  className="h-8 w-8 flex items-center justify-center rounded-lg border border-[#c5c6cf]/30 hover:bg-white text-[#44474e] transition-colors disabled:opacity-40"
+                >
+                  <MIcon name="first_page" className="text-sm" />
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
+                  disabled={currentPage === 1}
+                  className="h-8 w-8 flex items-center justify-center rounded-lg border border-[#c5c6cf]/30 hover:bg-white text-[#44474e] transition-colors disabled:opacity-40"
+                >
+                  <MIcon name="chevron_left" className="text-sm" />
+                </button>
+                <div className="flex items-center gap-1">
+                  {pageItems.map((item, idx) =>
+                    item === 'ellipsis' ? (
+                      <span key={`e-${idx}`} className="px-1 text-[#44474e]">
+                        ...
+                      </span>
+                    ) : (
+                      <button
+                        key={item}
+                        type="button"
+                        onClick={() => setCurrentPage(item)}
+                        className={`h-8 w-8 flex items-center justify-center rounded-lg text-xs font-bold transition-colors ${
+                          currentPage === item
+                            ? 'bg-[#031635] text-white shadow-md shadow-[#031635]/20'
+                            : 'hover:bg-white text-[#44474e]'
+                        }`}
+                      >
+                        {item}
+                      </button>
+                    ),
+                  )}
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
+                  disabled={currentPage >= totalPages}
+                  className="h-8 w-8 flex items-center justify-center rounded-lg border border-[#c5c6cf]/30 hover:bg-white text-[#44474e] transition-colors disabled:opacity-40"
+                >
+                  <MIcon name="chevron_right" className="text-sm" />
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setCurrentPage(totalPages)}
+                  disabled={currentPage >= totalPages}
+                  className="h-8 w-8 flex items-center justify-center rounded-lg border border-[#c5c6cf]/30 hover:bg-white text-[#44474e] transition-colors disabled:opacity-40"
+                >
+                  <MIcon name="last_page" className="text-sm" />
+                </button>
+              </div>
             </div>
-          </div>
+          </>
         )}
       </div>
 
+      {/* Bento stats */}
+      <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
+        <div className="p-6 bg-white rounded-xl shadow-sm border border-[#c5c6cf]/15 flex flex-col justify-between">
+          <div>
+            <p className="text-xs font-bold text-[#44474e]/60 uppercase tracking-widest mb-1">
+              Mới trong tháng
+            </p>
+            <h4 className="text-2xl font-extrabold text-[#031635] [font-family:Manrope,system-ui,sans-serif]">
+              +{stats.newThisMonth}
+            </h4>
+          </div>
+          <div className="mt-4 flex items-center gap-2 text-[10px] text-[#2ca397] font-bold px-2 py-0.5 bg-[#00322d]/10 w-fit rounded-full">
+            <MIcon name="trending_up" className="text-xs" />
+            {stats.pctVsPrev}% So với tháng trước
+          </div>
+        </div>
+        <div className="p-6 bg-white rounded-xl shadow-sm border border-[#c5c6cf]/15 flex flex-col justify-between">
+          <div>
+            <p className="text-xs font-bold text-[#44474e]/60 uppercase tracking-widest mb-1">
+              Đang làm việc
+            </p>
+            <h4 className="text-2xl font-extrabold text-[#031635] [font-family:Manrope,system-ui,sans-serif]">
+              {stats.workingCount}
+            </h4>
+          </div>
+          <p className="mt-4 text-[10px] text-[#44474e] font-medium">
+            {stats.participation}% tỷ lệ tham gia
+          </p>
+        </div>
+        <div className="p-6 bg-white rounded-xl shadow-sm border border-[#c5c6cf]/15 flex flex-col justify-between">
+          <div>
+            <p className="text-xs font-bold text-[#44474e]/60 uppercase tracking-widest mb-1">
+              Nghỉ phép/Lễ
+            </p>
+            <h4 className="text-2xl font-extrabold text-[#43617c] [font-family:Manrope,system-ui,sans-serif]">
+              {String(stats.leaveCount).padStart(2, '0')}
+            </h4>
+          </div>
+          <div className="mt-4 flex items-center gap-2 text-[10px] text-[#46647e] font-bold px-2 py-0.5 bg-[#c1e0ff]/40 w-fit rounded-full">
+            <MIcon name="event_available" className="text-xs" />
+            Hôm nay
+          </div>
+        </div>
+        <div className="p-6 bg-[#031635] text-white rounded-xl shadow-lg shadow-[#031635]/20 flex flex-col justify-between overflow-hidden relative">
+          <div className="relative z-10">
+            <p className="text-xs font-bold text-white/60 uppercase tracking-widest mb-1">
+              Đánh giá trung bình
+            </p>
+            <h4 className="text-2xl font-extrabold [font-family:Manrope,system-ui,sans-serif]">4.8 / 5.0</h4>
+          </div>
+          <div className="relative z-10 mt-4 flex items-center gap-0.5">
+            <MIcon name="star" className="text-xs text-[#89f5e7]" style={{ fontVariationSettings: "'FILL' 1" }} />
+            <MIcon name="star" className="text-xs text-[#89f5e7]" style={{ fontVariationSettings: "'FILL' 1" }} />
+            <MIcon name="star" className="text-xs text-[#89f5e7]" style={{ fontVariationSettings: "'FILL' 1" }} />
+            <MIcon name="star" className="text-xs text-[#89f5e7]" style={{ fontVariationSettings: "'FILL' 1" }} />
+            <MIcon name="star_half" className="text-xs text-[#89f5e7]" />
+          </div>
+          <div className="absolute -right-4 -bottom-4 w-24 h-24 bg-white/5 rounded-full blur-2xl pointer-events-none" />
+        </div>
+      </div>
+
+      <button
+        type="button"
+        onClick={() => navigate('/nhan-su/them')}
+        className="fixed bottom-8 right-8 h-14 w-14 bg-[#031635] text-white rounded-full shadow-2xl flex items-center justify-center hover:scale-110 active:scale-95 transition-all z-40"
+        aria-label="Thêm nhân viên"
+      >
+        <MIcon name="add" className="text-3xl" />
+      </button>
     </div>
   );
 }

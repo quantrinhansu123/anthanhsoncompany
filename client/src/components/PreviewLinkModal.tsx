@@ -43,7 +43,7 @@ export function PreviewLinkModal({
       }}
     >
       <div
-        className="bg-white rounded-2xl shadow-2xl w-full max-w-6xl max-h-[min(92vh,920px)] flex flex-col overflow-hidden border border-slate-200"
+        className="bg-white rounded-2xl shadow-2xl w-full max-w-[96vw] max-h-[96vh] flex flex-col overflow-hidden border border-slate-200"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="px-4 py-3 border-b border-slate-200 flex items-center justify-between gap-3 shrink-0 bg-slate-50">
@@ -69,7 +69,7 @@ export function PreviewLinkModal({
             </button>
           </div>
         </div>
-        <div className="flex-1 min-h-[50vh] max-h-[calc(92vh-4rem)] bg-slate-200/80 overflow-hidden flex flex-col">
+        <div className="flex-1 min-h-[60vh] max-h-[calc(96vh-4rem)] bg-slate-200/80 overflow-hidden flex flex-col">
           {mode === 'img' && !imgFailed ? (
             <div className="flex-1 flex items-center justify-center p-4 overflow-auto">
               <img

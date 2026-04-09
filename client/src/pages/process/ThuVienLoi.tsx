@@ -458,14 +458,17 @@ export function ThuVienLoi() {
 
     return (
         <>
-            <div className="animate-in fade-in slide-in-from-bottom-4 duration-500 pb-10">
+            <div className="bg-[#faf8ff] text-[#131b2e] min-h-screen animate-in fade-in duration-500 p-6 md:p-8 space-y-6 overflow-hidden">
                 {toast && <Toast message={toast.message} type={toast.type} onClose={() => setToast(null)} />}
 
-                {/* Header */}
-                <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-6">
-                    <div>
-                        <h1 className="text-xl font-bold text-slate-800 uppercase tracking-tight">Thư viện lỗi Checklist</h1>
-                        <p className="text-sm text-slate-500">Quản lý các lỗi thường gặp và định nghĩa mức độ quan trọng</p>
+                {/* Header Section */}
+                <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+                    <div className="mb-2">
+                        <h1 className="text-3xl font-extrabold tracking-tight mb-1">THƯ VIỆN LỖI CHECKLIST</h1>
+                        <p className="text-sm text-slate-600 flex items-center gap-2">
+                            <Info className="w-4 h-4 text-blue-600" />
+                            Quản lý các lỗi thường gặp và định nghĩa mức độ quan trọng
+                        </p>
                     </div>
                     <div className="flex flex-wrap items-center gap-2">
                         <ExcelImportExportBar
@@ -511,39 +514,33 @@ export function ThuVienLoi() {
                             }}
                             onDone={() => setReloadKey((k) => k + 1)}
                         />
-                        <button
-                            onClick={exportToCSV}
-                            className="flex items-center gap-2 px-4 py-2 bg-white border border-slate-200 rounded-lg text-sm font-medium text-slate-700 hover:bg-slate-50 transition-colors shadow-sm"
-                        >
+                        <button onClick={exportToCSV} className="px-4 py-2 text-sm font-medium bg-white border border-slate-200 rounded-lg hover:bg-slate-50 flex items-center gap-2">
                             <Download size={16} />
                             Xuất file
                         </button>
-                        <button
-                            onClick={handleAdd}
-                            className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-bold hover:bg-blue-700 transition-all shadow-md shadow-blue-500/20 active:scale-95"
-                        >
+                        <button onClick={handleAdd} className="px-5 py-2 text-sm font-semibold text-white bg-[#004bcb] rounded-lg hover:opacity-90 transition-all flex items-center gap-2 shadow-lg shadow-blue-200">
                             <Plus size={18} />
                             Thêm lỗi mới
                         </button>
                     </div>
                 </div>
 
-                {/* Filters Row */}
-                <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-sm mb-6 flex flex-wrap items-center gap-4">
-                    <div className="relative flex-1 min-w-[240px]">
-                        <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
+                {/* Filter Bar */}
+                <div className="grid grid-cols-12 gap-4 bg-[#f2f3ff] p-4 rounded-xl items-center border border-slate-200">
+                    <div className="col-span-12 md:col-span-4 relative">
+                        <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
                         <input
                             type="text"
                             placeholder="Tìm theo nội dung, mã checklist..."
-                            className="w-full pl-9 pr-4 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all"
+                            className="w-full pl-10 pr-4 py-2.5 bg-white border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20"
                             value={searchTerm}
                             onChange={(e) => setSearchTerm(e.target.value)}
                         />
                     </div>
-                    <div className="flex items-center gap-2">
-                        <Filter size={16} className="text-slate-400" />
+                    <div className="col-span-6 md:col-span-4 flex items-center gap-2">
+                        <Filter size={18} className="text-slate-400" />
                         <select
-                            className="bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-500"
+                            className="bg-white border border-slate-200 rounded-lg px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20"
                             value={filterChuyenNganh}
                             onChange={(e) => setFilterChuyenNganh(e.target.value)}
                         >
@@ -553,7 +550,7 @@ export function ThuVienLoi() {
                             <option value="Giao thông">Giao thông</option>
                         </select>
                         <select
-                            className="bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-blue-500"
+                            className="bg-white border border-slate-200 rounded-lg px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20"
                             value={filterMucDo}
                             onChange={(e) => setFilterMucDo(e.target.value)}
                         >
@@ -563,6 +560,11 @@ export function ThuVienLoi() {
                             <option value="Cao">Cao</option>
                             <option value="Nghiêm trọng">Nghiêm trọng</option>
                         </select>
+                    </div>
+                    <div className="col-span-6 md:col-span-4 flex justify-end">
+                        <button className="p-2.5 bg-[#e2e7ff] rounded-lg text-slate-600 hover:bg-[#dae2fd] transition-all">
+                            <Filter size={18} />
+                        </button>
                     </div>
                 </div>
 

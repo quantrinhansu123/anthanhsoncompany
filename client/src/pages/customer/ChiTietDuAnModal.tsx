@@ -68,10 +68,14 @@ export function ChiTietDuAnModal({
     };
 
     return (
-        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/40 backdrop-blur-sm animate-in fade-in duration-200 p-4">
-            <div className="bg-[#FAF9FB] w-full max-w-3xl rounded-2xl shadow-2xl flex flex-col max-h-[85vh] overflow-hidden animate-in zoom-in-95 duration-200 border border-slate-200">
+        <div className="fixed inset-0 z-[60] flex items-start justify-center overflow-y-auto overscroll-y-contain bg-black/40 backdrop-blur-sm animate-in fade-in duration-200 p-4 sm:items-center">
+            <div
+                role="dialog"
+                aria-modal="true"
+                className="bg-[#FAF9FB] w-full max-w-3xl rounded-2xl shadow-2xl flex flex-col min-h-0 max-h-[min(85vh,100dvh)] my-4 sm:my-0 overflow-hidden animate-in zoom-in-95 duration-200 border border-slate-200"
+            >
                 {/* Modal Header */}
-                <div className="px-6 py-5 flex justify-between items-center bg-white border-b border-slate-100">
+                <div className="px-6 py-5 flex justify-between items-center bg-white border-b border-slate-100 shrink-0">
                     <div>
                         <h2 className="text-xl font-bold text-slate-800">Chi tiết dự án</h2>
                         <p className="text-sm text-slate-500 mt-1">{project.projectName}</p>
@@ -85,7 +89,7 @@ export function ChiTietDuAnModal({
                 </div>
 
                 {/* Tabs Navigation */}
-                <div className="bg-white px-6">
+                <div className="bg-white px-6 shrink-0">
                     <nav className="flex gap-8" aria-label="Tabs">
                         {[
                             { id: 'info', label: 'Thông tin dự án' },
@@ -110,7 +114,7 @@ export function ChiTietDuAnModal({
                 </div>
 
                 {/* Modal Body */}
-                <div className="flex-1 overflow-y-auto p-6 bg-slate-50/50">
+                <div className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden p-6 bg-slate-50/50 touch-pan-y">
                     {activeTab === 'info' && (
                         <div className="bg-white border text-sm text-slate-700 border-slate-200 shadow-sm rounded-2xl overflow-hidden animate-in fade-in slide-in-from-bottom-2 duration-300">
                             {[
@@ -314,7 +318,7 @@ export function ChiTietDuAnModal({
                 </div>
 
                 {/* Modal Footer */}
-                <div className="px-6 py-5 border-t border-slate-100 bg-white flex justify-end">
+                <div className="px-6 py-5 border-t border-slate-100 bg-white flex justify-end shrink-0">
                     <button
                         onClick={onClose}
                         className="px-6 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold rounded-xl text-sm transition-all"

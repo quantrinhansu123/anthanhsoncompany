@@ -32,27 +32,38 @@ export const projectService = {
   },
 
   async create(payload: any): Promise<Project | null> {
-    // Transform payload to server format if needed
+    const tenDuAn = String(payload.projectName ?? payload.ten_du_an ?? '')
+      .trim();
+    if (!tenDuAn) {
+      throw new Error('Tên dự án không được để trống.');
+    }
     const insertData: any = {
-      ten_du_an: payload.projectName || payload.ten_du_an,
-      status: payload.status,
+      ten_du_an: tenDuAn,
+      status: payload.status ?? 'Đang thực hiện',
       progress: payload.progress ?? 0,
       manager_ids: payload.managerIds || payload.manager_ids || [],
       executor_ids: payload.executorIds || payload.executor_ids || [],
-      manager_id: payload.managerId || payload.manager_id || null,
-      executor_id: payload.executorId || payload.executor_id || null,
-      customer_id: payload.customerId || payload.customer_id || null,
-      ten_khach_hang: payload.tenKhachHang || payload.ten_khach_hang || null,
-      manager_img: payload.managerImg || payload.manager_img || null,
-      executor_img: payload.executorImg || payload.executor_img || null,
+      manager_id: payload.managerId ?? payload.manager_id ?? null,
+      executor_id: payload.executorId ?? payload.executor_id ?? null,
+      customer_id: payload.customerId ?? payload.customer_id ?? null,
+      ten_khach_hang: payload.tenKhachHang ?? payload.ten_khach_hang ?? null,
+      manager_img: payload.managerImg ?? payload.manager_img ?? null,
+      executor_img: payload.executorImg ?? payload.executor_img ?? null,
     };
     return api.post('/projects', insertData);
   },
 
   async update(id: string, payload: any): Promise<Project | null> {
     const updateData: any = {};
-    if (payload.projectName !== undefined) updateData.ten_du_an = payload.projectName;
-    if (payload.ten_du_an !== undefined) updateData.ten_du_an = payload.ten_du_an;
+    if (payload.projectName !== undefined || payload.ten_du_an !== undefined) {
+      const tenDuAn = String(
+        payload.projectName !== undefined ? payload.projectName : payload.ten_du_an,
+      ).trim();
+      if (!tenDuAn) {
+        throw new Error('Tên dự án không được để trống.');
+      }
+      updateData.ten_du_an = tenDuAn;
+    }
     if (payload.status !== undefined) updateData.status = payload.status;
     if (payload.progress !== undefined) updateData.progress = payload.progress;
     if (payload.customerId !== undefined) updateData.customer_id = payload.customerId || null;

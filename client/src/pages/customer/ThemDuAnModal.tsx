@@ -1,7 +1,12 @@
-import React, { useState, useEffect } from 'react';
-import { X, ChevronDown, User, Plus, Search } from 'lucide-react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
+import { ChevronDown, User, Plus, Search } from 'lucide-react';
 import { customerService, Customer } from '../../lib/services/customerService';
 import { employeeService } from '../../lib/services/employeeService';
+
+/** Tiêu đề dự án mặc định (vựa rau chuyển đổi số) — dùng cho phần header và placeholder tên dự án */
+const DEFAULT_DU_AN_TITLE = 'Dự án vựa rau chuyển đổi số';
+
+type EmpRow = { id: string; full_name: string; code: string; anh_nhan_su?: string | null };
 
 interface Props {
     isOpen: boolean;
@@ -24,10 +29,79 @@ export function ThemDuAnModal({ isOpen, onClose, onSave, initialData }: Props) {
         executorIds: [] as string[],
     });
     const [customers, setCustomers] = useState<Customer[]>([]);
-    const [employees, setEmployees] = useState<Array<{ id: string; full_name: string; code: string; anh_nhan_su?: string | null }>>([]);
+    const [employees, setEmployees] = useState<EmpRow[]>([]);
     const [loadingCustomers, setLoadingCustomers] = useState(false);
     const [loadingEmployees, setLoadingEmployees] = useState(false);
     const [customerError, setCustomerError] = useState('');
+
+    const [managerPickerOpen, setManagerPickerOpen] = useState(false);
+    const [executorPickerOpen, setExecutorPickerOpen] = useState(false);
+    const [managerSearch, setManagerSearch] = useState('');
+    const [executorSearch, setExecutorSearch] = useState('');
+    const managerPickerRef = useRef<HTMLDivElement>(null);
+    const executorPickerRef = useRef<HTMLDivElement>(null);
+    const managerSearchRef = useRef<HTMLInputElement>(null);
+    const executorSearchRef = useRef<HTMLInputElement>(null);
+
+    const employeesMatchingManager = useMemo(() => {
+        const q = managerSearch.trim().toLowerCase();
+        if (!q) return employees;
+        return employees.filter(
+            (e) =>
+                (e.full_name || '').toLowerCase().includes(q) ||
+                (e.code || '').toLowerCase().includes(q),
+        );
+    }, [employees, managerSearch]);
+
+    const employeesMatchingExecutor = useMemo(() => {
+        const q = executorSearch.trim().toLowerCase();
+        if (!q) return employees;
+        return employees.filter(
+            (e) =>
+                (e.full_name || '').toLowerCase().includes(q) ||
+                (e.code || '').toLowerCase().includes(q),
+        );
+    }, [employees, executorSearch]);
+
+    useEffect(() => {
+        if (!managerPickerOpen) {
+            setManagerSearch('');
+            return;
+        }
+        const t = window.setTimeout(() => managerSearchRef.current?.focus(), 0);
+        return () => window.clearTimeout(t);
+    }, [managerPickerOpen]);
+
+    useEffect(() => {
+        if (!executorPickerOpen) {
+            setExecutorSearch('');
+            return;
+        }
+        const t = window.setTimeout(() => executorSearchRef.current?.focus(), 0);
+        return () => window.clearTimeout(t);
+    }, [executorPickerOpen]);
+
+    useEffect(() => {
+        if (!managerPickerOpen) return;
+        const onDown = (e: MouseEvent) => {
+            const el = e.target as HTMLElement;
+            if (managerPickerRef.current?.contains(el)) return;
+            setManagerPickerOpen(false);
+        };
+        document.addEventListener('mousedown', onDown);
+        return () => document.removeEventListener('mousedown', onDown);
+    }, [managerPickerOpen]);
+
+    useEffect(() => {
+        if (!executorPickerOpen) return;
+        const onDown = (e: MouseEvent) => {
+            const el = e.target as HTMLElement;
+            if (executorPickerRef.current?.contains(el)) return;
+            setExecutorPickerOpen(false);
+        };
+        document.addEventListener('mousedown', onDown);
+        return () => document.removeEventListener('mousedown', onDown);
+    }, [executorPickerOpen]);
 
     // Load danh sách khách hàng và nhân sự từ database
     useEffect(() => {
@@ -199,18 +273,33 @@ export function ThemDuAnModal({ isOpen, onClose, onSave, initialData }: Props) {
     };
 
     return (
-        <div className="fixed inset-0 z-[70] flex items-center justify-center p-4 sm:p-6 bg-black/50 modal-overlay backdrop-blur-sm">
-            <div className="bg-white rounded-2xl shadow-2xl w-full max-w-4xl flex flex-col max-h-[90vh] overflow-hidden animate-in fade-in zoom-in-95 duration-300">
-                <div className="flex items-center justify-between px-6 py-5 border-b border-slate-100 bg-white/80 backdrop-blur-md shrink-0">
+        <div className="fixed inset-0 z-[70] flex items-start justify-center overflow-y-auto overscroll-y-contain p-4 sm:p-6 sm:items-center bg-black/50 modal-overlay backdrop-blur-sm">
+            <div
+                role="dialog"
+                aria-modal="true"
+                className="bg-white rounded-2xl shadow-2xl w-full max-w-4xl flex flex-col min-h-0 max-h-[min(90vh,100dvh)] my-4 sm:my-0 overflow-hidden animate-in fade-in zoom-in-95 duration-300"
+            >
+                <div className="flex flex-wrap items-center justify-between gap-3 px-6 py-5 border-b border-slate-100 bg-white/80 backdrop-blur-md shrink-0">
                     <div className="flex items-center gap-4 flex-1 min-w-0 pr-4">
                         <div className="w-10 h-10 bg-blue-50 rounded-xl flex items-center justify-center text-blue-600 shrink-0">
                             <Plus size={22} />
                         </div>
                         <div className="min-w-0">
-                            <h2 className="text-lg font-bold text-slate-800 truncate leading-tight">
-                                {initialData ? (formData.projectName || 'Chỉnh sửa dự án') : 'Khởi tạo dự án mới'}
-                            </h2>
-                            <p className="text-xs text-slate-500 truncate">Vui lòng điền đầy đủ các thông tin cần thiết</p>
+                            {initialData ? (
+                                <>
+                                    <h2 className="text-lg font-bold text-slate-800 truncate leading-tight">
+                                        {formData.projectName || 'Chỉnh sửa dự án'}
+                                    </h2>
+                                    <p className="text-xs text-slate-500 truncate">Cập nhật thông tin dự án</p>
+                                </>
+                            ) : (
+                                <>
+                                    <h2 className="text-lg font-bold text-slate-800 truncate leading-tight">
+                                        {DEFAULT_DU_AN_TITLE}
+                                    </h2>
+                                    <p className="text-xs text-slate-500 truncate">Thêm mới dự án — điền thông tin bên dưới</p>
+                                </>
+                            )}
                         </div>
                     </div>
                     <div className="flex items-center gap-3 shrink-0">
@@ -229,8 +318,8 @@ export function ThemDuAnModal({ isOpen, onClose, onSave, initialData }: Props) {
                     </div>
                 </div>
 
-                {/* Body */}
-                <div className="flex-1 overflow-y-auto p-8 custom-scrollbar">
+                {/* Body: min-h-0 để flex cho phép co — overflow-y-auto mới cuộn được */}
+                <div className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden p-6 sm:p-8 custom-scrollbar touch-pan-y">
                     <form className="max-w-2xl mx-auto space-y-5" onSubmit={handleSubmit}>
 
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-4">
@@ -266,13 +355,13 @@ export function ThemDuAnModal({ isOpen, onClose, onSave, initialData }: Props) {
 
                             {/* Tên dự án */}
                             <div className="space-y-1 md:col-span-2">
-                                <label className="text-[12px] font-bold text-slate-500 uppercase tracking-wider ml-1">Tên dự Án</label>
+                                <label className="text-[12px] font-bold text-slate-500 uppercase tracking-wider ml-1">Tên dự án</label>
                                 <input
                                     type="text"
                                     name="projectName"
                                     value={formData.projectName}
                                     onChange={handleChange}
-                                    placeholder="Ví dụ: Thiết kế Website Bán hàng..."
+                                    placeholder={DEFAULT_DU_AN_TITLE}
                                     className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500/10 focus:border-blue-500 focus:bg-white text-sm text-slate-800 placeholder-slate-400 transition-all hover:border-slate-300"
                                     required
                                 />
@@ -339,93 +428,215 @@ export function ThemDuAnModal({ isOpen, onClose, onSave, initialData }: Props) {
                             />
                         </div>
 
-                        {/* Người quản lý (chọn nhiều) */}
-                        <div className="space-y-1">
-                            <label className="text-[13px] text-slate-500">
-                                Người quản lý <span className="text-slate-400 font-normal">(có thể chọn nhiều)</span>
+                        {/* Người quản lý — dropdown đa chọn (sổ xuống, có tìm, cuộn) */}
+                        <div className="space-y-1.5">
+                            <label className="text-[12px] font-bold text-slate-500 uppercase tracking-wider ml-1">
+                                Người quản lý <span className="font-normal text-slate-400 normal-case">(chọn nhiều)</span>
                             </label>
-                            <div className="border border-slate-200 rounded-md p-3 max-h-40 overflow-y-auto bg-slate-50/50">
-                                {loadingEmployees ? (
-                                    <p className="text-sm text-slate-500">Đang tải...</p>
-                                ) : employees.length === 0 ? (
-                                    <p className="text-sm text-slate-500">Chưa có nhân sự</p>
-                                ) : (
-                                    <div className="space-y-1.5">
-                                        {employees.map((emp) => {
-                                            const sid = String(emp.id);
-                                            const checked = formData.managerIds.includes(sid);
-                                            return (
-                                                <label
-                                                    key={emp.id}
-                                                    className={`flex items-center gap-3 px-2 py-1.5 rounded cursor-pointer hover:bg-white transition-colors ${checked ? 'bg-blue-50' : ''}`}
-                                                >
-                                                    <input
-                                                        type="checkbox"
-                                                        checked={checked}
-                                                        onChange={() => togglePerson('manager', emp.id)}
-                                                        className="rounded border-slate-300 w-4 h-4 text-blue-600 focus:ring-blue-500"
-                                                    />
-                                                    {emp.anh_nhan_su ? (
-                                                        <img src={emp.anh_nhan_su} alt="" className="w-8 h-8 rounded-full object-cover border border-slate-200" />
-                                                    ) : (
-                                                        <div className="w-8 h-8 rounded-full bg-slate-200 flex items-center justify-center">
-                                                            <User size={14} className="text-slate-400" />
-                                                        </div>
-                                                    )}
-                                                    <span className="text-sm text-slate-800">{emp.full_name}</span>
-                                                </label>
-                                            );
-                                        })}
+                            <div className="relative" ref={managerPickerRef}>
+                                <button
+                                    type="button"
+                                    onClick={() => {
+                                        setManagerPickerOpen((o) => !o);
+                                        setExecutorPickerOpen(false);
+                                    }}
+                                    disabled={loadingEmployees || employees.length === 0}
+                                    className="w-full flex items-center justify-between gap-2 rounded-xl border border-slate-200 bg-slate-50 px-4 py-2.5 text-left text-sm font-medium text-slate-800 shadow-sm hover:bg-white hover:border-slate-300 focus:outline-none focus:ring-2 focus:ring-blue-500/20 disabled:cursor-not-allowed disabled:opacity-60"
+                                    aria-expanded={managerPickerOpen}
+                                    aria-haspopup="listbox"
+                                >
+                                    <span className="truncate min-w-0">
+                                        {loadingEmployees
+                                            ? 'Đang tải nhân sự…'
+                                            : employees.length === 0
+                                              ? 'Chưa có nhân sự'
+                                              : formData.managerIds.length === 0
+                                                ? 'Chọn người quản lý…'
+                                                : formData.managerIds.length === 1
+                                                  ? employees.find((e) => String(e.id) === formData.managerIds[0])
+                                                      ?.full_name || '1 người'
+                                                  : `${formData.managerIds.length} người đã chọn`}
+                                    </span>
+                                    <ChevronDown
+                                        className={`w-4 h-4 shrink-0 text-slate-500 ${managerPickerOpen ? 'rotate-180' : ''}`}
+                                        aria-hidden
+                                    />
+                                </button>
+                                {managerPickerOpen && !loadingEmployees && employees.length > 0 ? (
+                                    <div
+                                        className="absolute left-0 right-0 top-full z-50 mt-1 flex max-h-80 flex-col overflow-hidden rounded-xl border-2 border-slate-200 bg-white shadow-lg"
+                                        role="listbox"
+                                    >
+                                        <div className="shrink-0 border-b border-slate-100 bg-slate-50 p-2">
+                                            <div className="relative">
+                                                <Search
+                                                    size={14}
+                                                    className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400"
+                                                />
+                                                <input
+                                                    ref={managerSearchRef}
+                                                    type="search"
+                                                    value={managerSearch}
+                                                    onChange={(e) => setManagerSearch(e.target.value)}
+                                                    placeholder="Tìm theo tên hoặc mã NV…"
+                                                    autoComplete="off"
+                                                    className="w-full rounded-lg border border-slate-200 bg-white py-1.5 pl-8 pr-2 text-xs text-slate-900 placeholder:text-slate-400 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
+                                                />
+                                            </div>
+                                        </div>
+                                        <div className="max-h-[min(14rem,50vh)] min-h-0 overflow-y-auto py-1 [scrollbar-gutter:stable]">
+                                            {employeesMatchingManager.length === 0 ? (
+                                                <p className="px-3 py-2 text-xs text-slate-500">Không khớp tìm kiếm.</p>
+                                            ) : (
+                                                employeesMatchingManager.map((emp) => {
+                                                    const sid = String(emp.id);
+                                                    const checked = formData.managerIds.includes(sid);
+                                                    return (
+                                                        <label
+                                                            key={emp.id}
+                                                            className="flex cursor-pointer items-center gap-2 px-3 py-2 text-sm text-slate-800 hover:bg-slate-50"
+                                                        >
+                                                            <input
+                                                                type="checkbox"
+                                                                checked={checked}
+                                                                onChange={() => togglePerson('manager', emp.id)}
+                                                                className="h-4 w-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500"
+                                                            />
+                                                            {emp.anh_nhan_su ? (
+                                                                <img
+                                                                    src={emp.anh_nhan_su}
+                                                                    alt=""
+                                                                    className="h-8 w-8 shrink-0 rounded-full object-cover border border-slate-200"
+                                                                />
+                                                            ) : (
+                                                                <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-slate-200">
+                                                                    <User size={14} className="text-slate-400" />
+                                                                </div>
+                                                            )}
+                                                            <span className="min-w-0 break-words">{emp.full_name}</span>
+                                                            {emp.code ? (
+                                                                <span className="ml-auto shrink-0 text-[11px] text-slate-400">
+                                                                    {emp.code}
+                                                                </span>
+                                                            ) : null}
+                                                        </label>
+                                                    );
+                                                })
+                                            )}
+                                        </div>
                                     </div>
-                                )}
+                                ) : null}
                             </div>
                             {formData.managerIds.length > 0 && (
-                                <p className="text-xs text-slate-500">Đã chọn {formData.managerIds.length} người quản lý</p>
+                                <p className="text-xs text-slate-500 ml-1">
+                                    Đã chọn {formData.managerIds.length} người quản lý
+                                </p>
                             )}
                         </div>
 
-                        {/* Người thực thi (chọn nhiều) */}
-                        <div className="space-y-2">
-                            <label className="text-[13px] text-slate-500">
-                                Người thực thi <span className="text-slate-400 font-normal">(có thể chọn nhiều)</span>
+                        {/* Người thực thi — dropdown đa chọn */}
+                        <div className="space-y-1.5">
+                            <label className="text-[12px] font-bold text-slate-500 uppercase tracking-wider ml-1">
+                                Người thực thi <span className="font-normal text-slate-400 normal-case">(chọn nhiều)</span>
                             </label>
-                            <div className="border border-slate-200 rounded-md p-3 max-h-40 overflow-y-auto bg-slate-50/50">
-                                {loadingEmployees ? (
-                                    <p className="text-sm text-slate-500">Đang tải...</p>
-                                ) : employees.length === 0 ? (
-                                    <p className="text-sm text-slate-500">Chưa có nhân sự</p>
-                                ) : (
-                                    <div className="space-y-1.5">
-                                        {employees.map((emp) => {
-                                            const sid = String(emp.id);
-                                            const checked = formData.executorIds.includes(sid);
-                                            return (
-                                                <label
-                                                    key={emp.id}
-                                                    className={`flex items-center gap-3 px-2 py-1.5 rounded cursor-pointer hover:bg-white transition-colors ${checked ? 'bg-blue-50' : ''}`}
-                                                >
-                                                    <input
-                                                        type="checkbox"
-                                                        checked={checked}
-                                                        onChange={() => togglePerson('executor', emp.id)}
-                                                        className="rounded border-slate-300 w-4 h-4 text-blue-600 focus:ring-blue-500"
-                                                    />
-                                                    {emp.anh_nhan_su ? (
-                                                        <img src={emp.anh_nhan_su} alt="" className="w-8 h-8 rounded-full object-cover border border-slate-200" />
-                                                    ) : (
-                                                        <div className="w-8 h-8 rounded-full bg-slate-200 flex items-center justify-center">
-                                                            <User size={14} className="text-slate-400" />
-                                                        </div>
-                                                    )}
-                                                    <span className="text-sm text-slate-800">{emp.full_name}</span>
-                                                </label>
-                                            );
-                                        })}
+                            <div className="relative" ref={executorPickerRef}>
+                                <button
+                                    type="button"
+                                    onClick={() => {
+                                        setExecutorPickerOpen((o) => !o);
+                                        setManagerPickerOpen(false);
+                                    }}
+                                    disabled={loadingEmployees || employees.length === 0}
+                                    className="w-full flex items-center justify-between gap-2 rounded-xl border border-slate-200 bg-slate-50 px-4 py-2.5 text-left text-sm font-medium text-slate-800 shadow-sm hover:bg-white hover:border-slate-300 focus:outline-none focus:ring-2 focus:ring-blue-500/20 disabled:cursor-not-allowed disabled:opacity-60"
+                                    aria-expanded={executorPickerOpen}
+                                    aria-haspopup="listbox"
+                                >
+                                    <span className="truncate min-w-0">
+                                        {loadingEmployees
+                                            ? 'Đang tải nhân sự…'
+                                            : employees.length === 0
+                                              ? 'Chưa có nhân sự'
+                                              : formData.executorIds.length === 0
+                                                ? 'Chọn người thực thi…'
+                                                : formData.executorIds.length === 1
+                                                  ? employees.find((e) => String(e.id) === formData.executorIds[0])
+                                                      ?.full_name || '1 người'
+                                                  : `${formData.executorIds.length} người đã chọn`}
+                                    </span>
+                                    <ChevronDown
+                                        className={`w-4 h-4 shrink-0 text-slate-500 ${executorPickerOpen ? 'rotate-180' : ''}`}
+                                        aria-hidden
+                                    />
+                                </button>
+                                {executorPickerOpen && !loadingEmployees && employees.length > 0 ? (
+                                    <div
+                                        className="absolute left-0 right-0 top-full z-50 mt-1 flex max-h-80 flex-col overflow-hidden rounded-xl border-2 border-slate-200 bg-white shadow-lg"
+                                        role="listbox"
+                                    >
+                                        <div className="shrink-0 border-b border-slate-100 bg-slate-50 p-2">
+                                            <div className="relative">
+                                                <Search
+                                                    size={14}
+                                                    className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400"
+                                                />
+                                                <input
+                                                    ref={executorSearchRef}
+                                                    type="search"
+                                                    value={executorSearch}
+                                                    onChange={(e) => setExecutorSearch(e.target.value)}
+                                                    placeholder="Tìm theo tên hoặc mã NV…"
+                                                    autoComplete="off"
+                                                    className="w-full rounded-lg border border-slate-200 bg-white py-1.5 pl-8 pr-2 text-xs text-slate-900 placeholder:text-slate-400 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
+                                                />
+                                            </div>
+                                        </div>
+                                        <div className="max-h-[min(14rem,50vh)] min-h-0 overflow-y-auto py-1 [scrollbar-gutter:stable]">
+                                            {employeesMatchingExecutor.length === 0 ? (
+                                                <p className="px-3 py-2 text-xs text-slate-500">Không khớp tìm kiếm.</p>
+                                            ) : (
+                                                employeesMatchingExecutor.map((emp) => {
+                                                    const sid = String(emp.id);
+                                                    const checked = formData.executorIds.includes(sid);
+                                                    return (
+                                                        <label
+                                                            key={emp.id}
+                                                            className="flex cursor-pointer items-center gap-2 px-3 py-2 text-sm text-slate-800 hover:bg-slate-50"
+                                                        >
+                                                            <input
+                                                                type="checkbox"
+                                                                checked={checked}
+                                                                onChange={() => togglePerson('executor', emp.id)}
+                                                                className="h-4 w-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500"
+                                                            />
+                                                            {emp.anh_nhan_su ? (
+                                                                <img
+                                                                    src={emp.anh_nhan_su}
+                                                                    alt=""
+                                                                    className="h-8 w-8 shrink-0 rounded-full object-cover border border-slate-200"
+                                                                />
+                                                            ) : (
+                                                                <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-slate-200">
+                                                                    <User size={14} className="text-slate-400" />
+                                                                </div>
+                                                            )}
+                                                            <span className="min-w-0 break-words">{emp.full_name}</span>
+                                                            {emp.code ? (
+                                                                <span className="ml-auto shrink-0 text-[11px] text-slate-400">
+                                                                    {emp.code}
+                                                                </span>
+                                                            ) : null}
+                                                        </label>
+                                                    );
+                                                })
+                                            )}
+                                        </div>
                                     </div>
-                                )}
+                                ) : null}
                             </div>
                             {formData.executorIds.length > 0 && (
-                                <p className="text-xs text-slate-500">Đã chọn {formData.executorIds.length} người thực thi</p>
+                                <p className="text-xs text-slate-500 ml-1">
+                                    Đã chọn {formData.executorIds.length} người thực thi
+                                </p>
                             )}
                         </div>
 

@@ -1372,11 +1372,22 @@ export const taskDetailService = {
 
   // Xóa công việc theo "task id" logic (task_id hoặc id)
   async deleteByTaskId(taskId: string): Promise<void> {
+    const detail = await this.findDetailByIdOrTaskId(taskId);
+    if (detail) {
+      const { error } = await supabase
+        .from('cong_viec_chi_tiet')
+        .delete()
+        .eq('id', detail.id);
+      if (error) {
+        console.error('[taskDetailService] Error deleting detail by id:', error);
+        throw error;
+      }
+      return;
+    }
     const { error } = await supabase
       .from('cong_viec_chi_tiet')
       .delete()
       .or(`task_id.eq.${taskId},id.eq.${taskId}`);
-
     if (error) {
       console.error('[taskDetailService] Error deleting detail by taskId:', error);
       throw error;

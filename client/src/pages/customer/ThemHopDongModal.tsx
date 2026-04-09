@@ -1,9 +1,11 @@
 import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
+import { createPortal } from 'react-dom';
 import { X, User, FileText, Link as LinkIcon, ExternalLink, Trash2, Plus, Info, ChevronDown } from 'lucide-react';
 import { contractService, ContractFile, type ContractRow } from '../../lib/services/contractService';
 import type { NguongChiNhanSuLoai } from '../../lib/nguongChiNhanSu';
 import { normalizeNguongLoai, tienQuyDoiNguongChiNhanSu } from '../../lib/nguongChiNhanSu';
 import { projectService } from '../../lib/services/projectService';
+import { customerService } from '../../lib/services/customerService';
 import { employeeService } from '../../lib/services/employeeService';
 import { thuChiService } from '../../lib/services/thuChiService';
 import { PreviewLinkModal } from '../../components/PreviewLinkModal';
@@ -77,7 +79,8 @@ const FILE_TYPES = [
 
 export function ThemHopDongModal({ isOpen, onClose, editData, contractCreatePrefill = null, onSuccess }: ThemHopDongModalProps) {
     const [projects, setProjects] = useState<Array<{ id: string; ten_du_an: string; customer_id?: string | null }>>([]);
-    const [employees, setEmployees] = useState<Array<{ id: string; full_name: string; code: string; anh_nhan_su?: string; position?: string }>>([]);
+    const [customers, setCustomers] = useState<Array<{ id: string; ten_don_vi: string }>>([]);
+    const [employees, setEmployees] = useState<Array<{ id: string; full_name: string; anh_nhan_su?: string }>>([]);
     const [loaiDichVuOptions, setLoaiDichVuOptions] = useState<string[]>([]);
     const [isSaving, setIsSaving] = useState(false);
     const [contractFiles, setContractFiles] = useState<ContractFile[]>([]);
@@ -85,15 +88,53 @@ export function ThemHopDongModal({ isOpen, onClose, editData, contractCreatePref
     const [fileLink, setFileLink] = useState<string>('');
     const [isAddingLink, setIsAddingLink] = useState(false);
     const [openNhanSuDropdown, setOpenNhanSuDropdown] = useState(false);
-    const nhanSuDropdownRef = useRef<HTMLDivElement | null>(null);
+    const [nhanSuSearch, setNhanSuSearch] = useState('');
+    const [nhanSuDdRect, setNhanSuDdRect] = useState({ top: 0, left: 0, width: 0 });
+    const nhanSuTriggerRef = useRef<HTMLButtonElement | null>(null);
+    const nhanSuPanelRef = useRef<HTMLDivElement | null>(null);
     const [showAddLoaiDichVuModal, setShowAddLoaiDichVuModal] = useState(false);
     const [newLoaiDichVuValue, setNewLoaiDichVuValue] = useState('');
     const [previewUrl, setPreviewUrl] = useState<string | null>(null);
     const [projectSearch, setProjectSearch] = useState('');
+    const [customerSearch, setCustomerSearch] = useState('');
 
     useEffect(() => {
         if (!isOpen) setPreviewUrl(null);
     }, [isOpen]);
+
+    useEffect(() => {
+        if (!isOpen) {
+            setOpenNhanSuDropdown(false);
+            setNhanSuSearch('');
+        }
+    }, [isOpen]);
+
+    const updateNhanSuDropdownRect = useCallback(() => {
+        const el = nhanSuTriggerRef.current;
+        if (!el) return;
+        const r = el.getBoundingClientRect();
+        setNhanSuDdRect({ top: r.bottom + 6, left: r.left, width: Math.max(r.width, 280) });
+    }, []);
+
+    useEffect(() => {
+        if (!openNhanSuDropdown) return;
+        updateNhanSuDropdownRect();
+        const onResize = () => updateNhanSuDropdownRect();
+        window.addEventListener('resize', onResize);
+        return () => window.removeEventListener('resize', onResize);
+    }, [openNhanSuDropdown, updateNhanSuDropdownRect]);
+
+    useEffect(() => {
+        if (!openNhanSuDropdown) return;
+        const onDown = (e: MouseEvent) => {
+            const t = e.target as Node;
+            if (nhanSuTriggerRef.current?.contains(t)) return;
+            if (nhanSuPanelRef.current?.contains(t)) return;
+            setOpenNhanSuDropdown(false);
+        };
+        document.addEventListener('mousedown', onDown);
+        return () => document.removeEventListener('mousedown', onDown);
+    }, [openNhanSuDropdown]);
 
     const [formData, setFormData] = useState({
         soHopDong: '',
@@ -104,6 +145,7 @@ export function ThemHopDongModal({ isOpen, onClose, editData, contractCreatePref
         giaTriQT: '0',
         nguongChiNhanSuLoai: 'tien' as NguongChiNhanSuLoai,
         nguongChiNhanSu: '0',
+        customerId: '',
         projectId: '',
         nhanSuIds: [] as string[],
     });
@@ -111,10 +153,11 @@ export function ThemHopDongModal({ isOpen, onClose, editData, contractCreatePref
     useEffect(() => {
         const loadInitialData = async () => {
             try {
-                const [projectList, employeeList, contractList] = await Promise.all([
+                const [projectList, employeeList, contractList, customerList] = await Promise.all([
                     projectService.getAll(),
                     employeeService.getAll(),
                     contractService.getAll(),
+                    customerService.getAll(),
                 ]);
                 setProjects(
                     projectList.map((p) => ({
@@ -125,13 +168,19 @@ export function ThemHopDongModal({ isOpen, onClose, editData, contractCreatePref
                         customer_name: p.customer_name ?? null,
                     })),
                 );
-                setEmployees(employeeList.map(emp => ({
-                    id: emp.id.toString(),
-                    full_name: emp.full_name || emp.name || emp.hoTen || '',
-                    code: emp.code || '',
-                    anh_nhan_su: emp.anh_nhan_su,
-                    position: (emp as any).position || 'Nhân viên'
-                })));
+                setCustomers(
+                    (customerList || []).map((c: any) => ({
+                        id: String(c.id),
+                        ten_don_vi: String(c.ten_don_vi || '').trim() || '(Không tên)',
+                    })),
+                );
+                setEmployees(
+                    employeeList.map((emp) => ({
+                        id: emp.id.toString(),
+                        full_name: emp.full_name || emp.name || emp.hoTen || '',
+                        anh_nhan_su: emp.anh_nhan_su,
+                    })),
+                );
 
                 const uniqueLoaiDichVu = Array.from(
                     new Set(
@@ -153,21 +202,32 @@ export function ThemHopDongModal({ isOpen, onClose, editData, contractCreatePref
     const projectsForSelect = useMemo((): ProjectRow[] => {
         if (editData) return projects;
         const pre = contractCreatePrefill;
-        if (!pre?.customer_id) return projects;
-        if (pre.projects_for_customer !== undefined) {
-            return pre.projects_for_customer.map((p) => ({
-                id: String(p.id),
-                ten_du_an: p.ten_du_an || '',
-                customer_id: pre.customer_id,
-            }));
+        if (pre?.customer_id) {
+            if (pre.projects_for_customer !== undefined) {
+                return pre.projects_for_customer.map((p) => ({
+                    id: String(p.id),
+                    ten_du_an: p.ten_du_an || '',
+                    customer_id: pre.customer_id,
+                }));
+            }
+            return filterProjectsByCustomer(projects, pre.customer_id, pre.ten_don_vi);
         }
-        return filterProjectsByCustomer(projects, pre.customer_id, pre.ten_don_vi);
-    }, [projects, editData, contractCreatePrefill]);
+        if (!formData.customerId) return [];
+        return filterProjectsByCustomer(projects, formData.customerId);
+    }, [projects, editData, contractCreatePrefill, formData.customerId]);
     const filteredProjectsForSelect = useMemo(() => {
         const term = projectSearch.trim().toLowerCase();
         if (!term) return projectsForSelect;
         return projectsForSelect.filter((p) => (p.ten_du_an || '').toLowerCase().includes(term));
     }, [projectsForSelect, projectSearch]);
+    const filteredCustomers = useMemo(() => {
+        const term = customerSearch.trim().toLowerCase();
+        const sorted = [...customers].sort((a, b) =>
+            a.ten_don_vi.localeCompare(b.ten_don_vi, 'vi', { sensitivity: 'base' }),
+        );
+        if (!term) return sorted;
+        return sorted.filter((c) => c.ten_don_vi.toLowerCase().includes(term));
+    }, [customers, customerSearch]);
 
     /** Đồng bộ dropdown dự án khách: gỡ lựa chọn sai, tự chọn nếu chỉ còn 1 dự án. */
     useEffect(() => {
@@ -215,6 +275,7 @@ export function ThemHopDongModal({ isOpen, onClose, editData, contractCreatePref
                     return { nguongChiNhanSuLoai: loai, nguongChiNhanSu: s };
                 })(),
                 projectId: editData.duAnId || '',
+                customerId: '',
                 nhanSuIds: (editData.nhanSuIds || (editData.nhanSuId ? [editData.nhanSuId] : [])).map(String),
             });
             setContractFiles(editData.files || []);
@@ -228,6 +289,7 @@ export function ThemHopDongModal({ isOpen, onClose, editData, contractCreatePref
                 giaTriQT: '0',
                 nguongChiNhanSuLoai: 'tien',
                 nguongChiNhanSu: '0',
+                customerId: contractCreatePrefill?.customer_id ? String(contractCreatePrefill.customer_id) : '',
                 projectId: '',
                 nhanSuIds: [],
             });
@@ -235,9 +297,22 @@ export function ThemHopDongModal({ isOpen, onClose, editData, contractCreatePref
         }
     }, [editData, isOpen]);
 
-    const selectedEmployees = useCallback(() => {
-        return employees.filter(emp => formData.nhanSuIds.includes(emp.id));
-    }, [employees, formData.nhanSuIds]);
+    const filteredNhanSuEmployees = useMemo(() => {
+        const q = nhanSuSearch.trim().toLowerCase();
+        const sorted = [...employees].sort((a, b) =>
+            (a.full_name || '').localeCompare(b.full_name || '', 'vi', { sensitivity: 'base' }),
+        );
+        if (!q) return sorted;
+        return sorted.filter((e) => (e.full_name || '').toLowerCase().includes(q));
+    }, [employees, nhanSuSearch]);
+
+    const nhanSuTriggerLabel = useMemo(() => {
+        if (formData.nhanSuIds.length === 0) return 'Chọn nhân sự phụ trách...';
+        const sel = employees.filter((e) => formData.nhanSuIds.includes(e.id));
+        if (sel.length === 0) return `${formData.nhanSuIds.length} nhân sự đã chọn`;
+        if (sel.length <= 2) return sel.map((e) => e.full_name).filter(Boolean).join(', ');
+        return `${sel.length} nhân sự đã chọn`;
+    }, [formData.nhanSuIds, employees]);
 
     const toggleNhanSu = (id: string) => {
         const sid = String(id);
@@ -423,6 +498,37 @@ export function ThemHopDongModal({ isOpen, onClose, editData, contractCreatePref
                         
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                             <div className="md:col-span-2">
+                                {!isCustomerContractCreate && (
+                                    <>
+                                        <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1">Khách hàng <span className="text-red-500">*</span></label>
+                                        <input
+                                            type="text"
+                                            value={customerSearch}
+                                            onChange={(e) => setCustomerSearch(e.target.value)}
+                                            placeholder="Gõ để tìm khách hàng..."
+                                            className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm mb-2 focus:outline-none focus:ring-2 focus:ring-purple-500/20 focus:border-purple-500 transition-all bg-white"
+                                        />
+                                        <select
+                                            value={formData.customerId}
+                                            onChange={(e) =>
+                                                setFormData((prev) => ({
+                                                    ...prev,
+                                                    customerId: e.target.value,
+                                                    projectId: '',
+                                                }))
+                                            }
+                                            disabled={!!editData}
+                                            className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm mb-3 focus:outline-none focus:ring-2 focus:ring-purple-500/20 focus:border-purple-500 transition-all bg-white disabled:bg-slate-50 disabled:text-slate-500"
+                                        >
+                                            <option value="">-- Chọn khách hàng --</option>
+                                            {filteredCustomers.map((c) => (
+                                                <option key={c.id} value={c.id}>
+                                                    {c.ten_don_vi}
+                                                </option>
+                                            ))}
+                                        </select>
+                                    </>
+                                )}
                                 <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1">Dự án <span className="text-red-500">*</span></label>
                                 {!editData && !noProjectsForCustomer && (
                                     <input
@@ -436,12 +542,14 @@ export function ThemHopDongModal({ isOpen, onClose, editData, contractCreatePref
                                 <select
                                     value={formData.projectId}
                                     onChange={(e) => setFormData({ ...formData, projectId: e.target.value })}
-                                    disabled={!!editData || noProjectsForCustomer}
+                                    disabled={!!editData || noProjectsForCustomer || (!isCustomerContractCreate && !formData.customerId)}
                                     className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-purple-500/20 focus:border-purple-500 transition-all bg-white disabled:bg-slate-50 disabled:text-slate-500"
                                 >
                                     <option value="">
                                         {noProjectsForCustomer
                                             ? '— Khách chưa có dự án —'
+                                            : (!isCustomerContractCreate && !formData.customerId)
+                                              ? '-- Chọn khách hàng trước --'
                                             : '-- Chọn dự án --'}
                                     </option>
                                     {filteredProjectsForSelect.map((p) => (
@@ -522,43 +630,96 @@ export function ThemHopDongModal({ isOpen, onClose, editData, contractCreatePref
                             <User size={16} />
                             <span>Nhân sự phụ trách</span>
                         </div>
-                        <div className="bg-white border border-slate-200 rounded-xl p-4 max-h-48 overflow-y-auto shadow-sm">
-                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                                {employees.map((emp) => {
-                                    const isSelected = formData.nhanSuIds.includes(emp.id);
-                                    return (
-                                        <button
-                                            key={emp.id}
-                                            type="button"
-                                            onClick={() => toggleNhanSu(emp.id)}
-                                            className={`flex items-center gap-3 px-3 py-2 rounded-lg border transition-all text-left ${
-                                                isSelected 
-                                                ? 'bg-blue-50 border-blue-300 ring-2 ring-blue-500/10' 
-                                                : 'bg-white border-slate-100 hover:border-slate-300'
-                                            }`}
-                                        >
-                                            <div className="relative shrink-0">
-                                                {emp.anh_nhan_su ? (
-                                                    <img src={emp.anh_nhan_su} alt="" className="w-8 h-8 rounded-full object-cover border border-slate-200" />
-                                                ) : (
-                                                    <div className="w-8 h-8 rounded-full bg-slate-100 flex items-center justify-center border border-slate-200 text-slate-400">
-                                                        <User size={16} />
-                                                    </div>
-                                                )}
-                                                {isSelected && (
-                                                    <div className="absolute -top-1 -right-1 w-3.5 h-3.5 bg-blue-600 rounded-full border-2 border-white flex items-center justify-center">
-                                                        <div className="w-1.5 h-1.5 bg-white rounded-full" />
-                                                    </div>
-                                                )}
-                                            </div>
-                                            <div className="min-w-0">
-                                                <div className="text-xs font-bold text-slate-800 truncate">{emp.full_name}</div>
-                                                <div className="text-[10px] text-slate-500 font-medium">Mã: {emp.code || '—'}</div>
-                                            </div>
-                                        </button>
-                                    );
-                                })}
-                            </div>
+                        <div className="relative">
+                            <button
+                                ref={nhanSuTriggerRef}
+                                type="button"
+                                onClick={() => {
+                                    if (openNhanSuDropdown) {
+                                        setOpenNhanSuDropdown(false);
+                                        return;
+                                    }
+                                    updateNhanSuDropdownRect();
+                                    setOpenNhanSuDropdown(true);
+                                    requestAnimationFrame(() => updateNhanSuDropdownRect());
+                                }}
+                                className="w-full flex items-center justify-between gap-2 border border-slate-200 rounded-xl px-3 py-2.5 text-sm bg-white shadow-sm hover:border-slate-300 transition-colors text-left"
+                            >
+                                <span className={`truncate ${formData.nhanSuIds.length === 0 ? 'text-slate-400' : 'text-slate-800 font-medium'}`}>
+                                    {nhanSuTriggerLabel}
+                                </span>
+                                <ChevronDown
+                                    size={18}
+                                    className={`shrink-0 text-slate-500 transition-transform ${openNhanSuDropdown ? 'rotate-180' : ''}`}
+                                    aria-hidden
+                                />
+                            </button>
+                            {openNhanSuDropdown &&
+                                createPortal(
+                                    <div
+                                        ref={nhanSuPanelRef}
+                                        role="listbox"
+                                        aria-multiselectable="true"
+                                        className="fixed z-[100] rounded-xl border border-slate-200 bg-white shadow-xl flex flex-col overflow-hidden max-h-[min(22rem,calc(100vh-6rem))]"
+                                        style={{
+                                            top: nhanSuDdRect.top,
+                                            left: nhanSuDdRect.left,
+                                            width: nhanSuDdRect.width,
+                                        }}
+                                    >
+                                        <div className="p-2 border-b border-slate-100 shrink-0">
+                                            <input
+                                                type="text"
+                                                value={nhanSuSearch}
+                                                onChange={(e) => setNhanSuSearch(e.target.value)}
+                                                placeholder="Tìm theo tên..."
+                                                className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/25"
+                                                autoFocus
+                                            />
+                                        </div>
+                                        <div className="overflow-y-auto p-2 min-h-0 flex-1 space-y-0.5">
+                                            {filteredNhanSuEmployees.length === 0 ? (
+                                                <p className="text-xs text-slate-500 px-2 py-3 text-center">Không có nhân sự khớp.</p>
+                                            ) : (
+                                                filteredNhanSuEmployees.map((emp) => {
+                                                    const isSelected = formData.nhanSuIds.includes(emp.id);
+                                                    return (
+                                                        <label
+                                                            key={emp.id}
+                                                            className={`flex items-center gap-3 px-2 py-2 rounded-lg cursor-pointer border transition-colors ${
+                                                                isSelected
+                                                                    ? 'bg-blue-50 border-blue-200'
+                                                                    : 'border-transparent hover:bg-slate-50'
+                                                            }`}
+                                                        >
+                                                            <input
+                                                                type="checkbox"
+                                                                checked={isSelected}
+                                                                onChange={() => toggleNhanSu(emp.id)}
+                                                                className="rounded border-slate-300 text-blue-600 focus:ring-blue-500 shrink-0"
+                                                            />
+                                                            {emp.anh_nhan_su ? (
+                                                                <img
+                                                                    src={emp.anh_nhan_su}
+                                                                    alt=""
+                                                                    className="w-8 h-8 rounded-full object-cover border border-slate-200 shrink-0"
+                                                                />
+                                                            ) : (
+                                                                <div className="w-8 h-8 rounded-full bg-slate-100 flex items-center justify-center border border-slate-200 text-slate-400 shrink-0">
+                                                                    <User size={16} />
+                                                                </div>
+                                                            )}
+                                                            <span className="text-xs font-semibold text-slate-800 truncate min-w-0">
+                                                                {emp.full_name}
+                                                            </span>
+                                                        </label>
+                                                    );
+                                                })
+                                            )}
+                                        </div>
+                                    </div>,
+                                    document.body,
+                                )}
                         </div>
                     </div>
 

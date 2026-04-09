@@ -15,11 +15,20 @@ export function XacNhanXoaThuChiModal({ isOpen, onClose, item, onSuccess }: Prop
 
     if (!isOpen || !item) return null;
 
+    const deleteId =
+        item && typeof item === 'object' && item !== null && 'id' in item
+            ? String((item as { id: string | number }).id)
+            : String(item);
+    const displayCode =
+        item && typeof item === 'object' && item !== null && 'code' in item && (item as { code?: string }).code
+            ? String((item as { code?: string }).code)
+            : deleteId.slice(0, 8).toUpperCase();
+
     const handleDelete = async () => {
         setIsDeleting(true);
         setError(null);
         try {
-            await thuChiService.delete(item.id);
+            await thuChiService.delete(deleteId);
             onSuccess();
             onClose();
         } catch (err: any) {
@@ -52,7 +61,7 @@ export function XacNhanXoaThuChiModal({ isOpen, onClose, item, onSuccess }: Prop
                 {/* Content */}
                 <h3 className="text-xl font-bold text-slate-800 mb-3 uppercase tracking-tight">Xác nhận xóa phiếu</h3>
                 <p className="text-sm text-slate-500 leading-relaxed max-w-[280px]">
-                    Bạn đang thực hiện xóa chứng từ <span className="font-bold text-slate-700">{item.code}</span>. Hành động này sẽ loại bỏ hoàn toàn dữ liệu và không thể khôi phục.
+                    Bạn đang thực hiện xóa chứng từ <span className="font-bold text-slate-700">{displayCode}</span>. Hành động này sẽ loại bỏ hoàn toàn dữ liệu và không thể khôi phục.
                 </p>
 
                 {/* Error Message */}

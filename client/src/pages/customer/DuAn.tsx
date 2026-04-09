@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { Search, Plus, Eye, Edit, Trash2, X, Maximize2, CheckCircle, PlusCircle, User, DollarSign } from 'lucide-react';
+import { Search, Plus, Eye, Edit, Trash2, X, Maximize2, CheckCircle, PlusCircle, User, DollarSign, ChevronDown } from 'lucide-react';
 import { useLocation, useNavigate, useSearchParams } from 'react-router-dom';
 import { thuChiPath } from '../../lib/customerModuleLinks';
 import { useDuAnModal } from '../../contexts/DuAnModalContext';
@@ -30,6 +30,22 @@ function Toast({ message, type, onClose }: { message: string; type: 'success' | 
     );
 }
 
+/** Khóa ổn định để gom / lọc khách: ưu tiên customer_id, không thì chuẩn hóa tên */
+function getDuAnItemCustomerKey(item: {
+    customer_id?: string | null;
+    customer_name?: string | null;
+    customerName?: string | null;
+}): string {
+    const raw = (item as { customer_id?: string | null }).customer_id;
+    if (raw != null && String(raw).trim() !== '') return `id:${String(raw).trim()}`;
+    const n = String(item.customer_name || item.customerName || '')
+        .trim()
+        .normalize('NFC')
+        .toLowerCase()
+        .replace(/\s+/g, ' ');
+    return n ? `name:${n}` : 'empty:';
+}
+
 export function DuAn() {
     const [items, setItems] = useState<any[]>([]);
     const {
@@ -50,6 +66,17 @@ export function DuAn() {
         { key: 'tien_do', header: 'Tiến độ %', example: '0' },
     ];
     const [searchTerm, setSearchTerm] = useState('');
+    /** Bộ lọc checkbox: khóa từ getDuAnItemCustomerKey; rỗng = tất cả */
+    const [filterDuAnKhachKeys, setFilterDuAnKhachKeys] = useState<string[]>([]);
+    const [filterDuAnProjectIds, setFilterDuAnProjectIds] = useState<string[]>([]);
+    const [duAnKhachFilterOpen, setDuAnKhachFilterOpen] = useState(false);
+    const [duAnKhachFilterSearch, setDuAnKhachFilterSearch] = useState('');
+    const duAnKhachFilterRef = useRef<HTMLDivElement>(null);
+    const duAnKhachSearchRef = useRef<HTMLInputElement>(null);
+    const [duAnProjectFilterOpen, setDuAnProjectFilterOpen] = useState(false);
+    const [duAnProjectFilterSearch, setDuAnProjectFilterSearch] = useState('');
+    const duAnProjectFilterRef = useRef<HTMLDivElement>(null);
+    const duAnProjectSearchRef = useRef<HTMLInputElement>(null);
     const navigate = useNavigate();
     const location = useLocation();
     const [searchParams] = useSearchParams();
@@ -114,23 +141,134 @@ export function DuAn() {
     // State để lưu danh sách nhân sự (để hiển thị tên trong modal chi tiết)
     const [employees, setEmployees] = useState<Array<{ id: string; full_name: string; code: string; anh_nhan_su?: string | null }>>([]);
 
-    // Lọc theo URL (khách / dự án) và ô tìm kiếm
+    const duAnCustomerOptions = useMemo(() => {
+        const map = new Map<string, string>();
+        for (const it of items) {
+            const key = getDuAnItemCustomerKey(it);
+            const label =
+                (it.customer_name || it.customerName || '').trim() || '(Chưa có khách hàng)';
+            if (!map.has(key)) map.set(key, label);
+        }
+        return Array.from(map.entries())
+            .map(([key, label]) => ({ key, label }))
+            .sort((a, b) => a.label.localeCompare(b.label, 'vi'));
+    }, [items]);
+
+    /** Dự án trong dropdown: nếu đã chọn khách thì chỉ các dự án thuộc khách đó */
+    const duAnProjectOptions = useMemo(() => {
+        let list = items;
+        if (filterDuAnKhachKeys.length > 0) {
+            const allow = new Set(filterDuAnKhachKeys);
+            list = list.filter((it) => allow.has(getDuAnItemCustomerKey(it)));
+        }
+        return list
+            .map((it) => ({
+                id: String(it.id),
+                label: (it.projectName || String(it.id)).trim() || String(it.id),
+            }))
+            .sort((a, b) => a.label.localeCompare(b.label, 'vi'));
+    }, [items, filterDuAnKhachKeys]);
+
+    const duAnKhachOptionsMatching = useMemo(() => {
+        const q = duAnKhachFilterSearch.trim().toLowerCase();
+        if (!q) return duAnCustomerOptions;
+        return duAnCustomerOptions.filter(
+            (o) =>
+                o.label.toLowerCase().includes(q) || o.key.toLowerCase().includes(q),
+        );
+    }, [duAnCustomerOptions, duAnKhachFilterSearch]);
+
+    const duAnProjectOptionsMatching = useMemo(() => {
+        const q = duAnProjectFilterSearch.trim().toLowerCase();
+        if (!q) return duAnProjectOptions;
+        return duAnProjectOptions.filter(
+            (o) =>
+                o.label.toLowerCase().includes(q) || o.id.toLowerCase().includes(q),
+        );
+    }, [duAnProjectOptions, duAnProjectFilterSearch]);
+
+    useEffect(() => {
+        if (!duAnKhachFilterOpen) {
+            setDuAnKhachFilterSearch('');
+            return;
+        }
+        const t = window.setTimeout(() => duAnKhachSearchRef.current?.focus(), 0);
+        return () => window.clearTimeout(t);
+    }, [duAnKhachFilterOpen]);
+
+    useEffect(() => {
+        if (!duAnKhachFilterOpen) return;
+        const onDown = (e: MouseEvent) => {
+            const el = e.target as HTMLElement;
+            if (duAnKhachFilterRef.current?.contains(el)) return;
+            setDuAnKhachFilterOpen(false);
+        };
+        document.addEventListener('mousedown', onDown);
+        return () => document.removeEventListener('mousedown', onDown);
+    }, [duAnKhachFilterOpen]);
+
+    useEffect(() => {
+        if (!duAnProjectFilterOpen) {
+            setDuAnProjectFilterSearch('');
+            return;
+        }
+        const t = window.setTimeout(() => duAnProjectSearchRef.current?.focus(), 0);
+        return () => window.clearTimeout(t);
+    }, [duAnProjectFilterOpen]);
+
+    useEffect(() => {
+        if (!duAnProjectFilterOpen) return;
+        const onDown = (e: MouseEvent) => {
+            const el = e.target as HTMLElement;
+            if (duAnProjectFilterRef.current?.contains(el)) return;
+            setDuAnProjectFilterOpen(false);
+        };
+        document.addEventListener('mousedown', onDown);
+        return () => document.removeEventListener('mousedown', onDown);
+    }, [duAnProjectFilterOpen]);
+
+    useEffect(() => {
+        const allowed = new Set(duAnProjectOptions.map((o) => o.id));
+        setFilterDuAnProjectIds((prev) => {
+            if (prev.length === 0) return prev;
+            const next = prev.filter((id) => allowed.has(id));
+            if (next.length === prev.length && next.every((id, i) => id === prev[i])) return prev;
+            return next;
+        });
+    }, [duAnProjectOptions]);
+
+    // Lọc khách / dự án (checkbox) + ô tìm chữ
     const filteredItems = useMemo(() => {
         let list = items;
+        if (filterDuAnKhachKeys.length > 0) {
+            const allowK = new Set(filterDuAnKhachKeys);
+            list = list.filter((it) => allowK.has(getDuAnItemCustomerKey(it)));
+        }
+        if (filterDuAnProjectIds.length > 0) {
+            const allowP = new Set(filterDuAnProjectIds.map(String));
+            list = list.filter((it) => allowP.has(String(it.id)));
+        }
         if (urlCustomerId) {
             list = list.filter((item) => String(item.customer_id || '') === urlCustomerId);
         }
         if (urlDuAnId) {
             list = list.filter((item) => String(item.id) === urlDuAnId);
         }
-        if (!searchTerm) return list;
+        if (!searchTerm.trim()) return list;
         const term = searchTerm.toLowerCase();
         return list.filter((item) => {
             const customer = (item.customer_name || item.customerName || '').toString().toLowerCase();
             const project = (item.projectName || '').toString().toLowerCase();
             return customer.includes(term) || project.includes(term);
         });
-    }, [items, searchTerm, urlCustomerId, urlDuAnId]);
+    }, [
+        items,
+        searchTerm,
+        urlCustomerId,
+        urlDuAnId,
+        filterDuAnKhachKeys,
+        filterDuAnProjectIds,
+    ]);
 
     // Load danh sách nhân sự
     useEffect(() => {
@@ -316,7 +454,6 @@ export function DuAn() {
                 return {
                     id: p.id,
                     projectName: projectName,
-                    customer_id: p.customer_id || null,
                     status: p.status || 'Đang thực hiện',
                     statusColor: getStatusColor(p.status || 'Đang thực hiện'),
                     progress: calculatedProgress, // Sử dụng tiến độ tính từ hợp đồng
@@ -330,6 +467,10 @@ export function DuAn() {
                     executor_name: executorName,
                     manager_code: (p.manager && (p.manager.code || p.manager.ma_nv)) || null,
                     executor_code: (p.executor && (p.executor.code || p.executor.ma_nv)) || null,
+                    customer_id:
+                        p.customer_id != null && String(p.customer_id).trim() !== ''
+                            ? String(p.customer_id).trim()
+                            : null,
                     customer_name: customerName,
                     customerName: customerName, // Thêm customerName để dùng trong form
                     // Giữ lại manager và executor objects để có thể truy cập sau
@@ -489,6 +630,10 @@ export function DuAn() {
                                 executor_name: executorName,
                                 manager_code: (p.manager && (p.manager.code || p.manager.ma_nv)) || null,
                                 executor_code: (p.executor && (p.executor.code || p.executor.ma_nv)) || null,
+                                customer_id:
+                                    p.customer_id != null && String(p.customer_id).trim() !== ''
+                                        ? String(p.customer_id).trim()
+                                        : null,
                                 customer_name: customerName,
                                 customerName: customerName, // Thêm customerName để dùng trong form
                                 // Giữ lại manager và executor objects để có thể truy cập sau
@@ -638,6 +783,10 @@ export function DuAn() {
                                 executor_name: executorName,
                                 manager_code: (p.manager && (p.manager.code || p.manager.ma_nv)) || null,
                                 executor_code: (p.executor && (p.executor.code || p.executor.ma_nv)) || null,
+                                customer_id:
+                                    p.customer_id != null && String(p.customer_id).trim() !== ''
+                                        ? String(p.customer_id).trim()
+                                        : null,
                                 customer_name: customerName,
                                 customerName: customerName, // Thêm customerName để dùng trong form
                                 // Giữ lại manager và executor objects để có thể truy cập sau
@@ -659,248 +808,370 @@ export function DuAn() {
 
 
     return (
-        <div className="animate-in fade-in slide-in-from-bottom-4 duration-500 pb-10">
-            {/* Toast */}
+        <div className="bg-[#faf8ff] text-[#131b2e] min-h-screen animate-in fade-in duration-500 p-6 md:p-8 space-y-6">
             {toast && <Toast message={toast.message} type={toast.type} onClose={() => setToast(null)} />}
 
-            <div className="bg-white rounded-md border border-slate-200 overflow-hidden shadow-sm">
-
-                {/* Header */}
-                <div className="px-6 py-4 border-b border-slate-200 bg-white space-y-3">
-                    <div className="flex flex-col gap-3 sm:flex-row sm:justify-between sm:items-center">
-                        <h1 className="text-[16px] font-bold text-slate-700 uppercase">
-                            Dự án
-                        </h1>
-                        <div className="flex flex-wrap items-center gap-2">
-                            <ExcelImportExportBar
-                                columns={duAnExcelColumns}
-                                templateFileName="mau-du-an"
-                                sheetName="Du an"
-                                onImport={async (rows) => {
-                                    const errors: string[] = [];
-                                    let ok = 0;
-                                    let customers: { id: string; ten_don_vi: string }[] = [];
-                                    try {
-                                        const list = await customerService.getAll();
-                                        customers = (list || []).map((c: any) => ({
-                                            id: String(c.id),
-                                            ten_don_vi: (c.ten_don_vi || '').trim().toLowerCase(),
-                                        }));
-                                    } catch {
-                                        /* vẫn tạo dự án theo tên KH dạng text */
-                                    }
-                                    for (let i = 0; i < rows.length; i++) {
-                                        const r = rows[i];
-                                        const tenDuAn = (r.ten_du_an || '').trim();
-                                        if (!tenDuAn) {
-                                            errors.push(`Dòng ${i + 2}: thiếu Tên dự án`);
-                                            continue;
-                                        }
-                                        const tenKh = (r.ten_khach_hang || '').trim();
-                                        let customerId: string | null = null;
-                                        if (tenKh && customers.length) {
-                                            const hit = customers.find(
-                                                (c) => c.ten_don_vi === tenKh.toLowerCase(),
-                                            );
-                                            if (hit) customerId = hit.id;
-                                        }
-                                        try {
-                                            await projectService.create({
-                                                ten_du_an: tenDuAn,
-                                                status: (r.trang_thai || 'Đang thực hiện').trim(),
-                                                progress: Number(String(r.tien_do || '0').replace(/,/g, '')) || 0,
-                                                customer_id: customerId,
-                                                ten_khach_hang: tenKh || null,
-                                            });
-                                            ok++;
-                                        } catch (e: any) {
-                                            errors.push(`Dòng ${i + 2}: ${e?.message || 'Lỗi'}`);
-                                        }
-                                    }
-                                    return { ok, errors };
-                                }}
-                                onDone={() => setReloadKey((k) => k + 1)}
-                            />
-                            <button
-                                onClick={handleAddClick}
-                                className="flex items-center gap-2 px-4 py-2 bg-[#9333EA] hover:bg-purple-700 text-white text-sm font-medium rounded-md transition-colors shadow-sm"
-                            >
-                                <Plus size={16} />
-                                Thêm dự án
-                            </button>
-                        </div>
+            <section className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                <div className="bg-[#283044] text-[#f2f2ff] p-8 rounded-xl shadow-lg">
+                    <p className="uppercase tracking-wider text-slate-300 text-sm font-semibold mb-2">Tổng dự án</p>
+                    <h2 className="text-4xl font-extrabold tracking-tight">{filteredItems.length}</h2>
+                    <div className="mt-4 flex items-center gap-2 text-emerald-300 text-sm font-semibold">
+                        <Plus size={16} />
+                        <span>Theo bộ lọc hiện tại</span>
                     </div>
+                </div>
+                <div className="bg-white p-8 rounded-xl shadow-sm border border-slate-200">
+                    <p className="uppercase tracking-wider text-slate-500 text-sm font-semibold mb-2">Giá trị hợp đồng</p>
+                    <h2 className="text-3xl font-extrabold tracking-tight">
+                        {new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND' }).format(
+                            filteredItems.reduce((s, i) => s + (Number(i.giaTriHopDong) || 0), 0),
+                        )}
+                    </h2>
+                </div>
+                <div className="bg-[#eaedff] p-8 rounded-xl border border-[#dae2fd] text-center">
+                    <p className="text-sm font-medium text-slate-600">Số dự án đang thực hiện</p>
+                    <p className="text-4xl font-bold mt-2">
+                        {filteredItems.filter((i) => i.status === 'Đang thực hiện').length}
+                    </p>
+                </div>
+            </section>
 
-                    {/* Lọc theo tên Khách hàng / Dự án */}
-                    <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-                        <div className="relative w-full max-w-md">
-                            <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-                                <Search className="h-4 w-4 text-slate-400" />
-                            </div>
+            <section className="bg-[#f2f3ff] rounded-xl p-6 space-y-5 border border-[#dae2fd]">
+                <div className="flex flex-wrap items-center gap-3 justify-between">
+                    <div className="flex flex-wrap items-center gap-2 flex-1 min-w-0">
+                        <div className="relative w-full max-w-md min-w-[200px]">
+                            <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
                             <input
                                 type="text"
                                 value={searchTerm}
                                 onChange={(e) => setSearchTerm(e.target.value)}
-                                className="block w-full pl-10 pr-3 py-2 border border-slate-200 rounded-md text-sm bg-white placeholder-slate-400 focus:outline-none focus:ring-1 focus:ring-purple-500 focus:border-purple-500 transition-colors"
-                                placeholder="Lọc theo tên Khách hàng hoặc tên dự án..."
+                                className="w-full pl-10 pr-4 py-2 bg-white border border-slate-200 rounded-lg text-sm"
+                                placeholder="Tìm tên khách hàng hoặc dự án..."
                             />
                         </div>
+                        <div className="relative min-w-[10.5rem] max-w-[14rem]" ref={duAnKhachFilterRef}>
+                            <button
+                                type="button"
+                                onClick={() => {
+                                    setDuAnKhachFilterOpen((o) => !o);
+                                    setDuAnProjectFilterOpen(false);
+                                }}
+                                className="w-full flex items-center justify-between gap-1 rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-900 shadow-sm hover:bg-slate-50 focus:outline-none focus:ring-2 focus:ring-[#004bcb]/30"
+                                aria-expanded={duAnKhachFilterOpen}
+                                aria-haspopup="listbox"
+                                title="Lọc theo khách hàng"
+                            >
+                                <span className="truncate min-w-0 text-left">
+                                    {filterDuAnKhachKeys.length === 0
+                                        ? 'Tất cả khách hàng'
+                                        : filterDuAnKhachKeys.length === 1
+                                          ? duAnCustomerOptions.find((x) => x.key === filterDuAnKhachKeys[0])
+                                              ?.label || '1 khách'
+                                          : `${filterDuAnKhachKeys.length} khách đã chọn`}
+                                </span>
+                                <ChevronDown
+                                    className={`w-4 h-4 shrink-0 text-slate-500 ${duAnKhachFilterOpen ? 'rotate-180' : ''}`}
+                                    aria-hidden
+                                />
+                            </button>
+                            {duAnKhachFilterOpen ? (
+                                <div
+                                    className="absolute left-0 right-0 top-full z-50 mt-1 flex max-h-72 flex-col overflow-hidden rounded-lg border-2 border-slate-300 bg-white shadow-lg"
+                                    role="listbox"
+                                >
+                                    <div className="shrink-0 border-b border-slate-200 bg-slate-50 p-2">
+                                        <div className="relative">
+                                            <Search
+                                                size={14}
+                                                className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400"
+                                            />
+                                            <input
+                                                ref={duAnKhachSearchRef}
+                                                type="search"
+                                                value={duAnKhachFilterSearch}
+                                                onChange={(e) => setDuAnKhachFilterSearch(e.target.value)}
+                                                placeholder="Tìm khách hàng…"
+                                                autoComplete="off"
+                                                className="w-full rounded-md border border-slate-200 bg-white py-1.5 pl-8 pr-2 text-xs text-slate-900 placeholder:text-slate-400 focus:border-[#004bcb] focus:outline-none focus:ring-2 focus:ring-[#004bcb]/25"
+                                            />
+                                        </div>
+                                    </div>
+                                    <div className="max-h-[min(12rem,40vh)] min-h-0 flex-1 overflow-y-auto py-1 [scrollbar-gutter:stable]">
+                                        <label className="flex cursor-pointer items-center gap-2 px-3 py-2 text-xs font-bold text-slate-900 hover:bg-slate-100">
+                                            <input
+                                                type="checkbox"
+                                                className="h-3.5 w-3.5 rounded border-slate-300 text-[#004bcb] focus:ring-[#004bcb]"
+                                                checked={filterDuAnKhachKeys.length === 0}
+                                                onChange={(e) => {
+                                                    if (e.target.checked) setFilterDuAnKhachKeys([]);
+                                                }}
+                                            />
+                                            Tất cả khách hàng
+                                        </label>
+                                        <div className="mx-2 border-t border-slate-200" />
+                                        {duAnCustomerOptions.length === 0 ? (
+                                            <p className="px-3 py-2 text-[11px] text-slate-500">Chưa có dữ liệu.</p>
+                                        ) : duAnKhachOptionsMatching.length === 0 ? (
+                                            <p className="px-3 py-2 text-[11px] text-slate-500">
+                                                Không khớp &quot;{duAnKhachFilterSearch.trim()}&quot;.
+                                            </p>
+                                        ) : (
+                                            duAnKhachOptionsMatching.map((o) => {
+                                                const checked =
+                                                    filterDuAnKhachKeys.length > 0 &&
+                                                    filterDuAnKhachKeys.includes(o.key);
+                                                return (
+                                                    <label
+                                                        key={o.key}
+                                                        className="flex cursor-pointer items-center gap-2 px-3 py-2 text-xs text-slate-800 hover:bg-slate-100"
+                                                    >
+                                                        <input
+                                                            type="checkbox"
+                                                            className="h-3.5 w-3.5 rounded border-slate-300 text-[#004bcb] focus:ring-[#004bcb]"
+                                                            checked={checked}
+                                                            onChange={() => {
+                                                                setFilterDuAnKhachKeys((prev) => {
+                                                                    if (prev.length === 0) return [o.key];
+                                                                    if (prev.includes(o.key))
+                                                                        return prev.filter((x) => x !== o.key);
+                                                                    return [...prev, o.key];
+                                                                });
+                                                            }}
+                                                        />
+                                                        <span className="min-w-0 break-words">{o.label}</span>
+                                                    </label>
+                                                );
+                                            })
+                                        )}
+                                    </div>
+                                </div>
+                            ) : null}
+                        </div>
+                        <div className="relative min-w-[10.5rem] max-w-[14rem]" ref={duAnProjectFilterRef}>
+                            <button
+                                type="button"
+                                onClick={() => {
+                                    setDuAnProjectFilterOpen((o) => !o);
+                                    setDuAnKhachFilterOpen(false);
+                                }}
+                                className="w-full flex items-center justify-between gap-1 rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-900 shadow-sm hover:bg-slate-50 focus:outline-none focus:ring-2 focus:ring-[#004bcb]/30 disabled:cursor-not-allowed disabled:opacity-55"
+                                aria-expanded={duAnProjectFilterOpen}
+                                aria-haspopup="listbox"
+                                title="Lọc theo dự án (theo khách đã chọn nếu có)"
+                                disabled={duAnProjectOptions.length === 0}
+                            >
+                                <span className="truncate min-w-0 text-left">
+                                    {filterDuAnProjectIds.length === 0
+                                        ? 'Tất cả dự án'
+                                        : filterDuAnProjectIds.length === 1
+                                          ? duAnProjectOptions.find((x) => x.id === filterDuAnProjectIds[0])
+                                              ?.label || '1 dự án'
+                                          : `${filterDuAnProjectIds.length} dự án đã chọn`}
+                                </span>
+                                <ChevronDown
+                                    className={`w-4 h-4 shrink-0 text-slate-500 ${duAnProjectFilterOpen ? 'rotate-180' : ''}`}
+                                    aria-hidden
+                                />
+                            </button>
+                            {duAnProjectFilterOpen && duAnProjectOptions.length > 0 ? (
+                                <div
+                                    className="absolute left-0 right-0 top-full z-50 mt-1 flex max-h-72 flex-col overflow-hidden rounded-lg border-2 border-slate-300 bg-white shadow-lg"
+                                    role="listbox"
+                                >
+                                    <div className="shrink-0 border-b border-slate-200 bg-slate-50 p-2">
+                                        <div className="relative">
+                                            <Search
+                                                size={14}
+                                                className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400"
+                                            />
+                                            <input
+                                                ref={duAnProjectSearchRef}
+                                                type="search"
+                                                value={duAnProjectFilterSearch}
+                                                onChange={(e) => setDuAnProjectFilterSearch(e.target.value)}
+                                                placeholder="Tìm dự án…"
+                                                autoComplete="off"
+                                                className="w-full rounded-md border border-slate-200 bg-white py-1.5 pl-8 pr-2 text-xs text-slate-900 placeholder:text-slate-400 focus:border-[#004bcb] focus:outline-none focus:ring-2 focus:ring-[#004bcb]/25"
+                                            />
+                                        </div>
+                                    </div>
+                                    <div className="max-h-[min(12rem,40vh)] min-h-0 flex-1 overflow-y-auto py-1 [scrollbar-gutter:stable]">
+                                        <label className="flex cursor-pointer items-center gap-2 px-3 py-2 text-xs font-bold text-slate-900 hover:bg-slate-100">
+                                            <input
+                                                type="checkbox"
+                                                className="h-3.5 w-3.5 rounded border-slate-300 text-[#004bcb] focus:ring-[#004bcb]"
+                                                checked={filterDuAnProjectIds.length === 0}
+                                                onChange={(e) => {
+                                                    if (e.target.checked) setFilterDuAnProjectIds([]);
+                                                }}
+                                            />
+                                            Tất cả dự án
+                                        </label>
+                                        <div className="mx-2 border-t border-slate-200" />
+                                        {duAnProjectOptionsMatching.length === 0 ? (
+                                            <p className="px-3 py-2 text-[11px] text-slate-500">
+                                                {duAnProjectFilterSearch.trim()
+                                                    ? `Không khớp "${duAnProjectFilterSearch.trim()}".`
+                                                    : 'Không có dự án.'}
+                                            </p>
+                                        ) : (
+                                            duAnProjectOptionsMatching.map((o) => {
+                                                const checked =
+                                                    filterDuAnProjectIds.length > 0 &&
+                                                    filterDuAnProjectIds.includes(o.id);
+                                                return (
+                                                    <label
+                                                        key={o.id}
+                                                        className="flex cursor-pointer items-center gap-2 px-3 py-2 text-xs text-slate-800 hover:bg-slate-100"
+                                                    >
+                                                        <input
+                                                            type="checkbox"
+                                                            className="h-3.5 w-3.5 rounded border-slate-300 text-[#004bcb] focus:ring-[#004bcb]"
+                                                            checked={checked}
+                                                            onChange={() => {
+                                                                setFilterDuAnProjectIds((prev) => {
+                                                                    if (prev.length === 0) return [o.id];
+                                                                    if (prev.includes(o.id))
+                                                                        return prev.filter((x) => x !== o.id);
+                                                                    return [...prev, o.id];
+                                                                });
+                                                            }}
+                                                        />
+                                                        <span className="min-w-0 break-words">{o.label}</span>
+                                                    </label>
+                                                );
+                                            })
+                                        )}
+                                    </div>
+                                </div>
+                            ) : null}
+                        </div>
+                    </div>
+                    <div className="flex items-center gap-2 shrink-0">
+                        <ExcelImportExportBar
+                            columns={duAnExcelColumns}
+                            templateFileName="mau-du-an"
+                            sheetName="Du an"
+                            onImport={async (rows) => {
+                                const errors: string[] = [];
+                                let ok = 0;
+                                let customers: { id: string; ten_don_vi: string }[] = [];
+                                try {
+                                    const list = await customerService.getAll();
+                                    customers = (list || []).map((c: any) => ({
+                                        id: String(c.id),
+                                        ten_don_vi: (c.ten_don_vi || '').trim().toLowerCase(),
+                                    }));
+                                } catch {}
+                                for (let i = 0; i < rows.length; i++) {
+                                    const r = rows[i];
+                                    const tenDuAn = (r.ten_du_an || '').trim();
+                                    if (!tenDuAn) {
+                                        errors.push(`Dòng ${i + 2}: thiếu Tên dự án`);
+                                        continue;
+                                    }
+                                    const tenKh = (r.ten_khach_hang || '').trim();
+                                    const hit = customers.find((c) => c.ten_don_vi === tenKh.toLowerCase());
+                                    try {
+                                        await projectService.create({
+                                            ten_du_an: tenDuAn,
+                                            status: (r.trang_thai || 'Đang thực hiện').trim(),
+                                            progress: Number(String(r.tien_do || '0').replace(/,/g, '')) || 0,
+                                            customer_id: hit?.id || null,
+                                            ten_khach_hang: tenKh || null,
+                                        });
+                                        ok++;
+                                    } catch (e: any) {
+                                        errors.push(`Dòng ${i + 2}: ${e?.message || 'Lỗi'}`);
+                                    }
+                                }
+                                return { ok, errors };
+                            }}
+                            onDone={() => setReloadKey((k) => k + 1)}
+                        />
+                        <button
+                            onClick={handleAddClick}
+                            className="flex items-center gap-2 bg-[#004bcb] text-white px-5 py-2 rounded-lg font-semibold hover:opacity-90 transition-opacity"
+                        >
+                            <Plus size={16} />
+                            <span>Thêm dự án</span>
+                        </button>
                     </div>
                 </div>
+            </section>
 
-                {/* Table Content */}
-                <div className="w-full overflow-x-auto bg-white p-4 md:p-6">
-                    <table className="w-full text-sm text-left duan-table">
+            <section className="bg-white rounded-xl shadow-sm overflow-hidden border border-slate-200">
+                <div className="overflow-x-auto">
+                    <table className="w-full text-left border-collapse">
                         <thead>
-                            <tr className="border-b border-slate-200 text-slate-50">
-                                <th className="py-4 pl-4 md:pl-6 pr-4 font-semibold text-xs uppercase tracking-wider rounded-tl-lg">Tên dự án</th>
-                                <th className="py-4 px-4 font-semibold text-xs uppercase tracking-wider min-w-[150px]">Tên khách hàng</th>
-                                <th className="py-4 px-4 text-center font-semibold text-xs uppercase tracking-wider min-w-[140px]">Trạng thái</th>
-                                <th className="py-4 pr-4 md:pr-6 pl-4 text-center font-semibold text-xs uppercase tracking-wider min-w-[180px]">Tiến độ</th>
-                                <th className="py-4 px-4 text-right font-semibold text-xs uppercase tracking-wider min-w-[150px]">Giá trị hợp đồng</th>
-                                <th className="py-4 px-4 text-right font-semibold text-xs uppercase tracking-wider min-w-[150px]">Giá trị quyết toán</th>
-                                <th className="py-4 px-4 text-right font-semibold text-xs uppercase tracking-wider min-w-[120px]">Đã thu</th>
-                                <th className="py-4 px-4 text-right font-semibold text-xs uppercase tracking-wider min-w-[120px]">Còn phải thu</th>
-                                <th className="py-4 px-4 text-center font-semibold text-xs uppercase tracking-wider min-w-[100px] rounded-tr-lg">Hành động</th>
+                            <tr className="bg-[#283044] border-b border-[#1c2436]">
+                                <th className="px-6 py-4 text-xs uppercase tracking-wider font-bold text-[#f2f2ff]">Khách hàng</th>
+                                <th className="px-6 py-4 text-xs uppercase tracking-wider font-bold text-[#f2f2ff]">Trạng thái</th>
+                                <th className="px-6 py-4 text-xs uppercase tracking-wider font-bold text-[#f2f2ff] text-right">Giá trị HĐ</th>
+                                <th className="px-6 py-4 text-xs uppercase tracking-wider font-bold text-[#f2f2ff]">Nội dung</th>
+                                <th className="px-6 py-4 text-xs uppercase tracking-wider font-bold text-[#f2f2ff] text-center">Hành động</th>
                             </tr>
                         </thead>
-                        <tbody className="divide-y divide-slate-100">
-                            {filteredItems.length === 0 && (
+                        <tbody className="divide-y divide-slate-50">
+                            {filteredItems.length === 0 ? (
                                 <tr>
-                                    <td colSpan={9} className="py-6 text-center text-slate-500 text-sm italic">
-                                        Chưa có dự án nào. Nhấn "Thêm dự án" để tạo mới.
+                                    <td colSpan={5} className="px-6 py-10 text-center text-sm text-slate-500">
+                                        Chưa có dự án nào phù hợp
                                     </td>
                                 </tr>
-                            )}
-                            {filteredItems.map((item, index) => (
-                                <tr key={item.id} className="hover:bg-blue-50/30 transition-all group duration-200 ease-in-out">
-                                    <td className="py-4 pl-4 md:pl-6 pr-4 align-middle">
-                                        <div className="flex items-center gap-4">
-                                            <div className="w-6 h-6 rounded-full border border-slate-200 flex items-center justify-center shrink-0 bg-white group-hover:border-blue-300">
-                                                <div className="w-2 h-2 rounded-full bg-slate-300 group-hover:bg-blue-500 transition-colors"></div>
-                                            </div>
-                                            <span className="font-semibold text-slate-700 text-[15px]">{item.projectName}</span>
-                                        </div>
-                                    </td>
-
-                                    <td className="py-4 px-4 align-middle">
-                                        <span className="text-slate-700 text-sm">{item.customer_name || '(Chưa có khách hàng)'}</span>
-                                    </td>
-
-                                    <td className="py-4 px-4 align-middle">
-                                        <div className="flex justify-center">
-                                            <span className={`px-4 py-1.5 rounded-full text-xs font-bold tracking-wide shadow-sm ${item.statusColor}`}>
+                            ) : (
+                                filteredItems.map((item) => (
+                                    <tr key={item.id} className="hover:bg-slate-50/60 transition-colors">
+                                        <td className="px-6 py-4 text-sm text-slate-900">{item.customer_name || '—'}</td>
+                                        <td className="px-6 py-4">
+                                            <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-bold ${item.status === 'Đang thực hiện' ? 'bg-blue-100 text-blue-700' : 'bg-slate-100 text-slate-700'}`}>
                                                 {item.status}
                                             </span>
-                                        </div>
-                                    </td>
-
-                                    <td className="py-4 pr-4 md:pr-6 pl-4 align-middle">
-                                        <div className="flex flex-col gap-1.5">
-                                            <div className="flex items-center gap-4">
-                                                <div className="w-full h-2.5 bg-slate-100 rounded-full overflow-hidden relative shadow-inner">
-                                                    <div
-                                                        className={`absolute left-0 top-0 bottom-0 rounded-full transition-all duration-1000 ease-out ${item.progress === 100
-                                                            ? 'bg-gradient-to-r from-emerald-400 to-emerald-500'
-                                                            : item.progress > 50
-                                                                ? 'bg-gradient-to-r from-blue-400 to-blue-500'
-                                                                : 'bg-gradient-to-r from-amber-400 to-amber-500'
-                                                            }`}
-                                                        style={{ width: `${item.progress}%` }}
-                                                    ></div>
-                                                </div>
-                                                <span className="text-xs font-bold text-slate-600 w-9 text-right tabular-nums">{item.progress}%</span>
+                                        </td>
+                                        <td className="px-6 py-4 text-sm font-black text-right text-slate-900">
+                                            {new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND' }).format(
+                                                Number(item.giaTriHopDong) || 0,
+                                            )}
+                                        </td>
+                                        <td className="px-6 py-4 text-sm text-slate-500 truncate max-w-[260px]">{item.projectName}</td>
+                                        <td className="px-6 py-4 text-center">
+                                            <div className="flex justify-center gap-2">
+                                                <button
+                                                    className="text-emerald-600 hover:text-emerald-700"
+                                                    title="Xem thu chi"
+                                                    onClick={(e) => {
+                                                        e.stopPropagation();
+                                                        navigate(
+                                                            thuChiPath({
+                                                                project: item.projectName,
+                                                                duAnId: String(item.id),
+                                                                customerId: item.customer_id
+                                                                    ? String(item.customer_id)
+                                                                    : undefined,
+                                                            }),
+                                                        );
+                                                    }}
+                                                >
+                                                    <DollarSign size={16} />
+                                                </button>
+                                                <button className="text-purple-600 hover:text-purple-700" title="Xem" onClick={() => handleViewClick(item)}>
+                                                    <Eye size={16} />
+                                                </button>
+                                                <button className="text-amber-600 hover:text-amber-700" title="Sửa" onClick={() => handleEditClick(item)}>
+                                                    <Edit size={16} />
+                                                </button>
+                                                <button className="text-red-600 hover:text-red-700" title="Xóa" onClick={() => handleDeleteClick(item)}>
+                                                    <Trash2 size={16} />
+                                                </button>
                                             </div>
-                                            {(() => {
-                                                const contractInfo = projectContractInfo.get(item.projectName);
-                                                if (contractInfo && contractInfo.total > 0) {
-                                                    return (
-                                                        <span className="text-[10px] text-slate-500 text-center">
-                                                            {contractInfo.completed}/{contractInfo.total} hợp đồng
-                                                        </span>
-                                                    );
-                                                }
-                                                return null;
-                                            })()}
-                                        </div>
-                                    </td>
-
-                                    {/* Giá trị hợp đồng */}
-                                    <td className="py-4 px-4 align-middle text-right">
-                                        <span className="text-[13px] font-extrabold text-slate-800 tracking-tight">
-                                            {item.giaTriHopDong ? new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND' }).format(item.giaTriHopDong) : '0 đ'}
-                                        </span>
-                                    </td>
-
-                                    {/* Giá trị quyết toán */}
-                                    <td className="py-4 px-4 align-middle text-right">
-                                        <span className="text-[13px] font-extrabold text-blue-700 tracking-tight">
-                                            {item.giaTriQuyetToan ? new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND' }).format(item.giaTriQuyetToan) : '0 đ'}
-                                        </span>
-                                    </td>
-
-                                    {/* Đã thu */}
-                                    <td className="py-4 px-4 align-middle text-right">
-                                        <span className="text-[13px] font-extrabold text-emerald-700 tracking-tight">
-                                            {item.daThu ? new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND' }).format(item.daThu) : '0 đ'}
-                                        </span>
-                                    </td>
-
-                                    {/* Còn phải thu */}
-                                    <td className="py-4 px-4 align-middle text-right">
-                                        <span className={`text-[13px] font-extrabold tracking-tight ${item.conPhaiThu >= 0 ? 'text-slate-900' : 'text-red-600'}`}>
-                                            {item.conPhaiThu ? new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND' }).format(item.conPhaiThu) : '0 đ'}
-                                        </span>
-                                    </td>
-
-                                    <td className="py-4 px-4 align-middle text-center">
-                                        <div className="flex items-center justify-center gap-2 transition-opacity">
-                                            <button
-                                                className="action-btn p-1.5 text-emerald-600 bg-emerald-50 border border-emerald-100 rounded-md hover:bg-emerald-100"
-                                                title="Xem thu chi"
-                                                onClick={(e) => {
-                                                    e.stopPropagation();
-                                                    navigate(
-                                                        thuChiPath({
-                                                            project: item.projectName,
-                                                            duAnId: String(item.id),
-                                                            customerId: item.customer_id ? String(item.customer_id) : undefined,
-                                                        }),
-                                                    );
-                                                }}
-                                            >
-                                                <DollarSign size={14} />
-                                            </button>
-                                            <button
-                                                className="action-btn p-1.5 text-purple-600 bg-purple-50 border border-purple-100 rounded-md hover:bg-purple-100"
-                                                title="Xem"
-                                                onClick={() => handleViewClick(item)}
-                                            >
-                                                <Eye size={14} />
-                                            </button>
-                                            <button
-                                                className="action-btn p-1.5 text-orange-500 bg-orange-50 border border-orange-100 rounded-md hover:bg-orange-100"
-                                                title="Sửa"
-                                                onClick={() => handleEditClick(item)}
-                                            >
-                                                <Edit size={14} />
-                                            </button>
-                                            <button
-                                                className="action-btn p-1.5 text-red-500 bg-red-50 border border-red-100 rounded-md hover:bg-red-100"
-                                                title="Xóa"
-                                                onClick={() => handleDeleteClick(item)}
-                                            >
-                                                <Trash2 size={14} />
-                                            </button>
-                                        </div>
-                                    </td>
-                                </tr>
-                            ))}
+                                        </td>
+                                    </tr>
+                                ))
+                            )}
                         </tbody>
                     </table>
                 </div>
-            </div>
-
-        </div >
+            </section>
+        </div>
     );
 }
