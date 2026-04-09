@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
+import React, { createContext, useContext, useState, useEffect, useCallback, useMemo } from 'react';
 import { translations } from '../lib/i18n';
 import { settingService } from '../lib/services/settingService';
 
@@ -195,23 +195,57 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
 
     }, [theme, color, fontFamily, fontSize, language, logoUrl, isLoaded]);
 
-    const t = (key: string): string => {
+    const t = useCallback((key: string): string => {
         return translations[language]?.[key] || translations['vi']?.[key] || key;
-    };
+    }, [language]);
+
+    const contextValue = useMemo(
+        () => ({
+            theme,
+            setTheme,
+            color,
+            setColor,
+            fontFamily,
+            setFontFamily,
+            fontSize,
+            setFontSize,
+            language,
+            setLanguage,
+            logoUrl,
+            setLogoUrl,
+            timezone,
+            setTimezone,
+            emailNotifications,
+            setEmailNotifications,
+            pushNotifications,
+            setPushNotifications,
+            t,
+        }),
+        [
+            theme,
+            setTheme,
+            color,
+            setColor,
+            fontFamily,
+            setFontFamily,
+            fontSize,
+            setFontSize,
+            language,
+            setLanguage,
+            logoUrl,
+            setLogoUrl,
+            timezone,
+            setTimezone,
+            emailNotifications,
+            setEmailNotifications,
+            pushNotifications,
+            setPushNotifications,
+            t,
+        ],
+    );
 
     return (
-        <SettingsContext.Provider value={{
-            theme, setTheme,
-            color, setColor,
-            fontFamily, setFontFamily,
-            fontSize, setFontSize,
-            language, setLanguage,
-            logoUrl, setLogoUrl,
-            timezone, setTimezone,
-            emailNotifications, setEmailNotifications,
-            pushNotifications, setPushNotifications,
-            t
-        }}>
+        <SettingsContext.Provider value={contextValue}>
             {children}
         </SettingsContext.Provider>
     );

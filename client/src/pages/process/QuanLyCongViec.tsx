@@ -1,4 +1,6 @@
 import React, {
+  useCallback,
+  useDeferredValue,
   useEffect,
   useLayoutEffect,
   useMemo,
@@ -23,7 +25,6 @@ import {
 } from 'lucide-react';
 import type { TaskRow } from '../../lib/services/taskService';
 import { contractService } from '../../lib/services/contractService';
-import { projectService, type Project } from '../../lib/services/projectService';
 import { employeeService } from '../../lib/services/employeeService';
 import {
   thuVienLoiService,
@@ -303,21 +304,6 @@ function taskMatchesAssigneeFilter(
   return false;
 }
 
-/** Id nhân sự gán cho dự án (QLDA / Thực hiện / mảng) */
-function collectProjectPhuTrachIds(p: Project | null | undefined): Set<string> {
-  const s = new Set<string>();
-  if (!p) return s;
-  const add = (x: string | null | undefined) => {
-    const t = String(x ?? '').trim();
-    if (t) s.add(t);
-  };
-  add(p.manager_id as string | undefined);
-  add(p.executor_id as string | undefined);
-  (p.manager_ids || []).forEach((x) => add(x));
-  (p.executor_ids || []).forEach((x) => add(x));
-  return s;
-}
-
 function taskNgayKetThucInRange(task: TaskRow, tu: string, den: string): boolean {
   const hasTu = tu.trim().length > 0;
   const hasDen = den.trim().length > 0;
@@ -343,10 +329,128 @@ function calendarDaysFromTodayTo(end: Date): number {
   return Math.floor((end.getTime() - today.getTime()) / 86400000);
 }
 
+type TaskListScrollBodyProps = {
+  loading: boolean;
+  filtered: TaskRow[];
+  selectedId: string | undefined;
+  onSelectTask: (task: TaskRow) => void;
+  contractLabelById: (id: string | null | undefined) => string;
+  onOpenEditModal: (task: TaskRow) => void;
+  onDeleteTask: (task: TaskRow) => void;
+};
+
+/** Tránh render lại cả danh sách khi chỉ state form / panel phải đổi (gõ phím mượt hơn). */
+const QuanLyCongViecTaskListScrollBody = React.memo(function QuanLyCongViecTaskListScrollBody({
+  loading,
+  filtered,
+  selectedId,
+  onSelectTask,
+  contractLabelById,
+  onOpenEditModal,
+  onDeleteTask,
+}: TaskListScrollBodyProps) {
+  if (loading) {
+    return <p className="px-2 py-2 text-[11px] text-slate-600">Đang tải…</p>;
+  }
+  if (filtered.length === 0) {
+    return (
+      <p className="px-2 py-2 text-[11px] text-slate-600">Không có công việc.</p>
+    );
+  }
+  return (
+    <div className="space-y-1 px-0.5">
+      {filtered.map((task, index) => {
+        const isActive = selectedId != null && selectedId === task.id;
+        const listPct = listProgressPercent(task);
+        const hopDongLabel = task.hop_dong_id
+          ? contractLabelById(task.hop_dong_id)
+          : '';
+        return (
+          <div
+            key={`${task.id}-${index}`}
+            className={`w-full px-2 py-2 border-l-[3px] rounded-r-md flex items-start justify-between gap-1.5 ${
+              isActive
+                ? 'bg-blue-100 border-blue-700 shadow-sm ring-1 ring-blue-200/80'
+                : 'bg-slate-50/90 border-transparent hover:bg-slate-200/90 ring-1 ring-slate-200/80'
+            }`}
+          >
+            <button
+              type="button"
+              onClick={() => onSelectTask(task)}
+              className="flex-1 min-w-0 text-left flex flex-col gap-1"
+            >
+              <span
+                className="text-[11px] font-bold text-slate-900 line-clamp-2 leading-tight"
+                title={task.ten_task}
+              >
+                {task.ten_task}
+              </span>
+              {task.hop_dong_id ? (
+                <span
+                  className="text-[9px] font-medium text-slate-600 line-clamp-1 leading-tight"
+                  title={hopDongLabel}
+                >
+                  {hopDongLabel}
+                </span>
+              ) : null}
+              <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5">
+                <div className="flex items-center gap-1 flex-1 min-w-0">
+                  <div className="flex-1 min-w-0 h-1.5 rounded-full bg-slate-200 overflow-hidden">
+                    <div
+                      className="h-full rounded-full bg-emerald-600 transition-[width] duration-300 ease-out"
+                      style={{ width: `${listPct}%` }}
+                    />
+                  </div>
+                  <span className="text-[9px] font-bold text-emerald-800 tabular-nums shrink-0 w-7 text-right">
+                    {listPct}%
+                  </span>
+                </div>
+                <span
+                  className="text-[9px] font-bold text-slate-800 shrink-0 max-w-[4.5rem] truncate"
+                  title={task.trang_thai}
+                >
+                  {task.trang_thai}
+                </span>
+              </div>
+            </button>
+            <div className="flex flex-col items-center gap-1 shrink-0">
+              <button
+                type="button"
+                title="Sửa công việc"
+                aria-label="Sửa công việc"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onOpenEditModal(task);
+                }}
+                className="w-6 h-6 flex items-center justify-center rounded-full border border-amber-600 bg-amber-100 text-amber-900 hover:bg-amber-200"
+              >
+                <Pencil className="w-3 h-3" aria-hidden />
+              </button>
+              <button
+                type="button"
+                title="Xóa công việc"
+                aria-label="Xóa công việc"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onDeleteTask(task);
+                }}
+                className="w-6 h-6 flex items-center justify-center rounded-full border border-red-600 bg-red-100 text-red-800 hover:bg-red-200"
+              >
+                <Trash2 className="w-3 h-3" aria-hidden />
+              </button>
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+});
+
 export function QuanLyCongViec() {
   const [tasks, setTasks] = useState<TaskRow[]>([]);
   const [loading, setLoading] = useState(false);
   const [search, setSearch] = useState('');
+  const deferredSearch = useDeferredValue(search);
   /** Rỗng = tất cả hợp đồng; có phần tử = chỉ công việc thuộc các hợp đồng đã chọn */
   const [filterHopDongIds, setFilterHopDongIds] = useState<string[]>([]);
   /** Rỗng = tất cả nhân sự; khớp với `nguoi_phu_trach` (tên/code đã lưu) */
@@ -373,7 +477,6 @@ export function QuanLyCongViec() {
       nhan_su_ids?: string[] | null;
     }>
   >([]);
-  const [projects, setProjects] = useState<Project[]>([]);
   const [isModalOpen, setIsModalOpen] = useState(false);
   /** `null` = thêm mới; có giá trị = đang sửa công việc (id hiển thị trong list = task_id hoặc id chi tiết) */
   const [taskModalEditingId, setTaskModalEditingId] = useState<string | null>(null);
@@ -633,33 +736,69 @@ export function QuanLyCongViec() {
     }
   }, [loiMatchingRows, loiCascadePickId]);
 
-  const contractLabelById = (id: string | null | undefined) => {
-    if (!id) return '';
-    const c = contracts.find((ct) => ct.id === id);
-    return c ? c.ten_goi_thau || c.so_hop_dong || c.id : id;
-  };
+  const contractLabelById = useCallback(
+    (id: string | null | undefined) => {
+      if (!id) return '';
+      const c = contracts.find((ct) => ct.id === id);
+      return c ? c.ten_goi_thau || c.so_hop_dong || c.id : id;
+    },
+    [contracts],
+  );
+
+  const handleOpenTaskEditModal = useCallback(
+    (task: TaskRow) => {
+      setFormData({
+        hop_dong_id: task.hop_dong_id || '',
+        ten_task: task.ten_task,
+        mo_ta: task.mo_ta || '',
+        trang_thai: task.trang_thai,
+        uu_tien: task.uu_tien,
+        ngay_bat_dau: task.ngay_bat_dau || '',
+        ngay_ket_thuc: task.ngay_ket_thuc || '',
+        ngay_hoan_thanh: task.ngay_hoan_thanh || '',
+        nguoi_phu_trach: task.nguoi_phu_trach || '',
+        tien_do: task.tien_do ?? 0,
+        ghi_chu: task.ghi_chu || '',
+      });
+      const epIds: string[] = [];
+      for (const n of (task.nguoi_phu_trach || '')
+        .split(',')
+        .map((s) => s.trim())
+        .filter(Boolean)) {
+        const emp = employees.find((e) => e.full_name === n || e.code === n);
+        if (emp && !epIds.includes(emp.id)) epIds.push(emp.id);
+      }
+      setSelectedEmployeeIds(epIds);
+      setTaskModalEditingId(task.id);
+      setIsModalOpen(true);
+    },
+    [employees],
+  );
 
   useEffect(() => {
+    let cancelled = false;
+
+    void thuVienLoiService
+      .getAll()
+      .then((rows) => {
+        if (!cancelled) setThuVienLoiList(rows || []);
+      })
+      .catch((err) => {
+        console.warn('[QuanLyCongViec] thu_vien_loi:', err);
+        if (!cancelled) setThuVienLoiList([]);
+      });
+
     (async () => {
       try {
         setLoading(true);
-        const [data, contractsData, projectsData, employeesData, thuVienData] =
-          await Promise.all([
-            taskDetailService.getAllAsTasks(),
-            contractService.getAll(),
-            projectService.getAll().catch((err) => {
-              console.warn('[QuanLyCongViec] projects:', err);
-              return [] as Project[];
-            }),
-            employeeService.getAll(),
-            thuVienLoiService.getAll().catch((err) => {
-              console.warn('[QuanLyCongViec] thu_vien_loi:', err);
-              return [] as ThuVienLoiRow[];
-            }),
-          ]);
-        setThuVienLoiList(thuVienData || []);
+        const [data, contractsData, employeesData] = await Promise.all([
+          taskDetailService.getAllAsTasks(),
+          contractService.getAll(),
+          employeeService.getAll(),
+        ]);
+        if (cancelled) return;
+
         setTasks(data || []);
-        setProjects(projectsData || []);
         setContracts(
           (contractsData || []).map((c) => ({
             id: c.id!,
@@ -683,24 +822,30 @@ export function QuanLyCongViec() {
             avatar: (e as any).anh_nhan_su || e.anh_nhan_su || null,
           })),
         );
+
         if (data && data.length > 0) {
           const first = data[0];
           setSelected(first);
-          const detail = await taskDetailService.getOrCreateByTaskId(first.id);
-          if (detail) {
-            setDetailByTask((prev) => ({ ...prev, [first.id]: detail }));
+          const firstId = first.id;
+          void taskDetailService.getOrCreateByTaskId(firstId).then((detail) => {
+            if (cancelled || !detail) return;
+            setDetailByTask((prev) => ({ ...prev, [firstId]: detail }));
             setCommentsByTask((prev) => ({
               ...prev,
-              [first.id]: (detail.binh_luan || []) as any,
+              [firstId]: (detail.binh_luan || []) as any,
             }));
-          }
+          });
         }
       } catch (error) {
         console.error('[QuanLyCongViec] Error loading tasks:', error);
       } finally {
-        setLoading(false);
+        if (!cancelled) setLoading(false);
       }
     })();
+
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   const tasksInContractScope = useMemo(() => {
@@ -735,8 +880,8 @@ export function QuanLyCongViec() {
     } else if (activeTab === 'pending') {
       list = list.filter((t) => isTrangThaiChoDuyet(t.trang_thai));
     }
-    if (search.trim()) {
-      const term = search.toLowerCase();
+    if (deferredSearch.trim()) {
+      const term = deferredSearch.toLowerCase();
       list = list.filter(
         (t) =>
           t.ten_task.toLowerCase().includes(term) ||
@@ -744,7 +889,29 @@ export function QuanLyCongViec() {
       );
     }
     return list;
-  }, [tasksAfterAssigneeAndDate, activeTab, search]);
+  }, [tasksAfterAssigneeAndDate, activeTab, deferredSearch]);
+
+  const handleDeleteTaskFromList = useCallback(
+    (task: TaskRow) => {
+      if (!window.confirm('Bạn có chắc chắn muốn xóa công việc này?')) {
+        return;
+      }
+      (async () => {
+        try {
+          await taskDetailService.deleteByTaskId(task.id);
+          setTasks((prev) => prev.filter((t) => t.id !== task.id));
+          setSelected((prev) => {
+            if (!prev || prev.id !== task.id) return prev;
+            return filtered.find((t) => t.id !== task.id) || null;
+          });
+        } catch (err) {
+          console.error('[QuanLyCongViec] Error deleting task:', err);
+          alert('Lỗi khi xóa công việc');
+        }
+      })();
+    },
+    [filtered],
+  );
 
   // Nếu có truyền `taskId` qua URL, tự chọn đúng task để người dùng bấm từ nơi khác.
   useEffect(() => {
@@ -1234,143 +1401,15 @@ export function QuanLyCongViec() {
           </div>
 
           <div className="flex-1 min-h-0 overflow-y-auto py-1 overscroll-contain">
-            {loading ? (
-              <p className="px-2 py-2 text-[11px] text-slate-600">Đang tải…</p>
-            ) : filtered.length === 0 ? (
-              <p className="px-2 py-2 text-[11px] text-slate-600">Không có công việc.</p>
-            ) : (
-              <div className="space-y-1 px-0.5">
-                {filtered.map((task, index) => {
-                  const isActive = selected && selected.id === task.id;
-                  const listPct = listProgressPercent(task);
-                  const hopDongLabel = task.hop_dong_id
-                    ? contractLabelById(task.hop_dong_id)
-                    : '';
-                  return (
-                    <div
-                      key={`${task.id}-${index}`}
-                      className={`w-full px-2 py-2 border-l-[3px] rounded-r-md flex items-start justify-between gap-1.5 ${
-                        isActive
-                          ? 'bg-blue-100 border-blue-700 shadow-sm ring-1 ring-blue-200/80'
-                          : 'bg-slate-50/90 border-transparent hover:bg-slate-200/90 ring-1 ring-slate-200/80'
-                      }`}
-                    >
-                      <button
-                        onClick={() => setSelected(task)}
-                        className="flex-1 min-w-0 text-left flex flex-col gap-1"
-                      >
-                        <span
-                          className="text-[11px] font-bold text-slate-900 line-clamp-2 leading-tight"
-                          title={task.ten_task}
-                        >
-                          {task.ten_task}
-                        </span>
-                        {task.hop_dong_id ? (
-                          <span
-                            className="text-[9px] font-medium text-slate-600 line-clamp-1 leading-tight"
-                            title={hopDongLabel}
-                          >
-                            {hopDongLabel}
-                          </span>
-                        ) : null}
-                        <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5">
-                          <div className="flex items-center gap-1 flex-1 min-w-0">
-                            <div className="flex-1 min-w-0 h-1.5 rounded-full bg-slate-200 overflow-hidden">
-                              <div
-                                className="h-full rounded-full bg-emerald-600 transition-[width] duration-300 ease-out"
-                                style={{ width: `${listPct}%` }}
-                              />
-                            </div>
-                            <span className="text-[9px] font-bold text-emerald-800 tabular-nums shrink-0 w-7 text-right">
-                              {listPct}%
-                            </span>
-                          </div>
-                          <span className="text-[9px] font-bold text-slate-800 shrink-0 max-w-[4.5rem] truncate" title={task.trang_thai}>
-                            {task.trang_thai}
-                          </span>
-                        </div>
-                      </button>
-                      <div className="flex flex-col items-center gap-1 shrink-0">
-                        <button
-                          type="button"
-                          title="Sửa công việc"
-                          aria-label="Sửa công việc"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            setFormData({
-                              hop_dong_id: task.hop_dong_id || '',
-                              ten_task: task.ten_task,
-                              mo_ta: task.mo_ta || '',
-                              trang_thai: task.trang_thai,
-                              uu_tien: task.uu_tien,
-                              ngay_bat_dau: task.ngay_bat_dau || '',
-                              ngay_ket_thuc: task.ngay_ket_thuc || '',
-                              ngay_hoan_thanh: task.ngay_hoan_thanh || '',
-                              nguoi_phu_trach: task.nguoi_phu_trach || '',
-                              tien_do: task.tien_do ?? 0,
-                              ghi_chu: task.ghi_chu || '',
-                            });
-                            const epIds: string[] = [];
-                            for (const n of (task.nguoi_phu_trach || '')
-                              .split(',')
-                              .map((s) => s.trim())
-                              .filter(Boolean)) {
-                              const emp = employees.find(
-                                (e) => e.full_name === n || e.code === n,
-                              );
-                              if (emp && !epIds.includes(emp.id)) epIds.push(emp.id);
-                            }
-                            setSelectedEmployeeIds(epIds);
-                            setTaskModalEditingId(task.id);
-                            setIsModalOpen(true);
-                          }}
-                          className="w-6 h-6 flex items-center justify-center rounded-full border border-amber-600 bg-amber-100 text-amber-900 hover:bg-amber-200"
-                        >
-                          <Pencil className="w-3 h-3" aria-hidden />
-                        </button>
-                        <button
-                          type="button"
-                          title="Xóa công việc"
-                          aria-label="Xóa công việc"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            if (
-                              !window.confirm(
-                                'Bạn có chắc chắn muốn xóa công việc này?',
-                              )
-                            )
-                              return;
-                            (async () => {
-                              try {
-                                await taskDetailService.deleteByTaskId(task.id);
-                                setTasks((prev) =>
-                                  prev.filter((t) => t.id !== task.id),
-                                );
-                                if (selected && selected.id === task.id) {
-                                  const next =
-                                    filtered.find((t) => t.id !== task.id) ||
-                                    null;
-                                  setSelected(next);
-                                }
-                              } catch (err) {
-                                console.error(
-                                  '[QuanLyCongViec] Error deleting task:',
-                                  err,
-                                );
-                                alert('Lỗi khi xóa công việc');
-                              }
-                            })();
-                          }}
-                          className="w-6 h-6 flex items-center justify-center rounded-full border border-red-600 bg-red-100 text-red-800 hover:bg-red-200"
-                        >
-                          <Trash2 className="w-3 h-3" aria-hidden />
-                        </button>
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            )}
+            <QuanLyCongViecTaskListScrollBody
+              loading={loading}
+              filtered={filtered}
+              selectedId={selected?.id}
+              onSelectTask={setSelected}
+              contractLabelById={contractLabelById}
+              onOpenEditModal={handleOpenTaskEditModal}
+              onDeleteTask={handleDeleteTaskFromList}
+            />
           </div>
         </div>
 

@@ -3,6 +3,7 @@ import { X, Eye, Edit, Trash2, Maximize2 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { ContractRow } from '../../lib/services/contractService';
 import { thuChiService, ThuChiRow } from '../../lib/services/thuChiService';
+import { hopDongPath, thuChiPath } from '../../lib/customerModuleLinks';
 
 interface ChiTietDuAnModalProps {
     isOpen: boolean;
@@ -59,6 +60,12 @@ export function ChiTietDuAnModal({
     }
 
     if (!isOpen || !project) return null;
+
+    const scopeFromProject = {
+        customerId: project.customer_id ? String(project.customer_id) : undefined,
+        duAnId: project.id ? String(project.id) : undefined,
+        project: project.projectName as string | undefined,
+    };
 
     return (
         <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/40 backdrop-blur-sm animate-in fade-in duration-200 p-4">
@@ -165,7 +172,12 @@ export function ChiTietDuAnModal({
                                                             <button
                                                                 onClick={() => {
                                                                     onClose();
-                                                                    navigate(`/khach-hang/hop-dong?contract=${contract.id}`);
+                                                                    navigate(
+                                                                        hopDongPath({
+                                                                            ...scopeFromProject,
+                                                                            hopDongId: contract.id ? String(contract.id) : undefined,
+                                                                        }),
+                                                                    );
                                                                 }}
                                                                 className="p-1.5 text-blue-500 hover:text-blue-700 hover:bg-blue-50 rounded-lg transition-all"
                                                                 title="Xem chi tiết"
@@ -175,7 +187,17 @@ export function ChiTietDuAnModal({
                                                             <button
                                                                 onClick={() => {
                                                                     onClose();
-                                                                    navigate(`/khach-hang/hop-dong?edit=${contract.id}`);
+                                                                    navigate(
+                                                                        hopDongPath(
+                                                                            {
+                                                                                ...scopeFromProject,
+                                                                                hopDongId: contract.id ? String(contract.id) : undefined,
+                                                                            },
+                                                                            contract.id
+                                                                                ? { edit: String(contract.id) }
+                                                                                : undefined,
+                                                                        ),
+                                                                    );
                                                                 }}
                                                                 className="p-1.5 text-amber-500 hover:text-amber-700 hover:bg-amber-50 rounded-lg transition-all"
                                                                 title="Sửa"
@@ -207,7 +229,7 @@ export function ChiTietDuAnModal({
                                 <button
                                     onClick={() => {
                                         onClose();
-                                        navigate(`/khach-hang/hop-dong?project=${encodeURIComponent(project.projectName)}`);
+                                        navigate(hopDongPath(scopeFromProject));
                                     }}
                                     className="flex items-center gap-2 px-4 py-2 bg-blue-50 text-blue-600 hover:bg-blue-100 font-bold text-xs rounded-xl transition-all border border-blue-100"
                                 >
@@ -279,7 +301,7 @@ export function ChiTietDuAnModal({
                                 <button
                                     onClick={() => {
                                         onClose();
-                                        navigate(`/tai-chinh/thu-chi?project=${encodeURIComponent(project.projectName)}`);
+                                        navigate(thuChiPath(scopeFromProject));
                                     }}
                                     className="flex items-center gap-2 px-4 py-2 bg-emerald-50 text-emerald-600 hover:bg-emerald-100 font-bold text-xs rounded-xl transition-all border border-emerald-100"
                                 >

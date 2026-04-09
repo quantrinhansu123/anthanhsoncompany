@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useMemo } from 'react';
+import React, { useEffect, useState, useMemo, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { Search, Plus, Eye, Edit, Trash2, X, ChevronDown, ChevronLeft, ChevronRight, FileText, FolderOpen, PlusCircle, User, CheckCircle, BarChart3, Briefcase, Calendar, Loader2 } from 'lucide-react';
 import { useSearchParams } from 'react-router-dom';
@@ -49,6 +49,7 @@ interface Contract {
     chucVuDaiDienA?: string | null;
     mst?: string | null;
     diaChiTaiThoiDiemKy?: string | null;
+    customerId?: string | null;
 }
 
 interface ProjectGroup {
@@ -102,6 +103,7 @@ function Toast({ message, type, onClose, action }: {
 export function HopDong() {
     const [searchParams] = useSearchParams();
     const filterFromUrl = searchParams.get('project');
+    const filterCustomerIdFromUrl = searchParams.get('customerId');
 
     const {
         openThemHopDong,
@@ -298,6 +300,7 @@ export function HopDong() {
                             chuc_vu_dai_dien_a: c.chuc_vu_dai_dien_a || null,
                             mst: c.mst || null,
                             dia_chi_tai_thoi_diem_ky: c.dia_chi_tai_thoi_diem_ky || null,
+                            customerId: c.customer_id || null,
                         } as any;
                     }),
                 }));
@@ -318,6 +321,45 @@ export function HopDong() {
         })();
     }, [page, debouncedSearch, reloadKey]);
 
+    const openedContractFromUrlRef = useRef<string | null>(null);
+
+    // Bộ lọc từ URL: duAnId, hopDongId (và tương thích ?contract= / ?edit=)
+    useEffect(() => {
+        const duAnId = searchParams.get('duAnId');
+        const hopDongId = searchParams.get('hopDongId') || searchParams.get('contract');
+        if (duAnId) setSelectedDuAnIds(new Set([duAnId]));
+        if (hopDongId) setSelectedHopDongIds(new Set([hopDongId]));
+    }, [searchParams]);
+
+    const urlOpenContractKey = [
+        searchParams.get('edit'),
+        searchParams.get('contract'),
+        searchParams.get('hopDongId'),
+    ]
+        .filter(Boolean)
+        .join('|');
+
+    useEffect(() => {
+        openedContractFromUrlRef.current = null;
+    }, [urlOpenContractKey]);
+
+    useEffect(() => {
+        const editId = searchParams.get('edit');
+        const viewId = searchParams.get('contract') || searchParams.get('hopDongId');
+        const targetId = editId || viewId;
+        if (!targetId || items.length === 0) return;
+        if (openedContractFromUrlRef.current === targetId) return;
+
+        const flat = items.flatMap((pg) => pg.contracts);
+        const c = flat.find((x) => x.uuid === targetId);
+        if (!c) return;
+
+        openedContractFromUrlRef.current = targetId;
+        if (editId) openThemHopDong(c);
+        else openChiTietHopDong(c);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- chỉ mở modal một lần khi tìm thấy hàng trong `items`
+    }, [items, searchParams]);
+
     // Memoized filtered items
     const filteredItems = useMemo(() => {
         return items.filter(project => {
@@ -332,12 +374,14 @@ export function HopDong() {
             ...project,
             contracts: project.contracts.filter(c => {
                 const matchesContract = selectedHopDongIds.size === 0 || (c.uuid && selectedHopDongIds.has(c.uuid));
-                return matchesContract;
+                const matchesCustomer =
+                    !filterCustomerIdFromUrl ||
+                    (c.customerId && String(c.customerId) === filterCustomerIdFromUrl);
+                return matchesContract && matchesCustomer;
             })
         })).filter(project => project.contracts.length > 0);
-    }, [items, filterFromUrl, selectedDuAnIds, selectedHopDongIds, projects]);
+    }, [items, filterFromUrl, filterCustomerIdFromUrl, selectedDuAnIds, selectedHopDongIds, projects]);
 
-    // Handle Folder selection effect
     useEffect(() => {
         if (viewMode === 'folder' && filteredItems.length > 0) {
             const exists = selectedFolderProjectId !== null && filteredItems.some(p => p.id === selectedFolderProjectId);

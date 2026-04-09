@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import {
     Search,
     Plus,
@@ -81,7 +81,8 @@ function StatChip({ label }: { label: string }) {
 export function ThuChi() {
     const navigate = useNavigate();
     const [searchParams] = useSearchParams();
-    const [items, setItems] = useState<ThuChiRow[]>([]);
+    /** Dữ liệu gốc từ API — chỉ đổi khi fetch lại, tránh gọi getAll() mỗi khi map metadata cập nhật. */
+    const [rawThuChi, setRawThuChi] = useState<ThuChiRow[]>([]);
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
     const [selectedIds, setSelectedIds] = useState<(string | number)[]>([]);
@@ -223,112 +224,135 @@ export function ThuChi() {
         })();
     }, []);
 
-    // Handle initial filters from URL
-    useEffect(() => {
-        const duAnId = searchParams.get('duAnId');
-        const projectName = searchParams.get('project');
-        
-        if (duAnId && projects.length > 0) {
-            if (!selectedDuAnIds.includes(duAnId)) {
-                setSelectedDuAnIds([duAnId]);
-            }
-        } else if (projectName && projects.length > 0) {
-            const matchedProject = projects.find(p => p.ten_du_an === projectName);
-            if (matchedProject && !selectedDuAnIds.includes(matchedProject.id)) {
-                setSelectedDuAnIds([matchedProject.id]);
-            }
-        }
-    }, [searchParams, projects]);
-
     /** Khớp `thu_chi.hop_dong_id` (thường là PK bảng hop_dong) với bản ghi hợp đồng từ API */
     const hopDongRef = (c: (typeof contracts)[number]) => String(c.hop_dong_row_id || c.id || '').trim();
 
-    // Load data from database
+    // Handle initial filters from URL (khách hàng / dự án / hợp đồng — cùng bộ tham số với các trang KH)
     useEffect(() => {
-        loadRecords();
-    }, [
-        selectedCustomerIds,
-        selectedDuAnIds,
-        selectedHopDongIds,
-        selectedNhanSuIds,
-        dateFrom,
-        dateTo,
-        quickDateFilter,
-        selectedMonth,
-        projects,
-        contracts,
-        customers,
-    ]);
+        const customerIdParam = searchParams.get('customerId');
+        const duAnIdParam = searchParams.get('duAnId');
+        const hopDongParam = searchParams.get('hopDongId');
+        const projectName = searchParams.get('project');
 
-    const loadRecords = async () => {
+        if (customers.length > 0 && customerIdParam) {
+            const ok = customers.some((c) => String(c.id) === customerIdParam);
+            if (ok) {
+                setSelectedCustomerIds((prev) =>
+                    prev.length === 1 && prev[0] === customerIdParam ? prev : [customerIdParam],
+                );
+            }
+        }
+
+        if (projects.length > 0) {
+            if (duAnIdParam && projects.some((p) => p.id === duAnIdParam)) {
+                setSelectedDuAnIds((prev) =>
+                    prev.length === 1 && prev[0] === duAnIdParam ? prev : [duAnIdParam],
+                );
+            } else if (projectName) {
+                const matchedProject = projects.find((p) => p.ten_du_an === projectName);
+                if (matchedProject) {
+                    setSelectedDuAnIds((prev) =>
+                        prev.length === 1 && prev[0] === matchedProject.id ? prev : [matchedProject.id],
+                    );
+                }
+            }
+        }
+
+        if (contracts.length > 0 && hopDongParam) {
+            const keys = new Set<string>([hopDongParam]);
+            contracts.forEach((c) => {
+                if (String(c.id) === hopDongParam || String(c.hop_dong_row_id || '') === hopDongParam) {
+                    const k = hopDongRef(c);
+                    if (k) keys.add(k);
+                }
+            });
+            const arr = [...keys].filter(Boolean);
+            setSelectedHopDongIds((prev) => {
+                if (prev.length === arr.length && arr.every((k) => prev.includes(k))) return prev;
+                return arr;
+            });
+        }
+    }, [searchParams, customers, projects, contracts]);
+
+    const loadRecords = useCallback(async () => {
         try {
             setLoading(true);
             setError(null);
             const data = await thuChiService.getAll();
-            
-            // Map data để hiển thị
-            const projectInfoMap = new Map<string, { ten_du_an: string | null; customer_id: string | null; customer_name: string | null }>();
-            projects.forEach(p => {
-                projectInfoMap.set(p.id, { ten_du_an: p.ten_du_an || null, customer_id: p.customer_id || null, customer_name: p.customer_name || null });
-            });
-
-            const contractByHopKey = new Map<string, (typeof contracts)[number]>();
-            contracts.forEach((c) => {
-                const k1 = hopDongRef(c);
-                if (k1) contractByHopKey.set(k1, c);
-                if (c.id) contractByHopKey.set(String(c.id), c);
-            });
-
-            const mappedData = data.map((item) => {
-                const nhanSuDisplay = item.nhan_su_ten || null;
-                const hid = item.hop_dong_id ? String(item.hop_dong_id).trim() : '';
-                const linkedContract = hid ? contractByHopKey.get(hid) : undefined;
-                const projInfo = projectInfoMap.get(item.du_an_id || '');
-                const customerId =
-                    linkedContract?.customer_id ?? projInfo?.customer_id ?? null;
-                let customerName =
-                    linkedContract?.customer_name ??
-                    projInfo?.customer_name ??
-                    null;
-                if (!customerName && customerId) {
-                    customerName = customers.find((cc) => cc.id === customerId)?.ten_don_vi ?? null;
-                }
-                const soHopDong =
-                    (item.so_hop_dong && String(item.so_hop_dong).trim()) ||
-                    linkedContract?.so_hop_dong ||
-                    null;
-
-                return {
-                    ...item,
-                    code: item.id.substring(0, 8).toUpperCase(), // Mã chứng từ từ ID
-                    date: item.ngay ? new Date(item.ngay).toLocaleDateString('vi-VN') : '',
-                    dateTime: item.created_at ? new Date(item.created_at).toLocaleString('vi-VN') : '', // Ngày giờ ghi nhận
-                    type: item.loai_phieu,
-                    amount: new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND' }).format(item.so_tien),
-                    description: item.noi_dung || '',
-                    hang_muc_display:
-                        item.loai_phieu === 'Phiếu chi'
-                            ? item.hang_muc_chi === 'chi_du_an'
-                                ? 'Chi dự án'
-                                : item.hang_muc_chi === 'chi_nhan_su'
-                                  ? 'Chi nhân sự'
-                                  : '—'
-                            : '—',
-                    ten_du_an: item.ten_du_an || projInfo?.ten_du_an || '(Chưa có dự án)',
-                    customer_id: customerId,
-                    customer_name: customerName,
-                    so_hop_dong_display: soHopDong,
-                    nhan_su_display: nhanSuDisplay,
-                };
-            });
-            setItems(mappedData);
+            setRawThuChi(data);
         } catch (err: any) {
             setError(err.message || 'Có lỗi xảy ra khi tải dữ liệu');
             console.error('Error loading thu chi:', err);
         } finally {
             setLoading(false);
         }
-    };
+    }, []);
+
+    useEffect(() => {
+        loadRecords();
+    }, [loadRecords]);
+
+    const items = useMemo(() => {
+        const projectInfoMap = new Map<
+            string,
+            { ten_du_an: string | null; customer_id: string | null; customer_name: string | null }
+        >();
+        projects.forEach((p) => {
+            projectInfoMap.set(p.id, {
+                ten_du_an: p.ten_du_an || null,
+                customer_id: p.customer_id || null,
+                customer_name: p.customer_name || null,
+            });
+        });
+
+        const contractByHopKey = new Map<string, (typeof contracts)[number]>();
+        contracts.forEach((c) => {
+            const k1 = hopDongRef(c);
+            if (k1) contractByHopKey.set(k1, c);
+            if (c.id) contractByHopKey.set(String(c.id), c);
+        });
+
+        return rawThuChi.map((item) => {
+            const nhanSuDisplay = item.nhan_su_ten || null;
+            const hid = item.hop_dong_id ? String(item.hop_dong_id).trim() : '';
+            const linkedContract = hid ? contractByHopKey.get(hid) : undefined;
+            const projInfo = projectInfoMap.get(item.du_an_id || '');
+            const customerId =
+                linkedContract?.customer_id ?? projInfo?.customer_id ?? null;
+            let customerName =
+                linkedContract?.customer_name ?? projInfo?.customer_name ?? null;
+            if (!customerName && customerId) {
+                customerName = customers.find((cc) => cc.id === customerId)?.ten_don_vi ?? null;
+            }
+            const soHopDong =
+                (item.so_hop_dong && String(item.so_hop_dong).trim()) ||
+                linkedContract?.so_hop_dong ||
+                null;
+
+            return {
+                ...item,
+                code: item.id.substring(0, 8).toUpperCase(),
+                date: item.ngay ? new Date(item.ngay).toLocaleDateString('vi-VN') : '',
+                dateTime: item.created_at ? new Date(item.created_at).toLocaleString('vi-VN') : '',
+                type: item.loai_phieu,
+                amount: new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND' }).format(item.so_tien),
+                description: item.noi_dung || '',
+                hang_muc_display:
+                    item.loai_phieu === 'Phiếu chi'
+                        ? item.hang_muc_chi === 'chi_du_an'
+                            ? 'Chi dự án'
+                            : item.hang_muc_chi === 'chi_nhan_su'
+                              ? 'Chi nhân sự'
+                              : '—'
+                        : '—',
+                ten_du_an: item.ten_du_an || projInfo?.ten_du_an || '(Chưa có dự án)',
+                customer_id: customerId,
+                customer_name: customerName,
+                so_hop_dong_display: soHopDong,
+                nhan_su_display: nhanSuDisplay,
+            };
+        });
+    }, [rawThuChi, projects, contracts, customers]);
 
     const handleDelete = (id: string | number) => {
         openDelete(id, loadRecords);

@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Search, Plus, Eye, Edit, Trash2, X, Maximize2, CheckCircle, PlusCircle, User, DollarSign } from 'lucide-react';
-import { useLocation, useNavigate } from 'react-router-dom';
+import { useLocation, useNavigate, useSearchParams } from 'react-router-dom';
+import { thuChiPath } from '../../lib/customerModuleLinks';
 import { useDuAnModal } from '../../contexts/DuAnModalContext';
 import { useHopDongModal } from '../../contexts/HopDongModalContext';
 import { projectService } from '../../lib/services/projectService';
@@ -51,6 +52,9 @@ export function DuAn() {
     const [searchTerm, setSearchTerm] = useState('');
     const navigate = useNavigate();
     const location = useLocation();
+    const [searchParams] = useSearchParams();
+    const urlCustomerId = searchParams.get('customerId');
+    const urlDuAnId = searchParams.get('duAnId');
     const openedFromStateRef = useRef(false);
 
     // Allow other pages to navigate here and open a project directly
@@ -110,16 +114,23 @@ export function DuAn() {
     // State để lưu danh sách nhân sự (để hiển thị tên trong modal chi tiết)
     const [employees, setEmployees] = useState<Array<{ id: string; full_name: string; code: string; anh_nhan_su?: string | null }>>([]);
 
-    // Lọc theo tên khách hàng / tên dự án
+    // Lọc theo URL (khách / dự án) và ô tìm kiếm
     const filteredItems = useMemo(() => {
-        if (!searchTerm) return items;
+        let list = items;
+        if (urlCustomerId) {
+            list = list.filter((item) => String(item.customer_id || '') === urlCustomerId);
+        }
+        if (urlDuAnId) {
+            list = list.filter((item) => String(item.id) === urlDuAnId);
+        }
+        if (!searchTerm) return list;
         const term = searchTerm.toLowerCase();
-        return items.filter((item) => {
+        return list.filter((item) => {
             const customer = (item.customer_name || item.customerName || '').toString().toLowerCase();
             const project = (item.projectName || '').toString().toLowerCase();
             return customer.includes(term) || project.includes(term);
         });
-    }, [items, searchTerm]);
+    }, [items, searchTerm, urlCustomerId, urlDuAnId]);
 
     // Load danh sách nhân sự
     useEffect(() => {
@@ -305,6 +316,7 @@ export function DuAn() {
                 return {
                     id: p.id,
                     projectName: projectName,
+                    customer_id: p.customer_id || null,
                     status: p.status || 'Đang thực hiện',
                     statusColor: getStatusColor(p.status || 'Đang thực hiện'),
                     progress: calculatedProgress, // Sử dụng tiến độ tính từ hợp đồng
@@ -848,7 +860,13 @@ export function DuAn() {
                                                 title="Xem thu chi"
                                                 onClick={(e) => {
                                                     e.stopPropagation();
-                                                    navigate(`/tai-chinh/thu-chi?project=${encodeURIComponent(item.projectName)}`);
+                                                    navigate(
+                                                        thuChiPath({
+                                                            project: item.projectName,
+                                                            duAnId: String(item.id),
+                                                            customerId: item.customer_id ? String(item.customer_id) : undefined,
+                                                        }),
+                                                    );
                                                 }}
                                             >
                                                 <DollarSign size={14} />

@@ -9,6 +9,7 @@ import { useHopDongModal } from '../../contexts/HopDongModalContext';
 import { useThuChiModal } from '../../contexts/ThuChiModalContext';
 import type { NguongChiNhanSuLoai } from '../../lib/nguongChiNhanSu';
 import { normalizeNguongLoai, tienQuyDoiNguongChiNhanSu } from '../../lib/nguongChiNhanSu';
+import { thuChiPath, duAnPath, hopDongPath } from '../../lib/customerModuleLinks';
 
 /** Chuẩn hóa tên khách để khớp dự án chỉ có ten_khach_hang (không có customer_id). */
 function normCustomerKey(s: string | null | undefined): string {
@@ -357,7 +358,20 @@ export function ChiTietKhachHangModal({ isOpen, onClose, selectedCustomer }: Pro
                                 <div className="p-8 text-center"><p className="text-slate-400 italic">Chưa có dự án nào</p></div>
                             )}
                             <div className="bg-slate-50/50 px-5 py-3 flex justify-end gap-3 border-t border-slate-100">
-                                <button onClick={() => { navigate('/khach-hang/du-an'); onClose(); }} className="action-btn-p-2 p-1.5 text-blue-500 hover:text-blue-700 hover:bg-blue-50 rounded-md border border-blue-100" title="Mở rộng"><Maximize2 size={16} /></button>
+                                <button
+                                    onClick={() => {
+                                        if (selectedCustomer?.id) {
+                                            navigate(duAnPath({ customerId: String(selectedCustomer.id) }));
+                                        } else {
+                                            navigate('/khach-hang/du-an');
+                                        }
+                                        onClose();
+                                    }}
+                                    className="action-btn-p-2 p-1.5 text-blue-500 hover:text-blue-700 hover:bg-blue-50 rounded-md border border-blue-100"
+                                    title="Mở rộng"
+                                >
+                                    <Maximize2 size={16} />
+                                </button>
                                 <button
                                     type="button"
                                     onClick={() => {
@@ -452,7 +466,11 @@ export function ChiTietKhachHangModal({ isOpen, onClose, selectedCustomer }: Pro
                                 <button
                                     type="button"
                                     onClick={() => {
-                                        navigate('/khach-hang/hop-dong');
+                                        if (selectedCustomer?.id) {
+                                            navigate(hopDongPath({ customerId: String(selectedCustomer.id) }));
+                                        } else {
+                                            navigate('/khach-hang/hop-dong');
+                                        }
                                         onClose();
                                     }}
                                     className="action-btn p-1.5 text-blue-500 hover:text-blue-700 hover:bg-blue-50 rounded-md border border-blue-100"
@@ -612,7 +630,11 @@ export function ChiTietKhachHangModal({ isOpen, onClose, selectedCustomer }: Pro
                                 <button
                                     type="button"
                                     onClick={() => {
-                                        navigate('/tai-chinh/thu-chi');
+                                        if (selectedCustomer?.id) {
+                                            navigate(thuChiPath({ customerId: String(selectedCustomer.id) }));
+                                        } else {
+                                            navigate('/tai-chinh/thu-chi');
+                                        }
                                         onClose();
                                     }}
                                     className="action-btn p-1.5 text-blue-500 hover:text-blue-700 hover:bg-blue-50 rounded-md border border-blue-100"
