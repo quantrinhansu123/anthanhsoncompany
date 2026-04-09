@@ -517,9 +517,12 @@ export const taskDetailService = {
   // Lấy tất cả công việc từ bảng cong_viec_chi_tiet, map về TaskRow cho UI
   async getAllAsTasks(): Promise<TaskRow[]> {
     try {
+      // Chỉ lấy cột cần cho danh sách + jsonb `ten_task` (quy trình); bỏ tai_lieu/binh_luan/lich_su/... để giảm payload khi dữ liệu lớn.
       const { data, error } = await supabase
         .from('cong_viec_chi_tiet')
-        .select('*')
+        .select(
+          'id, task_id, ten_cong_viec, ten_task, mo_ta, nguoi_thuc_hien, han_hoan_thanh, ngay_bat_dau, ngay_ket_thuc, ngay_hoan_thanh, trang_thai, tien_do, ghi_chu, hop_dong_id, created_at, updated_at',
+        )
         .order('created_at', { ascending: false });
 
       if (error) {

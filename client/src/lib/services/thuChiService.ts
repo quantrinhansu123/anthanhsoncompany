@@ -1,6 +1,4 @@
 import { supabase } from '../supabase';
-import { projectService } from './projectService';
-import { employeeService } from './employeeService';
 
 export interface ThuChiRow {
   id: string;
@@ -29,151 +27,159 @@ export interface ThuChiRow {
   nhan_su_anh?: string | null; // Ảnh nhân sự từ join
 }
 
+/** Một truy vấn Supabase: join dự án / hợp đồng / nhân sự — tránh N+1 và tải lại toàn bộ bảng phụ. */
+const THU_CHI_LIST_SELECT = `
+  id,
+  du_an_id,
+  hop_dong_id,
+  nhan_su_id,
+  loai_phieu,
+  so_tien,
+  ngay,
+  noi_dung,
+  tinh_trang_phieu,
+  nguoi_nhan,
+  file_url,
+  anh_url,
+  ghi_chu,
+  hang_muc_chi,
+  created_at,
+  updated_at,
+  du_an:du_an_id(id, ten_du_an, customer_id, ten_khach_hang),
+  hop_dong:hop_dong_id(
+    id,
+    so_hop_dong,
+    du_an_id,
+    du_an:du_an_id(id, ten_du_an)
+  ),
+  nhan_su:nhan_su_id(id, code, full_name, name, hoTen, anh_nhan_su)
+`;
+
+function mapThuChiJoinedRow(row: any): ThuChiRow {
+  const duAn = row.du_an;
+  const hopDong = row.hop_dong;
+  const effectiveDuAn = duAn || hopDong?.du_an;
+  const nhanSu = row.nhan_su;
+  const tenNhanSu =
+    nhanSu?.full_name || nhanSu?.name || nhanSu?.hoTen || null;
+
+  return {
+    id: String(row.id),
+    du_an_id: row.du_an_id || hopDong?.du_an_id || null,
+    hop_dong_id: row.hop_dong_id,
+    nhan_su_id: row.nhan_su_id,
+    loai_phieu: row.loai_phieu,
+    so_tien: Number(row.so_tien) || 0,
+    ngay: row.ngay,
+    ngay_tien_ve: row.ngay ?? null,
+    noi_dung: row.noi_dung,
+    tinh_trang_phieu: row.tinh_trang_phieu,
+    nguoi_nhan: row.nguoi_nhan,
+    file_url: row.file_url,
+    anh_url: row.anh_url,
+    ghi_chu: row.ghi_chu,
+    hang_muc_chi: row.hang_muc_chi,
+    created_at: row.created_at,
+    updated_at: row.updated_at,
+    ten_du_an: effectiveDuAn?.ten_du_an ?? null,
+    so_hop_dong: hopDong?.so_hop_dong ?? null,
+    nhan_su_ten: tenNhanSu,
+    nhan_su_code: nhanSu?.code ?? null,
+    nhan_su_anh: nhanSu?.anh_nhan_su ?? null,
+  };
+}
+
 export const thuChiService = {
-  // Lấy thu chi phục vụ dashboard/danh sách dự án.
-  // Tối ưu: join trực tiếp để lấy `ten_du_an`/`nhan_su_*` thay vì gọi thêm projectService/employeeService để map.
+  /**
+   * Thu chi một lần truy vấn (join). Dùng cho mọi màn cần danh sách đầy đủ + tên dự án / HĐ / nhân sự.
+   */
+  async fetchJoinedList(filterDuAnId?: string | null): Promise<ThuChiRow[]> {
+    let query = supabase
+      .from('thu_chi')
+      .select(THU_CHI_LIST_SELECT)
+      .order('ngay', { ascending: false });
+
+    if (filterDuAnId) {
+      query = query.eq('du_an_id', filterDuAnId);
+    }
+
+    const { data, error } = await query;
+    if (error) {
+      console.error('[thuChiService] fetchJoinedList:', error);
+      throw error;
+    }
+    return (data || []).map(mapThuChiJoinedRow);
+  },
+
+  /**
+   * Thu chi gắn dự án: trực tiếp theo `du_an_id` hoặc gián tiếp qua hợp đồng (`hop_dong.du_an_id`).
+   * Một truy vấn, không tải toàn bộ bảng thu_chi.
+   */
+  async fetchJoinedForDuAnScope(duAnId: string): Promise<ThuChiRow[]> {
+    const id = String(duAnId || '').trim();
+    if (!id) return [];
+
+    const { data, error } = await supabase
+      .from('thu_chi')
+      .select(THU_CHI_LIST_SELECT)
+      .or(`du_an_id.eq.${id},hop_dong.du_an_id.eq.${id}`)
+      .order('ngay', { ascending: false });
+
+    if (error) {
+      console.error('[thuChiService] fetchJoinedForDuAnScope:', error);
+      throw error;
+    }
+    return (data || []).map(mapThuChiJoinedRow);
+  },
+
+  /** Chỉ loại phiếu + số tiền + ngày — dùng biểu đồ / tổng hợp, giảm băng thông khi bảng lớn. */
+  async fetchLedgerThin(): Promise<
+    { loai_phieu: string; so_tien: number; ngay: string | null }[]
+  > {
+    const { data, error } = await supabase
+      .from('thu_chi')
+      .select('loai_phieu, so_tien, ngay');
+
+    if (error) {
+      console.error('[thuChiService] fetchLedgerThin:', error);
+      throw error;
+    }
+    return (data || []).map((row: any) => ({
+      loai_phieu: String(row.loai_phieu || ''),
+      so_tien: Number(row.so_tien) || 0,
+      ngay: row.ngay ?? null,
+    }));
+  },
+
+  /** Phiếu gần nhất kèm join (hiển thị dashboard). */
+  async fetchRecentJoined(limit: number): Promise<ThuChiRow[]> {
+    const { data, error } = await supabase
+      .from('thu_chi')
+      .select(THU_CHI_LIST_SELECT)
+      .order('ngay', { ascending: false })
+      .limit(Math.max(1, Math.min(limit, 50)));
+
+    if (error) {
+      console.error('[thuChiService] fetchRecentJoined:', error);
+      throw error;
+    }
+    return (data || []).map(mapThuChiJoinedRow);
+  },
+
+  // Lấy thu chi phục vụ dashboard/danh sách dự án (một vòng Supabase).
   async getAllForDuAnDashboard(filterDuAnId?: string | null): Promise<ThuChiRow[]> {
     try {
-      let query = supabase
-        .from('thu_chi')
-        .select(`
-          id,
-          du_an_id,
-          hop_dong_id,
-          nhan_su_id,
-          loai_phieu,
-          so_tien,
-          ngay,
-          noi_dung,
-          tinh_trang_phieu,
-          nguoi_nhan,
-          file_url,
-          anh_url,
-          ghi_chu,
-          created_at,
-          du_an:du_an_id(id, ten_du_an, customer_id, ten_khach_hang),
-          hop_dong:hop_dong_id(
-            id, 
-            so_hop_dong, 
-            du_an_id,
-            du_an:du_an_id(id, ten_du_an)
-          ),
-          nhan_su:nhan_su_id(id, code, full_name, name, hoTen, anh_nhan_su)
-        `)
-        .order('ngay', { ascending: false });
-
-      if (filterDuAnId) {
-        query = query.eq('du_an_id', filterDuAnId);
-      }
-
-      const { data, error } = await query;
-      if (error) {
-        console.error('Error fetching thu_chi for DuAn dashboard:', error);
-        throw error;
-      }
-
-      return (data || []).map((row: any) => {
-        const duAn = row.du_an;
-        const hopDong = row.hop_dong;
-        // Nếu record không có du_an_id nhưng có hop_dong_id, lấy thông tin dự án từ hợp đồng.
-        const effectiveDuAn = duAn || hopDong?.du_an;
-        
-        const nhanSu = row.nhan_su;
-        const tenNhanSu =
-          nhanSu?.full_name || nhanSu?.name || nhanSu?.hoTen || null;
-
-        return {
-          id: String(row.id),
-          du_an_id: row.du_an_id || hopDong?.du_an_id || null,
-          hop_dong_id: row.hop_dong_id,
-          nhan_su_id: row.nhan_su_id,
-          loai_phieu: row.loai_phieu,
-          so_tien: Number(row.so_tien) || 0,
-          ngay: row.ngay,
-          ngay_tien_ve: row.ngay ?? null,
-          noi_dung: row.noi_dung,
-          tinh_trang_phieu: row.tinh_trang_phieu,
-          nguoi_nhan: row.nguoi_nhan,
-          file_url: row.file_url,
-          anh_url: row.anh_url,
-          ghi_chu: row.ghi_chu,
-          hang_muc_chi: row.hang_muc_chi,
-          created_at: row.created_at,
-
-          // Joined
-          ten_du_an: effectiveDuAn?.ten_du_an ?? null,
-          so_hop_dong: hopDong?.so_hop_dong ?? null,
-          nhan_su_ten: tenNhanSu,
-          nhan_su_code: nhanSu?.code ?? null,
-          nhan_su_anh: nhanSu?.anh_nhan_su ?? null,
-        } as ThuChiRow;
-      });
+      return await this.fetchJoinedList(filterDuAnId ?? undefined);
     } catch (err) {
       console.error('Exception in thuChiService.getAllForDuAnDashboard:', err);
       return [];
     }
   },
 
-  // Lấy tất cả thu chi (join với du_an và hop_dong để lấy tên)
+  // Lấy tất cả thu chi — cùng đường join với getAllForDuAnDashboard (không gọi thêm project/employee API).
   async getAll(filterDuAnId?: string | null): Promise<ThuChiRow[]> {
     try {
-      let query = supabase
-        .from('thu_chi')
-        .select('*')
-        .order('ngay', { ascending: false });
-
-      // Filter theo dự án nếu có
-      if (filterDuAnId) {
-        query = query.eq('du_an_id', filterDuAnId);
-      }
-
-      const { data, error } = await query;
-
-      if (error) {
-        console.error('Error fetching thu_chi:', error);
-        throw error;
-      }
-
-      // Load tất cả dự án và hợp đồng để map
-      const projects = await projectService.getAll();
-      const projectMap = new Map<string, string>();
-      projects.forEach(p => {
-        projectMap.set(p.id, p.ten_du_an);
-      });
-
-      // Load hợp đồng để map
-      const { data: contracts } = await supabase
-        .from('hop_dong')
-        .select('id, so_hop_dong');
-      
-      const contractMap = new Map<string, string>();
-      (contracts || []).forEach(c => {
-        contractMap.set(c.id, c.so_hop_dong || '');
-      });
-
-      // Load nhân sự để map
-      const employees = await employeeService.getAll();
-      const employeeMap = new Map<string, { name: string; code: string; anh: string | null }>();
-      employees.forEach(emp => {
-        const name = emp.full_name || emp.name || emp.hoTen || '';
-        const code = emp.code || '';
-        const anh = emp.anh_nhan_su || null;
-        employeeMap.set(emp.id.toString(), { name, code, anh });
-      });
-
-      // Map dữ liệu để lấy ten_du_an, so_hop_dong và thông tin nhân sự
-      return (data || []).map((row: any) => {
-        const employee = row.nhan_su_id ? employeeMap.get(row.nhan_su_id) : null;
-        return {
-          ...row,
-          ten_du_an: row.du_an_id ? (projectMap.get(row.du_an_id) || null) : null,
-          so_hop_dong: row.hop_dong_id ? (contractMap.get(row.hop_dong_id) || null) : null,
-          nhan_su_ten: employee?.name || null,
-          nhan_su_code: employee?.code || null,
-          nhan_su_anh: employee?.anh ?? null,
-          ngay_tien_ve: row.ngay || null, // Alias cho ngay
-        };
-      }) as ThuChiRow[];
+      return await this.fetchJoinedList(filterDuAnId ?? undefined);
     } catch (err) {
       console.error('Exception in thuChiService.getAll:', err);
       return [];

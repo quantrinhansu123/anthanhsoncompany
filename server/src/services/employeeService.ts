@@ -13,13 +13,13 @@ export interface Employee {
 
 export const employeeService = {
   async getAll() {
-    const { data, error, count } = await getSupabase()
+    const { data, error } = await getSupabase()
       .from('nhan_su')
-      .select('*', { count: 'exact' })
+      .select('*')
       .order('created_at', { ascending: false });
-    
+
     if (error) throw error;
-    return { data, count };
+    return { data, count: data?.length ?? 0 };
   },
 
   async getById(id: string | number) {

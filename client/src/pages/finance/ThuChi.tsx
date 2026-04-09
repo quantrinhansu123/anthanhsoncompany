@@ -172,18 +172,30 @@ export function ThuChi() {
     useEffect(() => {
         (async () => {
             try {
-                const customerList = await customerService.getAll();
-                setCustomers((customerList || []).map((c: any) => ({ id: c.id, ten_don_vi: c.ten_don_vi })));
+                const [customerList, projectList, contractList, employeeList] =
+                    await Promise.all([
+                        customerService.getAll(),
+                        projectService.getAll(),
+                        contractService.getAll(),
+                        employeeService.getAll(),
+                    ]);
 
-                const projectList = await projectService.getAll();
-                setProjects(projectList.map((p: any) => ({
-                    id: p.id,
-                    ten_du_an: p.ten_du_an,
-                    customer_id: p.customer_id || null,
-                    customer_name: p.customer_name || p.ten_khach_hang || null
-                })));
-                
-                const contractList = await contractService.getAll();
+                setCustomers(
+                    (customerList || []).map((c: any) => ({
+                        id: c.id,
+                        ten_don_vi: c.ten_don_vi,
+                    })),
+                );
+
+                setProjects(
+                    projectList.map((p: any) => ({
+                        id: p.id,
+                        ten_du_an: p.ten_du_an,
+                        customer_id: p.customer_id || null,
+                        customer_name: p.customer_name || p.ten_khach_hang || null,
+                    })),
+                );
+
                 setContracts(
                     contractList.map((c: any) => ({
                         id: c.id,
@@ -197,13 +209,14 @@ export function ThuChi() {
                         nguong_chi_nhan_su_loai: c.nguong_chi_nhan_su_loai ?? null,
                     })),
                 );
-                
-                const employeeList = await employeeService.getAll();
-                setEmployees(employeeList.map(emp => ({
-                    id: emp.id.toString(),
-                    full_name: emp.full_name || emp.name || emp.hoTen || '',
-                    code: emp.code || ''
-                })));
+
+                setEmployees(
+                    employeeList.map((emp) => ({
+                        id: emp.id.toString(),
+                        full_name: emp.full_name || emp.name || emp.hoTen || '',
+                        code: emp.code || '',
+                    })),
+                );
             } catch (error) {
                 console.error('Error loading filter data:', error);
             }

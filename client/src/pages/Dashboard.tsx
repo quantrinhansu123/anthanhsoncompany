@@ -31,10 +31,11 @@ import {
   Legend,
 } from 'recharts';
 import { motion } from 'motion/react';
-import { employeeService } from '../lib/services/employeeService';
-import { thuChiService, ThuChiRow } from '../lib/services/thuChiService';
-import { customerService } from '../lib/services/customerService';
-import { projectService } from '../lib/services/projectService';
+import type { ThuChiRow } from '../lib/services/thuChiService';
+import {
+  loadDashboardData,
+  type DashboardThuChiLedgerRow,
+} from '../lib/services/dashboardService';
 // import { taskService, type TaskRow } from '../lib/services/taskService';
 import { format, startOfMonth, endOfMonth, subMonths } from 'date-fns';
 import { vi } from 'date-fns/locale';
@@ -143,41 +144,30 @@ export function Dashboard() {
     customers: 0,
     projects: 0,
   });
-  const [thuChiData, setThuChiData] = useState<ThuChiRow[]>([]);
+  const [thuChiLedger, setThuChiLedger] = useState<DashboardThuChiLedgerRow[]>(
+    [],
+  );
+  const [recentThuChi, setRecentThuChi] = useState<ThuChiRow[]>([]);
   const [projects, setProjects] = useState<{ status: string }[]>([]);
 
-  // Fetch tất cả dữ liệu song song
   useEffect(() => {
     let cancelled = false;
 
     async function fetchData() {
       setLoading(true);
       try {
-        const [employees, thuChi, customers, projectList] = await Promise.all([
-          employeeService.getAll(),
-          thuChiService.getAll(),
-          customerService.getAll(),
-          projectService.getAll(),
-        ]);
-
+        const data = await loadDashboardData();
         if (cancelled) return;
-
-        const totalThu = thuChi
-          .filter((r) => r.loai_phieu === 'Phiếu thu')
-          .reduce((sum, r) => sum + (r.so_tien || 0), 0);
-        const totalChi = thuChi
-          .filter((r) => r.loai_phieu === 'Phiếu chi')
-          .reduce((sum, r) => sum + (r.so_tien || 0), 0);
-
         setStats({
-          employees: employees?.length ?? 0,
-          totalThu,
-          totalChi,
-          customers: customers?.length ?? 0,
-          projects: projectList?.length ?? 0,
+          employees: data.stats.employees,
+          totalThu: data.stats.totalThu,
+          totalChi: data.stats.totalChi,
+          customers: data.stats.customers,
+          projects: data.stats.projects,
         });
-        setThuChiData(thuChi);
-        setProjects(projectList || []);
+        setThuChiLedger(data.thuChiLedger);
+        setRecentThuChi(data.recentThuChi);
+        setProjects(data.projectStatuses);
       } catch (err) {
         console.error('Dashboard fetch error:', err);
       } finally {
@@ -186,32 +176,34 @@ export function Dashboard() {
     }
 
     fetchData();
-    return () => { cancelled = true; };
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
-  // Dữ liệu biểu đồ thu chi 6 tháng gần nhất
+  // Dữ liệu biểu đồ thu chi 6 tháng gần nhất (chỉ dùng cột mỏng từ ledger)
   const chartData = useMemo(() => {
     const result: { month: string; thu: number; chi: number }[] = [];
     for (let i = 5; i >= 0; i--) {
       const d = subMonths(new Date(), i);
       const start = startOfMonth(d);
       const end = endOfMonth(d);
-      const thu = thuChiData
+      const thu = thuChiLedger
         .filter(
           (r) =>
             r.loai_phieu === 'Phiếu thu' &&
             r.ngay &&
             new Date(r.ngay) >= start &&
-            new Date(r.ngay) <= end
+            new Date(r.ngay) <= end,
         )
         .reduce((sum, r) => sum + (r.so_tien || 0), 0);
-      const chi = thuChiData
+      const chi = thuChiLedger
         .filter(
           (r) =>
             r.loai_phieu === 'Phiếu chi' &&
             r.ngay &&
             new Date(r.ngay) >= start &&
-            new Date(r.ngay) <= end
+            new Date(r.ngay) <= end,
         )
         .reduce((sum, r) => sum + (r.so_tien || 0), 0);
       result.push({
@@ -221,7 +213,7 @@ export function Dashboard() {
       });
     }
     return result;
-  }, [thuChiData]);
+  }, [thuChiLedger]);
 
   // Dữ liệu biểu đồ tròn: dự án theo trạng thái
   const projectStatusData = useMemo(() => {
@@ -232,12 +224,6 @@ export function Dashboard() {
     });
     return Array.from(map.entries()).map(([name, value]) => ({ name, value }));
   }, [projects]);
-
-  // Phiếu thu chi gần đây (5 mục)
-  const recentThuChi = useMemo(
-    () => thuChiData.slice(0, 5),
-    [thuChiData]
-  );
 
   // Task việc gần đây: đã bỏ bảng Task gần đây nên không cần recentTasks
 

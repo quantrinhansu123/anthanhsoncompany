@@ -32,18 +32,25 @@ export function ChiTietDuAnModal({
         if (isOpen && project?.projectName) {
             loadThuChi();
         }
-    }, [isOpen, project?.projectName]);
+    }, [isOpen, project?.id, project?.projectName]);
 
     async function loadThuChi() {
         setLoadingThuChi(true);
         try {
-            // Note: thuChiService.getAllForDuAnDashboard might be more appropriate if we want the linked data
+            if (project?.id) {
+                const rows = await thuChiService.fetchJoinedForDuAnScope(String(project.id));
+                setThuChiRows(rows);
+                return;
+            }
             const all = await thuChiService.getAll();
-            const filtered = all.filter(r =>
-                (r.du_an_id === project.id) ||
-                (r.ten_du_an === project.projectName)
+            const filtered = all.filter(
+                (r) => r.ten_du_an === project.projectName,
             );
-            setThuChiRows(filtered.sort((a, b) => String(b.ngay || '').localeCompare(String(a.ngay || ''))));
+            setThuChiRows(
+                filtered.sort((a, b) =>
+                    String(b.ngay || '').localeCompare(String(a.ngay || '')),
+                ),
+            );
         } catch (e) {
             console.error('[ChiTietDuAnModal] loadThuChi:', e);
         } finally {
