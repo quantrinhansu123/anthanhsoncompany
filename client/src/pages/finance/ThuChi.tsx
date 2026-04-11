@@ -79,6 +79,13 @@ function StatChip({ label }: { label: string }) {
     );
 }
 
+/** Hiển thị tình trạng thu CĐT (nhập Excel) — thêm tiền tố CĐT cho đúng ngữ cảnh. */
+function tinhTrangThuCdtLabel(display: string): string {
+    if (display === 'Thanh toán') return 'CĐT thanh toán';
+    if (display === 'Tạm ứng') return 'CĐT tạm ứng';
+    return display;
+}
+
 export function ThuChi() {
     const navigate = useNavigate();
     const [searchParams] = useSearchParams();
@@ -349,6 +356,14 @@ export function ThuChi() {
                 linkedContract?.so_hop_dong ||
                 null;
 
+            const rawTinhTrang = (item.tinh_trang_phieu || '').trim();
+            const tinhTrangDisplay =
+                !rawTinhTrang
+                    ? ''
+                    : rawTinhTrang.toLowerCase() === 'thanh_toan'
+                      ? 'Thanh toán'
+                      : rawTinhTrang;
+
             return {
                 ...item,
                 code: item.id.substring(0, 8).toUpperCase(),
@@ -357,6 +372,7 @@ export function ThuChi() {
                 type: item.loai_phieu,
                 amount: new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND' }).format(item.so_tien),
                 description: item.noi_dung || '',
+                tinh_trang_display: tinhTrangDisplay,
                 hang_muc_display:
                     item.loai_phieu === 'Phiếu chi'
                         ? item.hang_muc_chi === 'chi_du_an'
@@ -693,27 +709,45 @@ export function ThuChi() {
             const isCdtTemplate = rows.some((r) => r.cdt_thanh_toan || r.ngay_tien_ve || r.ten_da);
 
             if (isCdtTemplate) {
-                const grouped = new Map<string, any>();
+                type CdtAgg = {
+                    ten_da: string;
+                    ngay: string;
+                    so_tien: number;
+                    tinh_trang_phieu: string;
+                    noi_dung: string;
+                };
+                const grouped = new Map<string, CdtAgg>();
                 for (let i = 0; i < rows.length; i++) {
                     const r = rows[i];
                     onProgress(i + 1, totalRows);
                     const tenDa = (r.ten_da || '').trim();
                     if (!tenDa) continue;
-                    const soTien =
-                        parseMoneyVi(r.cdt_thanh_toan || '0') || parseMoneyVi(r.cdt_tam_ung || '0');
-                    if (soTien <= 0) continue;
                     const ngayRaw = r.ngay_tien_ve || r.ngay_xuat_hd || '';
                     const ngayP = parseExcelDate(ngayRaw, (r.nam_xuat_hd || '').trim());
                     const ngayFinal = ngayP || new Date().toISOString().split('T')[0];
-                    const key = `${tenDa}_${ngayFinal}`;
-                    if (grouped.has(key)) grouped.get(key).so_tien += soTien;
-                    else
-                        grouped.set(key, {
-                            ten_da: tenDa,
-                            so_tien: soTien,
-                            ngay: ngayFinal,
-                            noi_dung: `Thu tiền từ CDT (${tenDa})`,
-                        });
+
+                    const tt =
+                        parseMoneyVi(String(r.cdt_thanh_toan ?? '').trim() || '0') || 0;
+                    const tu =
+                        parseMoneyVi(String(r.cdt_tam_ung ?? '').trim() || '0') || 0;
+
+                    const bump = (amount: number, tinhTrang: string, noiDung: string) => {
+                        if (amount <= 0) return;
+                        const key = `${tenDa}_${ngayFinal}_${tinhTrang}`;
+                        const cur = grouped.get(key);
+                        if (cur) cur.so_tien += amount;
+                        else
+                            grouped.set(key, {
+                                ten_da: tenDa,
+                                ngay: ngayFinal,
+                                so_tien: amount,
+                                tinh_trang_phieu: tinhTrang,
+                                noi_dung: noiDung,
+                            });
+                    };
+
+                    bump(tt, 'Thanh toán', `Thu CĐT thanh toán (${tenDa})`);
+                    bump(tu, 'Tạm ứng', `Thu CĐT tạm ứng (${tenDa})`);
                 }
                 const rows2 = Array.from(grouped.values());
                 const denom = Math.max(rows.length + rows2.length, 1);
@@ -736,7 +770,7 @@ export function ThuChi() {
                             ngay: r.ngay,
                             du_an_id: project.id,
                             noi_dung: r.noi_dung,
-                            tinh_trang_phieu: 'thanh_toan',
+                            tinh_trang_phieu: r.tinh_trang_phieu,
                         });
                         ok++;
                     } catch (e: any) {
@@ -1013,10 +1047,10 @@ export function ThuChi() {
                                 />
                             </div>
                             <div className="overflow-x-auto">
-                                <table className="w-full text-left border-collapse">
+                                <table className="w-full table-fixed text-left border-collapse">
                                     <thead>
                                         <tr className="bg-blue-950 border-b border-blue-900 text-[11px] uppercase tracking-wider text-white">
-                                            <th className="px-4 py-3.5 w-12">
+                                            <th className="px-4 py-3.5 w-[4%]">
                                                 <button
                                                     type="button"
                                                     title="Chọn tất cả trên các dòng đang lọc"
@@ -1030,18 +1064,19 @@ export function ThuChi() {
                                                     )}
                                                 </button>
                                             </th>
-                                            <th className="px-6 py-3.5 font-bold">Mã chứng từ</th>
-                                            <th className="px-6 py-3.5 font-bold">Đối tượng</th>
-                                            <th className="px-6 py-3.5 font-bold">Ngày chứng từ</th>
-                                            <th className="px-6 py-3.5 font-bold">Loại</th>
-                                            <th className="px-6 py-3.5 font-bold text-right">Số tiền</th>
-                                            <th className="px-6 py-3.5 font-bold">Nội dung</th>
-                                            <th className="px-6 py-3.5 font-bold text-center">Thao tác</th>
+                                            <th className="px-6 py-3.5 font-bold w-[10%]">Mã chứng từ</th>
+                                            <th className="px-6 py-3.5 font-bold w-[24%] min-w-0">Đối tượng</th>
+                                            <th className="px-6 py-3.5 font-bold w-[10%] whitespace-nowrap">Ngày chứng từ</th>
+                                            <th className="px-6 py-3.5 font-bold w-[11%]">Loại</th>
+                                            <th className="px-6 py-3.5 font-bold w-[14%] min-w-0">Tình trạng</th>
+                                            <th className="px-6 py-3.5 font-bold text-right w-[12%] whitespace-nowrap">Số tiền</th>
+                                            <th className="px-6 py-3.5 font-bold w-[10%] min-w-0">Nội dung</th>
+                                            <th className="px-6 py-3.5 font-bold text-center w-[5%] min-w-[5.5rem]">Thao tác</th>
                                         </tr>
                                     </thead>
                                     <tbody className="divide-y divide-slate-100">
                                         {currentItems.length === 0 ? (
-                                            <tr><td colSpan={8} className="px-6 py-10 text-center text-sm text-slate-500">Không có dữ liệu phù hợp bộ lọc hiện tại</td></tr>
+                                            <tr><td colSpan={9} className="px-6 py-10 text-center text-sm text-slate-500">Không có dữ liệu phù hợp bộ lọc hiện tại</td></tr>
                                         ) : (
                                             currentItems.map((item) => (
                                                 <tr key={item.id} className="hover:bg-slate-50/60 transition-colors">
@@ -1059,17 +1094,67 @@ export function ThuChi() {
                                                             )}
                                                         </button>
                                                     </td>
-                                                    <td className="px-6 py-4 text-sm font-bold text-blue-600">{item.code || '-'}</td>
-                                                    <td className="px-6 py-4 text-sm text-slate-900">{(item as any).customer_name || '-'}</td>
-                                                    <td className="px-6 py-4 text-sm text-slate-500 tabular-nums">
+                                                    <td className="px-6 py-4 text-sm font-bold text-blue-600 align-top">{item.code || '-'}</td>
+                                                    <td className="px-6 py-4 text-sm text-slate-900 min-w-0 align-top max-w-0">
+                                                        <div
+                                                            className="truncate"
+                                                            title={
+                                                                String((item as any).customer_name || '').trim() ||
+                                                                undefined
+                                                            }
+                                                        >
+                                                            {(item as any).customer_name?.trim()
+                                                                ? (item as any).customer_name
+                                                                : '—'}
+                                                        </div>
+                                                    </td>
+                                                    <td className="px-6 py-4 text-sm text-slate-500 tabular-nums whitespace-nowrap align-top">
                                                         {item.ngay
                                                             ? new Date(item.ngay).toLocaleDateString('vi-VN')
                                                             : '-'}
                                                     </td>
-                                                    <td className="px-6 py-4"><span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-bold ${item.type === 'Phiếu thu' ? 'bg-blue-100 text-blue-800' : 'bg-rose-100 text-rose-800'}`}>{item.type}</span></td>
-                                                    <td className="px-6 py-4 text-sm font-black text-right text-slate-900">{new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND' }).format(Number(item.so_tien || 0))}</td>
-                                                    <td className="px-6 py-4 text-sm text-slate-500 max-w-[280px] truncate">{item.description || '-'}</td>
-                                                    <td className="px-6 py-4 text-center">
+                                                    <td className="px-6 py-4 align-top">
+                                                        <span
+                                                            className={`inline-flex max-w-full items-center px-2.5 py-0.5 rounded-full text-xs font-bold truncate ${item.type === 'Phiếu thu' ? 'bg-blue-100 text-blue-800' : 'bg-rose-100 text-rose-800'}`}
+                                                        >
+                                                            {item.type}
+                                                        </span>
+                                                    </td>
+                                                    <td className="px-6 py-4 text-sm min-w-0 align-top max-w-0">
+                                                        {item.tinh_trang_display ? (
+                                                            <span
+                                                                title={tinhTrangThuCdtLabel(item.tinh_trang_display)}
+                                                                className={cn(
+                                                                    'inline-flex max-w-full items-center px-2 py-0.5 rounded-full text-[11px] font-semibold leading-tight truncate align-top',
+                                                                    item.tinh_trang_display === 'Thanh toán' &&
+                                                                        'bg-emerald-100 text-emerald-900',
+                                                                    item.tinh_trang_display === 'Tạm ứng' &&
+                                                                        'bg-amber-100 text-amber-900',
+                                                                    item.tinh_trang_display !== 'Thanh toán' &&
+                                                                        item.tinh_trang_display !== 'Tạm ứng' &&
+                                                                        'bg-slate-100 text-slate-700',
+                                                                )}
+                                                            >
+                                                                {tinhTrangThuCdtLabel(item.tinh_trang_display)}
+                                                            </span>
+                                                        ) : (
+                                                            <span className="text-slate-400">—</span>
+                                                        )}
+                                                    </td>
+                                                    <td className="px-6 py-4 text-sm font-black text-right text-slate-900 whitespace-nowrap align-top">
+                                                        {new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND' }).format(Number(item.so_tien || 0))}
+                                                    </td>
+                                                    <td className="px-6 py-4 text-sm text-slate-500 min-w-0 align-top max-w-0">
+                                                        <div
+                                                            className="truncate"
+                                                            title={
+                                                                String(item.description || '').trim() || undefined
+                                                            }
+                                                        >
+                                                            {item.description?.trim() ? item.description : '—'}
+                                                        </div>
+                                                    </td>
+                                                    <td className="px-6 py-4 text-center align-top">
                                                         <div className="flex justify-center gap-2">
                                                             <button type="button" onClick={() => handleViewClick(item)} className="text-slate-400 hover:text-blue-600"><Eye size={18} /></button>
                                                             <button type="button" onClick={() => handleEditClick(item)} className="text-slate-400 hover:text-slate-700"><Edit size={18} /></button>

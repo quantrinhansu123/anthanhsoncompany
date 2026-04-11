@@ -9,12 +9,32 @@ interface Props {
     item: any;
 }
 
+function labelTinhTrangPhieu(raw: unknown, preformatted?: string): string {
+    if (preformatted && String(preformatted).trim()) return String(preformatted).trim();
+    const t = String(raw ?? '').trim();
+    if (!t) return '—';
+    if (t.toLowerCase() === 'thanh_toan') return 'Thanh toán';
+    return t;
+}
+
+function tinhTrangThuCdtLabel(display: string): string {
+    if (display === 'Thanh toán') return 'CĐT thanh toán';
+    if (display === 'Tạm ứng') return 'CĐT tạm ứng';
+    return display;
+}
+
 export function ChiTietThuChiModal({ isOpen, onClose, item }: Props) {
     const [previewUrl, setPreviewUrl] = useState<string | null>(null);
 
     useEffect(() => {
         if (!isOpen) setPreviewUrl(null);
     }, [isOpen]);
+
+    const tinhTrangLabel = item
+        ? labelTinhTrangPhieu(item.tinh_trang_phieu, item.tinh_trang_display)
+        : '—';
+    const tinhTrangBadgeText =
+        tinhTrangLabel === '—' ? '—' : tinhTrangThuCdtLabel(tinhTrangLabel);
 
     return (
         <>
@@ -72,6 +92,28 @@ export function ChiTietThuChiModal({ isOpen, onClose, item }: Props) {
                                                     <span className={`px-2.5 py-1 rounded-full text-[10px] font-bold uppercase tracking-wide ${item.type === 'Phiếu thu' ? 'bg-emerald-100 text-emerald-700' : 'bg-rose-100 text-rose-700'}`}>
                                                         {item.type}
                                                     </span>
+                                                </div>
+
+                                                <div className="flex items-center gap-2 text-slate-500">
+                                                    Tình trạng phiếu:
+                                                </div>
+                                                <div className="text-right">
+                                                    {tinhTrangLabel === '—' ? (
+                                                        <span className="text-slate-400">—</span>
+                                                    ) : (
+                                                        <span
+                                                            title={tinhTrangBadgeText}
+                                                            className={`inline-flex max-w-full px-2.5 py-1 rounded-full text-[11px] font-bold ${
+                                                                tinhTrangLabel === 'Thanh toán'
+                                                                    ? 'bg-emerald-100 text-emerald-800'
+                                                                    : tinhTrangLabel === 'Tạm ứng'
+                                                                      ? 'bg-amber-100 text-amber-900'
+                                                                      : 'bg-slate-100 text-slate-700'
+                                                            }`}
+                                                        >
+                                                            {tinhTrangBadgeText}
+                                                        </span>
+                                                    )}
                                                 </div>
 
                                                 {item.type === 'Phiếu chi' && (
