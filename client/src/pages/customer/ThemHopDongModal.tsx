@@ -245,38 +245,6 @@ export function ThemHopDongModal({ isOpen, onClose, editData, contractCreatePref
         return sorted.filter((c) => c.ten_don_vi.toLowerCase().includes(term));
     }, [customers, customerSearch]);
 
-    /** Sửa HĐ: lấy khách từ dự án để hiển thị đúng (trước đây customerId để trống). */
-    useEffect(() => {
-        if (!isOpen || !editData || !projects.length) return;
-        const du = String(editData.duAnId || '').trim();
-        if (!du) return;
-        const p = projects.find((pr) => String(pr.id) === du);
-        const cid =
-            p?.customer_id != null && String(p.customer_id).trim()
-                ? String(p.customer_id).trim()
-                : '';
-        setFormData((prev) => {
-            if (prev.customerId === cid && prev.projectId === du) return prev;
-            return { ...prev, customerId: cid, projectId: du };
-        });
-        setProjectSearch(p?.ten_du_an || '');
-        if (cid && customers.length) {
-            const name = customers.find((c) => String(c.id) === cid)?.ten_don_vi || '';
-            if (name) setCustomerSearch(name);
-        }
-    }, [isOpen, editData, projects, customers]);
-
-    /** Gõ tìm dự án / tự chọn 1 dự án: đồng bộ chữ trên ô với projectId. */
-    useEffect(() => {
-        if (editData) return;
-        const id = String(formData.projectId || '').trim();
-        if (!id) return;
-        const p = projectsForSelect.find((x) => String(x.id) === id);
-        if (p?.ten_du_an && projectSearch !== p.ten_du_an) {
-            setProjectSearch(p.ten_du_an);
-        }
-    }, [formData.projectId, projectsForSelect, editData]);
-
     /** Đồng bộ dropdown dự án khách: gỡ lựa chọn sai, tự chọn nếu chỉ còn 1 dự án. */
     useEffect(() => {
         if (!isOpen || editData || !contractCreatePrefill?.customer_id) return;
@@ -350,6 +318,38 @@ export function ThemHopDongModal({ isOpen, onClose, editData, contractCreatePref
             );
         }
     }, [editData, isOpen, contractCreatePrefill?.customer_id, contractCreatePrefill?.ten_don_vi]);
+
+    /** Sửa HĐ: gắn khách từ dự án + nhãn ô (chạy sau effect reset form). */
+    useEffect(() => {
+        if (!isOpen || !editData || !projects.length) return;
+        const du = String(editData.duAnId || '').trim();
+        if (!du) return;
+        const p = projects.find((pr) => String(pr.id) === du);
+        const cid =
+            p?.customer_id != null && String(p.customer_id).trim()
+                ? String(p.customer_id).trim()
+                : '';
+        setFormData((prev) => {
+            if (prev.customerId === cid && prev.projectId === du) return prev;
+            return { ...prev, customerId: cid, projectId: du };
+        });
+        setProjectSearch(p?.ten_du_an || '');
+        if (cid && customers.length) {
+            const name = customers.find((c) => String(c.id) === cid)?.ten_don_vi || '';
+            if (name) setCustomerSearch(name);
+        }
+    }, [isOpen, editData, projects, customers]);
+
+    /** Thêm mới: đồng bộ chữ ô dự án với projectId (auto-chọn / chọn tay). */
+    useEffect(() => {
+        if (editData) return;
+        const id = String(formData.projectId || '').trim();
+        if (!id) return;
+        const p = projectsForSelect.find((x) => String(x.id) === id);
+        if (p?.ten_du_an && projectSearch !== p.ten_du_an) {
+            setProjectSearch(p.ten_du_an);
+        }
+    }, [formData.projectId, projectsForSelect, editData, projectSearch]);
 
     const filteredNhanSuEmployees = useMemo(() => {
         const q = nhanSuSearch.trim().toLowerCase();
@@ -445,6 +445,14 @@ export function ThemHopDongModal({ isOpen, onClose, editData, contractCreatePref
             alert(
                 'Khách hàng chưa có dự án trong hệ thống. Hãy thêm dự án ở tab Dự án (chi tiết khách hàng hoặc trang Dự án), sau đó tạo hợp đồng.',
             );
+            return;
+        }
+        if (
+            !editData &&
+            !isCustomerContractCreate &&
+            !String(formData.customerId || '').trim()
+        ) {
+            alert('Vui lòng chọn khách hàng.');
             return;
         }
         if (!formData.soHopDong || !formData.tenGoiThau || !formData.projectId) {
@@ -553,63 +561,277 @@ export function ThemHopDongModal({ isOpen, onClose, editData, contractCreatePref
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                             <div className="md:col-span-2">
                                 {!isCustomerContractCreate && (
-                                    <>
-                                        <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1">Khách hàng <span className="text-red-500">*</span></label>
+                                    <div className="mb-3">
+                                        <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1">
+                                            Khách hàng <span className="text-red-500">*</span>
+                                        </label>
+                                        {editData ? (
+                                            <div className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm bg-slate-50 text-slate-800">
+                                                {customerSearch.trim() || '—'}
+                                            </div>
+                                        ) : (
+                                            <div className="relative z-30">
+                                                <Search
+                                                    size={16}
+                                                    className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none"
+                                                />
+                                                <input
+                                                    type="text"
+                                                    role="combobox"
+                                                    aria-expanded={customerPickerOpen}
+                                                    aria-autocomplete="list"
+                                                    autoComplete="off"
+                                                    value={customerSearch}
+                                                    onChange={(e) => {
+                                                        const v = e.target.value;
+                                                        setCustomerSearch(v);
+                                                        setCustomerPickerOpen(true);
+                                                        const selId = String(formData.customerId || '').trim();
+                                                        if (selId) {
+                                                            const cur = customers.find((x) => String(x.id) === selId);
+                                                            if (cur && v !== cur.ten_don_vi) {
+                                                                setFormData((prev) => ({
+                                                                    ...prev,
+                                                                    customerId: '',
+                                                                    projectId: '',
+                                                                }));
+                                                                setProjectSearch('');
+                                                            }
+                                                        }
+                                                    }}
+                                                    onFocus={() => setCustomerPickerOpen(true)}
+                                                    onBlur={() => {
+                                                        window.setTimeout(() => setCustomerPickerOpen(false), 200);
+                                                    }}
+                                                    placeholder="Gõ tìm hoặc chọn khách hàng…"
+                                                    className="w-full pl-10 pr-20 py-2.5 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-purple-500/20 focus:border-purple-500 transition-all bg-white"
+                                                />
+                                                <div className="absolute right-2 top-1/2 -translate-y-1/2 flex items-center gap-1">
+                                                    {customerSearch ? (
+                                                        <button
+                                                            type="button"
+                                                            className="rounded-lg p-1 text-slate-400 hover:text-slate-600 hover:bg-slate-100"
+                                                            aria-label="Xóa khách hàng"
+                                                            onMouseDown={(e) => e.preventDefault()}
+                                                            onClick={() => {
+                                                                setCustomerSearch('');
+                                                                setFormData((prev) => ({
+                                                                    ...prev,
+                                                                    customerId: '',
+                                                                    projectId: '',
+                                                                }));
+                                                                setProjectSearch('');
+                                                                setCustomerPickerOpen(false);
+                                                            }}
+                                                        >
+                                                            <X size={16} />
+                                                        </button>
+                                                    ) : null}
+                                                    <ChevronDown size={16} className="text-slate-400 pointer-events-none" />
+                                                </div>
+                                                {customerPickerOpen && (
+                                                    <ul
+                                                        role="listbox"
+                                                        className="absolute left-0 right-0 top-full mt-1 max-h-52 overflow-auto rounded-lg border border-slate-200 bg-white py-1 shadow-lg"
+                                                    >
+                                                        <li>
+                                                            <button
+                                                                type="button"
+                                                                role="option"
+                                                                className={cn(
+                                                                    'w-full text-left px-3 py-2 text-sm hover:bg-slate-50',
+                                                                    !formData.customerId
+                                                                        ? 'bg-purple-50 text-purple-900 font-medium'
+                                                                        : 'text-slate-700',
+                                                                )}
+                                                                onMouseDown={(e) => e.preventDefault()}
+                                                                onClick={() => {
+                                                                    setFormData((prev) => ({
+                                                                        ...prev,
+                                                                        customerId: '',
+                                                                        projectId: '',
+                                                                    }));
+                                                                    setCustomerSearch('');
+                                                                    setProjectSearch('');
+                                                                    setCustomerPickerOpen(false);
+                                                                }}
+                                                            >
+                                                                — Chưa chọn khách hàng —
+                                                            </button>
+                                                        </li>
+                                                        {filteredCustomers.length === 0 ? (
+                                                            <li className="px-3 py-2 text-sm text-slate-500">
+                                                                Không tìm thấy khách hàng
+                                                            </li>
+                                                        ) : (
+                                                            filteredCustomers.map((c) => (
+                                                                <li key={c.id}>
+                                                                    <button
+                                                                        type="button"
+                                                                        role="option"
+                                                                        className={cn(
+                                                                            'w-full text-left px-3 py-2 text-sm hover:bg-slate-50 truncate',
+                                                                            String(formData.customerId) === String(c.id)
+                                                                                ? 'bg-purple-50 text-purple-900 font-medium'
+                                                                                : 'text-slate-800',
+                                                                        )}
+                                                                        onMouseDown={(e) => e.preventDefault()}
+                                                                        onClick={() => {
+                                                                            setFormData((prev) => ({
+                                                                                ...prev,
+                                                                                customerId: c.id,
+                                                                                projectId: '',
+                                                                            }));
+                                                                            setCustomerSearch(c.ten_don_vi);
+                                                                            setProjectSearch('');
+                                                                            setCustomerPickerOpen(false);
+                                                                        }}
+                                                                    >
+                                                                        {c.ten_don_vi}
+                                                                    </button>
+                                                                </li>
+                                                            ))
+                                                        )}
+                                                    </ul>
+                                                )}
+                                            </div>
+                                        )}
+                                    </div>
+                                )}
+                                <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1">
+                                    Dự án <span className="text-red-500">*</span>
+                                </label>
+                                {editData ? (
+                                    <div className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm bg-slate-50 text-slate-800">
+                                        {projectSearch.trim() ||
+                                            projects.find((pr) => String(pr.id) === String(formData.projectId))
+                                                ?.ten_du_an ||
+                                            '—'}
+                                    </div>
+                                ) : noProjectsForCustomer ? (
+                                    <select
+                                        value=""
+                                        disabled
+                                        className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm bg-slate-50 text-slate-500"
+                                    >
+                                        <option value="">— Khách chưa có dự án —</option>
+                                    </select>
+                                ) : (
+                                    <div className="relative z-20">
+                                        <Search
+                                            size={16}
+                                            className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none"
+                                        />
                                         <input
                                             type="text"
-                                            value={customerSearch}
-                                            onChange={(e) => setCustomerSearch(e.target.value)}
-                                            placeholder="Gõ để tìm khách hàng..."
-                                            className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm mb-2 focus:outline-none focus:ring-2 focus:ring-purple-500/20 focus:border-purple-500 transition-all bg-white"
-                                        />
-                                        <select
-                                            value={formData.customerId}
-                                            onChange={(e) =>
-                                                setFormData((prev) => ({
-                                                    ...prev,
-                                                    customerId: e.target.value,
-                                                    projectId: '',
-                                                }))
+                                            role="combobox"
+                                            aria-expanded={projectPickerOpen}
+                                            aria-autocomplete="list"
+                                            autoComplete="off"
+                                            value={projectSearch}
+                                            onChange={(e) => {
+                                                const v = e.target.value;
+                                                setProjectSearch(v);
+                                                setProjectPickerOpen(true);
+                                                const selId = String(formData.projectId || '').trim();
+                                                if (selId) {
+                                                    const cur = projectsForSelect.find((x) => String(x.id) === selId);
+                                                    if (cur && v !== cur.ten_du_an) {
+                                                        setFormData((prev) => ({ ...prev, projectId: '' }));
+                                                    }
+                                                }
+                                            }}
+                                            onFocus={() => setProjectPickerOpen(true)}
+                                            onBlur={() => {
+                                                window.setTimeout(() => setProjectPickerOpen(false), 200);
+                                            }}
+                                            placeholder={
+                                                !isCustomerContractCreate && !formData.customerId
+                                                    ? 'Chọn khách hàng trước…'
+                                                    : 'Gõ tìm hoặc chọn dự án…'
                                             }
-                                            disabled={!!editData}
-                                            className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm mb-3 focus:outline-none focus:ring-2 focus:ring-purple-500/20 focus:border-purple-500 transition-all bg-white disabled:bg-slate-50 disabled:text-slate-500"
-                                        >
-                                            <option value="">-- Chọn khách hàng --</option>
-                                            {filteredCustomers.map((c) => (
-                                                <option key={c.id} value={c.id}>
-                                                    {c.ten_don_vi}
-                                                </option>
-                                            ))}
-                                        </select>
-                                    </>
+                                            disabled={!isCustomerContractCreate && !formData.customerId}
+                                            className="w-full pl-10 pr-20 py-2.5 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-purple-500/20 focus:border-purple-500 transition-all bg-white disabled:bg-slate-50 disabled:text-slate-500"
+                                        />
+                                        <div className="absolute right-2 top-1/2 -translate-y-1/2 flex items-center gap-1">
+                                            {projectSearch && !(!isCustomerContractCreate && !formData.customerId) ? (
+                                                <button
+                                                    type="button"
+                                                    className="rounded-lg p-1 text-slate-400 hover:text-slate-600 hover:bg-slate-100"
+                                                    aria-label="Xóa dự án"
+                                                    onMouseDown={(e) => e.preventDefault()}
+                                                    onClick={() => {
+                                                        setProjectSearch('');
+                                                        setFormData((prev) => ({ ...prev, projectId: '' }));
+                                                        setProjectPickerOpen(false);
+                                                    }}
+                                                >
+                                                    <X size={16} />
+                                                </button>
+                                            ) : null}
+                                            <ChevronDown size={16} className="text-slate-400 pointer-events-none" />
+                                        </div>
+                                        {projectPickerOpen &&
+                                            (isCustomerContractCreate || formData.customerId) && (
+                                                <ul
+                                                    role="listbox"
+                                                    className="absolute left-0 right-0 top-full mt-1 max-h-52 overflow-auto rounded-lg border border-slate-200 bg-white py-1 shadow-lg"
+                                                >
+                                                    <li>
+                                                        <button
+                                                            type="button"
+                                                            role="option"
+                                                            className={cn(
+                                                                'w-full text-left px-3 py-2 text-sm hover:bg-slate-50',
+                                                                !formData.projectId
+                                                                    ? 'bg-purple-50 text-purple-900 font-medium'
+                                                                    : 'text-slate-700',
+                                                            )}
+                                                            onMouseDown={(e) => e.preventDefault()}
+                                                            onClick={() => {
+                                                                setFormData((prev) => ({ ...prev, projectId: '' }));
+                                                                setProjectSearch('');
+                                                                setProjectPickerOpen(false);
+                                                            }}
+                                                        >
+                                                            — Chưa chọn dự án —
+                                                        </button>
+                                                    </li>
+                                                    {filteredProjectsForSelect.length === 0 ? (
+                                                        <li className="px-3 py-2 text-sm text-slate-500">
+                                                            Không tìm thấy dự án
+                                                        </li>
+                                                    ) : (
+                                                        filteredProjectsForSelect.map((p) => (
+                                                            <li key={p.id}>
+                                                                <button
+                                                                    type="button"
+                                                                    role="option"
+                                                                    className={cn(
+                                                                        'w-full text-left px-3 py-2 text-sm hover:bg-slate-50 truncate',
+                                                                        String(formData.projectId) === String(p.id)
+                                                                            ? 'bg-purple-50 text-purple-900 font-medium'
+                                                                            : 'text-slate-800',
+                                                                    )}
+                                                                    onMouseDown={(e) => e.preventDefault()}
+                                                                    onClick={() => {
+                                                                        setFormData((prev) => ({
+                                                                            ...prev,
+                                                                            projectId: p.id,
+                                                                        }));
+                                                                        setProjectSearch(p.ten_du_an);
+                                                                        setProjectPickerOpen(false);
+                                                                    }}
+                                                                >
+                                                                    {p.ten_du_an}
+                                                                </button>
+                                                            </li>
+                                                        ))
+                                                    )}
+                                                </ul>
+                                            )}
+                                    </div>
                                 )}
-                                <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1">Dự án <span className="text-red-500">*</span></label>
-                                {!editData && !noProjectsForCustomer && (
-                                    <input
-                                        type="text"
-                                        value={projectSearch}
-                                        onChange={(e) => setProjectSearch(e.target.value)}
-                                        placeholder="Gõ để tìm dự án..."
-                                        className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm mb-2 focus:outline-none focus:ring-2 focus:ring-purple-500/20 focus:border-purple-500 transition-all bg-white"
-                                    />
-                                )}
-                                <select
-                                    value={formData.projectId}
-                                    onChange={(e) => setFormData({ ...formData, projectId: e.target.value })}
-                                    disabled={!!editData || noProjectsForCustomer || (!isCustomerContractCreate && !formData.customerId)}
-                                    className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-purple-500/20 focus:border-purple-500 transition-all bg-white disabled:bg-slate-50 disabled:text-slate-500"
-                                >
-                                    <option value="">
-                                        {noProjectsForCustomer
-                                            ? '— Khách chưa có dự án —'
-                                            : (!isCustomerContractCreate && !formData.customerId)
-                                              ? '-- Chọn khách hàng trước --'
-                                            : '-- Chọn dự án --'}
-                                    </option>
-                                    {filteredProjectsForSelect.map((p) => (
-                                        <option key={p.id} value={p.id}>{p.ten_du_an}</option>
-                                    ))}
-                                </select>
                                 {noProjectsForCustomer ? (
                                     <p className="text-xs text-amber-800 mt-1.5 font-medium">
                                         Khách hàng này chưa có dự án. Thêm dự án ở tab <strong>Dự án</strong> trong
