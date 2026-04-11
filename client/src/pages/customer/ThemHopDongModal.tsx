@@ -1,6 +1,17 @@
 import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { createPortal } from 'react-dom';
-import { X, User, FileText, Link as LinkIcon, ExternalLink, Trash2, Plus, Info, ChevronDown } from 'lucide-react';
+import {
+    X,
+    User,
+    FileText,
+    Link as LinkIcon,
+    ExternalLink,
+    Trash2,
+    Plus,
+    Info,
+    ChevronDown,
+    Search,
+} from 'lucide-react';
 import { contractService, ContractFile, type ContractRow } from '../../lib/services/contractService';
 import type { NguongChiNhanSuLoai } from '../../lib/nguongChiNhanSu';
 import { normalizeNguongLoai, tienQuyDoiNguongChiNhanSu } from '../../lib/nguongChiNhanSu';
@@ -10,6 +21,7 @@ import { employeeService } from '../../lib/services/employeeService';
 import { thuChiService } from '../../lib/services/thuChiService';
 import { PreviewLinkModal } from '../../components/PreviewLinkModal';
 import type { ContractCreatePrefill } from '../../contexts/HopDongModalContext';
+import { cn } from '../../lib/utils';
 
 function normCustomerKey(s: string | null | undefined): string {
     return String(s || '')
@@ -97,6 +109,8 @@ export function ThemHopDongModal({ isOpen, onClose, editData, contractCreatePref
     const [previewUrl, setPreviewUrl] = useState<string | null>(null);
     const [projectSearch, setProjectSearch] = useState('');
     const [customerSearch, setCustomerSearch] = useState('');
+    const [customerPickerOpen, setCustomerPickerOpen] = useState(false);
+    const [projectPickerOpen, setProjectPickerOpen] = useState(false);
 
     useEffect(() => {
         if (!isOpen) setPreviewUrl(null);
@@ -106,6 +120,8 @@ export function ThemHopDongModal({ isOpen, onClose, editData, contractCreatePref
         if (!isOpen) {
             setOpenNhanSuDropdown(false);
             setNhanSuSearch('');
+            setCustomerPickerOpen(false);
+            setProjectPickerOpen(false);
         }
     }, [isOpen]);
 
@@ -229,6 +245,38 @@ export function ThemHopDongModal({ isOpen, onClose, editData, contractCreatePref
         return sorted.filter((c) => c.ten_don_vi.toLowerCase().includes(term));
     }, [customers, customerSearch]);
 
+    /** Sửa HĐ: lấy khách từ dự án để hiển thị đúng (trước đây customerId để trống). */
+    useEffect(() => {
+        if (!isOpen || !editData || !projects.length) return;
+        const du = String(editData.duAnId || '').trim();
+        if (!du) return;
+        const p = projects.find((pr) => String(pr.id) === du);
+        const cid =
+            p?.customer_id != null && String(p.customer_id).trim()
+                ? String(p.customer_id).trim()
+                : '';
+        setFormData((prev) => {
+            if (prev.customerId === cid && prev.projectId === du) return prev;
+            return { ...prev, customerId: cid, projectId: du };
+        });
+        setProjectSearch(p?.ten_du_an || '');
+        if (cid && customers.length) {
+            const name = customers.find((c) => String(c.id) === cid)?.ten_don_vi || '';
+            if (name) setCustomerSearch(name);
+        }
+    }, [isOpen, editData, projects, customers]);
+
+    /** Gõ tìm dự án / tự chọn 1 dự án: đồng bộ chữ trên ô với projectId. */
+    useEffect(() => {
+        if (editData) return;
+        const id = String(formData.projectId || '').trim();
+        if (!id) return;
+        const p = projectsForSelect.find((x) => String(x.id) === id);
+        if (p?.ten_du_an && projectSearch !== p.ten_du_an) {
+            setProjectSearch(p.ten_du_an);
+        }
+    }, [formData.projectId, projectsForSelect, editData]);
+
     /** Đồng bộ dropdown dự án khách: gỡ lựa chọn sai, tự chọn nếu chỉ còn 1 dự án. */
     useEffect(() => {
         if (!isOpen || editData || !contractCreatePrefill?.customer_id) return;
@@ -294,8 +342,14 @@ export function ThemHopDongModal({ isOpen, onClose, editData, contractCreatePref
                 nhanSuIds: [],
             });
             setContractFiles([]);
+            setProjectSearch('');
+            setCustomerSearch(
+                contractCreatePrefill?.ten_don_vi?.trim()
+                    ? String(contractCreatePrefill.ten_don_vi).trim()
+                    : '',
+            );
         }
-    }, [editData, isOpen]);
+    }, [editData, isOpen, contractCreatePrefill?.customer_id, contractCreatePrefill?.ten_don_vi]);
 
     const filteredNhanSuEmployees = useMemo(() => {
         const q = nhanSuSearch.trim().toLowerCase();

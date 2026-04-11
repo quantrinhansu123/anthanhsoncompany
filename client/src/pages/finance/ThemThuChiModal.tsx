@@ -1,5 +1,16 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { X, Save, Plus, DollarSign, Calendar, FileText, Briefcase, UserCircle2 } from 'lucide-react';
+import {
+    X,
+    Save,
+    Plus,
+    DollarSign,
+    Calendar,
+    FileText,
+    Briefcase,
+    UserCircle2,
+    Search,
+    ChevronDown,
+} from 'lucide-react';
 import { thuChiService } from '../../lib/services/thuChiService';
 import { projectService } from '../../lib/services/projectService';
 import { customerService } from '../../lib/services/customerService';
@@ -13,6 +24,7 @@ import {
     type NguongChiNhanSuLoai,
 } from '../../lib/nguongChiNhanSu';
 import type { ThuChiCreatePrefill } from '../../contexts/ThuChiModalContext';
+import { cn } from '../../lib/utils';
 
 type HangMucChi = 'chi_du_an' | 'chi_nhan_su';
 
@@ -70,6 +82,7 @@ export function ThemThuChiModal({
     const [contracts, setContracts] = useState<ContractRow[]>([]);
     const [customers, setCustomers] = useState<Array<{ id: string; ten_don_vi: string }>>([]);
     const [customerSearch, setCustomerSearch] = useState('');
+    const [customerPickerOpen, setCustomerPickerOpen] = useState(false);
     const [employees, setEmployees] = useState<NhanSuOption[]>([]);
     const [existingNhanSuChiTotal, setExistingNhanSuChiTotal] = useState(0);
     const [formData, setFormData] = useState({
@@ -199,11 +212,14 @@ export function ThemThuChiModal({
     }, [formData.loaiPhieu, formData.hopDongId, mode, initialData?.id]);
 
     useEffect(() => {
-        if (!isOpen) return;
+        if (!isOpen) {
+            setCustomerPickerOpen(false);
+            return;
+        }
         let cancelled = false;
         (async () => {
             try {
-                const { projects: loadedProjects, contracts: loadedContracts } = await loadData();
+                const { projects: loadedProjects, contracts: loadedContracts, custList } = await loadData();
                 if (cancelled) return;
                 if (initialData) {
                     let duAnId = initialData.du_an_id || '';
@@ -258,6 +274,17 @@ export function ThemThuChiModal({
                         hangMucChi:
                             initialData.hang_muc_chi === 'chi_nhan_su' ? 'chi_nhan_su' : 'chi_du_an',
                     });
+                    const labelInit =
+                        customerIdInit && custList.length
+                            ? String(
+                                  custList.find((c: any) => String(c.id) === String(customerIdInit))
+                                      ?.ten_don_vi || '',
+                              ).trim()
+                            : '';
+                    setCustomerSearch(
+                        labelInit ||
+                            String(initialData.customer_name || initialData.ten_khach_hang || '').trim(),
+                    );
                 } else {
                     setFormData({
                         customerId: customerScope?.customer_id ? String(customerScope.customer_id) : '',
@@ -269,6 +296,7 @@ export function ThemThuChiModal({
                         noiDung: '',
                         hangMucChi: 'chi_du_an',
                     });
+                    setCustomerSearch('');
                 }
             } catch (error) {
                 console.error('Error loading data in modal:', error);
@@ -328,6 +356,7 @@ export function ThemThuChiModal({
         emps: NhanSuOption[];
         contracts: ContractRow[];
         projects: any[];
+        custList: any[];
     }> => {
         const [pList, cList, empList, custList] = await Promise.all([
             projectService.getAll(),
@@ -337,8 +366,9 @@ export function ThemThuChiModal({
         ]);
         setProjects(pList);
         setContracts(cList);
+        const rawCust = custList || [];
         setCustomers(
-            (custList || []).map((c: any) => ({
+            rawCust.map((c: any) => ({
                 id: String(c.id),
                 ten_don_vi: String(c.ten_don_vi || '').trim() || '(Không tên)',
             })),
@@ -350,7 +380,7 @@ export function ThemThuChiModal({
             anh_nhan_su: emp.anh_nhan_su || null,
         }));
         setEmployees(emps);
-        return { emps, contracts: cList, projects: pList };
+        return { emps, contracts: cList, projects: pList, custList: rawCust };
     };
 
     const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) => {
@@ -522,45 +552,149 @@ export function ThemThuChiModal({
                                 <label className="text-[11px] font-bold text-slate-500 uppercase tracking-wider ml-1">
                                     Khách hàng <span className="text-red-500">*</span>
                                 </label>
-                                {!customerSelectLocked && (
-                                    <input
-                                        type="text"
-                                        value={customerSearch}
-                                        onChange={(e) => setCustomerSearch(e.target.value)}
-                                        placeholder="Gõ để tìm khách hàng..."
-                                        className="w-full px-4 py-2 bg-white border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500/10 focus:border-indigo-500 text-sm text-slate-700 transition-all shadow-sm"
-                                    />
+                                {customerSelectLocked ? (
+                                    <div className="relative">
+                                        <UserCircle2
+                                            className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none"
+                                            size={16}
+                                        />
+                                        <div className="w-full pl-11 pr-4 py-3 bg-slate-50 border border-slate-200 rounded-xl text-sm text-slate-800 shadow-sm">
+                                            {customerScope?.ten_don_vi?.trim() ||
+                                                effectiveCustomerTenDonVi ||
+                                                '—'}
+                                        </div>
+                                    </div>
+                                ) : (
+                                    <div className="relative z-20">
+                                        <Search
+                                            size={16}
+                                            className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none"
+                                        />
+                                        <input
+                                            type="text"
+                                            role="combobox"
+                                            aria-expanded={customerPickerOpen}
+                                            aria-autocomplete="list"
+                                            autoComplete="off"
+                                            value={customerSearch}
+                                            onChange={(e) => {
+                                                const v = e.target.value;
+                                                setCustomerSearch(v);
+                                                setCustomerPickerOpen(true);
+                                                const selId = String(formData.customerId || '').trim();
+                                                if (selId) {
+                                                    const cur = customers.find((x) => String(x.id) === selId);
+                                                    if (cur && v !== cur.ten_don_vi) {
+                                                        setFormData((prev) => ({
+                                                            ...prev,
+                                                            customerId: '',
+                                                            duAnId: '',
+                                                            hopDongId: '',
+                                                        }));
+                                                    }
+                                                }
+                                            }}
+                                            onFocus={() => setCustomerPickerOpen(true)}
+                                            onBlur={() => {
+                                                window.setTimeout(() => setCustomerPickerOpen(false), 200);
+                                            }}
+                                            placeholder="Gõ tìm hoặc chọn khách hàng…"
+                                            className="w-full pl-10 pr-20 py-3 bg-white border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500/10 focus:border-indigo-500 text-sm text-slate-800 transition-all hover:border-slate-300 shadow-sm"
+                                        />
+                                        <div className="absolute right-2 top-1/2 -translate-y-1/2 flex items-center gap-1">
+                                            {customerSearch ? (
+                                                <button
+                                                    type="button"
+                                                    className="rounded-lg p-1.5 text-slate-400 hover:text-slate-600 hover:bg-slate-100"
+                                                    aria-label="Xóa khách hàng"
+                                                    onMouseDown={(e) => e.preventDefault()}
+                                                    onClick={() => {
+                                                        setCustomerSearch('');
+                                                        setFormData((prev) => ({
+                                                            ...prev,
+                                                            customerId: '',
+                                                            duAnId: '',
+                                                            hopDongId: '',
+                                                        }));
+                                                        setCustomerPickerOpen(false);
+                                                    }}
+                                                >
+                                                    <X size={16} />
+                                                </button>
+                                            ) : null}
+                                            <ChevronDown size={16} className="text-slate-400 pointer-events-none" />
+                                        </div>
+                                        {customerPickerOpen && (
+                                            <ul
+                                                role="listbox"
+                                                className="absolute left-0 right-0 top-full mt-1 max-h-52 overflow-auto rounded-xl border border-slate-200 bg-white py-1 shadow-lg"
+                                            >
+                                                <li>
+                                                    <button
+                                                        type="button"
+                                                        role="option"
+                                                        className={cn(
+                                                            'w-full text-left px-3 py-2.5 text-sm hover:bg-slate-50',
+                                                            !formData.customerId
+                                                                ? 'bg-indigo-50 text-indigo-800 font-medium'
+                                                                : 'text-slate-700',
+                                                        )}
+                                                        onMouseDown={(e) => e.preventDefault()}
+                                                        onClick={() => {
+                                                            setFormData((prev) => ({
+                                                                ...prev,
+                                                                customerId: '',
+                                                                duAnId: '',
+                                                                hopDongId: '',
+                                                            }));
+                                                            setCustomerSearch('');
+                                                            setCustomerPickerOpen(false);
+                                                        }}
+                                                    >
+                                                        — Chưa chọn khách hàng —
+                                                    </button>
+                                                </li>
+                                                {filteredCustomers.length === 0 ? (
+                                                    <li className="px-3 py-2.5 text-sm text-slate-500">
+                                                        Không tìm thấy khách hàng
+                                                    </li>
+                                                ) : (
+                                                    filteredCustomers.map((c) => (
+                                                        <li key={c.id}>
+                                                            <button
+                                                                type="button"
+                                                                role="option"
+                                                                className={cn(
+                                                                    'w-full text-left px-3 py-2.5 text-sm hover:bg-slate-50 truncate',
+                                                                    String(formData.customerId) === String(c.id)
+                                                                        ? 'bg-indigo-50 text-indigo-800 font-medium'
+                                                                        : 'text-slate-800',
+                                                                )}
+                                                                onMouseDown={(e) => e.preventDefault()}
+                                                                onClick={() => {
+                                                                    setFormData((prev) => ({
+                                                                        ...prev,
+                                                                        customerId: c.id,
+                                                                        duAnId: '',
+                                                                        hopDongId: '',
+                                                                    }));
+                                                                    setCustomerSearch(c.ten_don_vi);
+                                                                    setCustomerPickerOpen(false);
+                                                                }}
+                                                            >
+                                                                {c.ten_don_vi}
+                                                            </button>
+                                                        </li>
+                                                    ))
+                                                )}
+                                            </ul>
+                                        )}
+                                    </div>
                                 )}
-                                <div className="relative">
-                                    <UserCircle2 className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
-                                    <select
-                                        name="customerId"
-                                        value={customerSelectLocked ? String(customerScope?.customer_id || '') : formData.customerId}
-                                        onChange={(e) =>
-                                            setFormData((prev) => ({
-                                                ...prev,
-                                                customerId: e.target.value,
-                                                duAnId: '',
-                                                hopDongId: '',
-                                            }))
-                                        }
-                                        disabled={customerSelectLocked}
-                                        className="w-full pl-11 pr-4 py-3 bg-white border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500/10 focus:border-indigo-500 text-sm text-slate-800 transition-all hover:border-slate-300 shadow-sm disabled:bg-slate-50 disabled:text-slate-600"
-                                    >
-                                        <option value="">
-                                            {customerSelectLocked
-                                                ? '— Khách theo ngữ cảnh —'
-                                                : '— Chọn khách hàng —'}
-                                        </option>
-                                        {filteredCustomers.map((c) => (
-                                            <option key={c.id} value={c.id}>
-                                                {c.ten_don_vi}
-                                            </option>
-                                        ))}
-                                    </select>
-                                </div>
                                 {needSelectCustomerFirst ? (
-                                    <p className="text-[11px] text-slate-500 ml-1">Chọn khách hàng trước, sau đó chọn dự án và hợp đồng.</p>
+                                    <p className="text-[11px] text-slate-500 ml-1">
+                                        Chọn khách hàng trước, sau đó chọn dự án và hợp đồng.
+                                    </p>
                                 ) : null}
                             </div>
 
