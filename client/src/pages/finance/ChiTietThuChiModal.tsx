@@ -182,6 +182,25 @@ export function ChiTietThuChiModal({ isOpen, onClose, item }: Props) {
                                                 </div>
                                                 <div className="text-sm font-bold text-indigo-600">{item.ten_du_an || '(Chưa có dự án)'}</div>
                                             </div>
+
+                                            <div className="flex items-center justify-between group gap-3">
+                                                <div className="flex items-center gap-3 shrink-0">
+                                                    <div className="w-8 h-8 rounded-lg bg-violet-50 flex items-center justify-center text-violet-600 group-hover:bg-violet-100 transition-colors">
+                                                        <FileText size={16} />
+                                                    </div>
+                                                    <div className="text-sm text-slate-500">Số hợp đồng:</div>
+                                                </div>
+                                                <div
+                                                    className="text-sm font-bold text-slate-800 text-right min-w-0 max-w-[58%] truncate"
+                                                    title={
+                                                        String(item.so_hop_dong_display || item.so_hop_dong || '').trim() ||
+                                                        undefined
+                                                    }
+                                                >
+                                                    {String(item.so_hop_dong_display || item.so_hop_dong || '').trim() ||
+                                                        '—'}
+                                                </div>
+                                            </div>
                                         </div>
                                     </div>
                                 </div>

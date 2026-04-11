@@ -715,6 +715,8 @@ export function ThuChi() {
                     so_tien: number;
                     tinh_trang_phieu: string;
                     noi_dung: string;
+                    /** Số HĐ & PLHĐ (hoặc Số HĐ) — dùng khớp `hop_dong.so_hop_dong`; rỗng = chỉ gắn dự án */
+                    so_hd_lien_ket: string;
                 };
                 const grouped = new Map<string, CdtAgg>();
                 for (let i = 0; i < rows.length; i++) {
@@ -725,6 +727,8 @@ export function ThuChi() {
                     const ngayRaw = r.ngay_tien_ve || r.ngay_xuat_hd || '';
                     const ngayP = parseExcelDate(ngayRaw, (r.nam_xuat_hd || '').trim());
                     const ngayFinal = ngayP || new Date().toISOString().split('T')[0];
+                    const soHdLienKet = (r.so_hd_plhd || r.so_hd || '').trim();
+                    const soHdKey = soHdLienKet.toLowerCase();
 
                     const tt =
                         parseMoneyVi(String(r.cdt_thanh_toan ?? '').trim() || '0') || 0;
@@ -733,7 +737,7 @@ export function ThuChi() {
 
                     const bump = (amount: number, tinhTrang: string, noiDung: string) => {
                         if (amount <= 0) return;
-                        const key = `${tenDa}_${ngayFinal}_${tinhTrang}`;
+                        const key = `${tenDa}_${ngayFinal}_${tinhTrang}_${soHdKey}`;
                         const cur = grouped.get(key);
                         if (cur) cur.so_tien += amount;
                         else
@@ -743,6 +747,7 @@ export function ThuChi() {
                                 so_tien: amount,
                                 tinh_trang_phieu: tinhTrang,
                                 noi_dung: noiDung,
+                                so_hd_lien_ket: soHdLienKet,
                             });
                     };
 
@@ -763,12 +768,39 @@ export function ThuChi() {
                         errors.push(`Dòng CDT ${i + 2}: không tìm thấy dự án '${r.ten_da}'`);
                         continue;
                     }
+
+                    const soHd = (r.so_hd_lien_ket || '').trim();
+                    let hopDongId: string | null = null;
+                    let duAnId = project.id;
+                    if (soHd) {
+                        const c = contracts.find(
+                            (x) =>
+                                (x.so_hop_dong || '').trim().toLowerCase() ===
+                                soHd.toLowerCase(),
+                        );
+                        if (!c) {
+                            errors.push(
+                                `CDT «${r.ten_da}»: không tìm thấy hợp đồng số «${soHd}» — kiểm tra cột Số HĐ & PLHĐ trùng hệ thống`,
+                            );
+                            continue;
+                        }
+                        if (c.du_an_id && c.du_an_id !== project.id) {
+                            errors.push(
+                                `CDT: hợp đồng «${soHd}» thuộc dự án khác, không khớp «${r.ten_da}»`,
+                            );
+                            continue;
+                        }
+                        hopDongId = hopDongRef(c);
+                        if (c.du_an_id) duAnId = c.du_an_id;
+                    }
+
                     try {
                         await thuChiService.create({
                             loai_phieu: 'Phiếu thu',
                             so_tien: Number(r.so_tien || 0),
                             ngay: r.ngay,
-                            du_an_id: project.id,
+                            du_an_id: duAnId,
+                            hop_dong_id: hopDongId,
                             noi_dung: r.noi_dung,
                             tinh_trang_phieu: r.tinh_trang_phieu,
                         });
@@ -815,7 +847,7 @@ export function ThuChi() {
             }
             return { ok, errors };
         },
-        [projects],
+        [projects, contracts],
     );
 
     return (
@@ -1064,19 +1096,20 @@ export function ThuChi() {
                                                     )}
                                                 </button>
                                             </th>
-                                            <th className="px-6 py-3.5 font-bold w-[10%]">Mã chứng từ</th>
-                                            <th className="px-6 py-3.5 font-bold w-[24%] min-w-0">Đối tượng</th>
-                                            <th className="px-6 py-3.5 font-bold w-[10%] whitespace-nowrap">Ngày chứng từ</th>
-                                            <th className="px-6 py-3.5 font-bold w-[11%]">Loại</th>
-                                            <th className="px-6 py-3.5 font-bold w-[14%] min-w-0">Tình trạng</th>
+                                            <th className="px-6 py-3.5 font-bold w-[9%]">Mã chứng từ</th>
+                                            <th className="px-6 py-3.5 font-bold w-[21%] min-w-0">Đối tượng</th>
+                                            <th className="px-6 py-3.5 font-bold w-[9%] min-w-0">Số HĐ</th>
+                                            <th className="px-6 py-3.5 font-bold w-[9%] whitespace-nowrap">Ngày chứng từ</th>
+                                            <th className="px-6 py-3.5 font-bold w-[10%]">Loại</th>
+                                            <th className="px-6 py-3.5 font-bold w-[12%] min-w-0">Tình trạng</th>
                                             <th className="px-6 py-3.5 font-bold text-right w-[12%] whitespace-nowrap">Số tiền</th>
-                                            <th className="px-6 py-3.5 font-bold w-[10%] min-w-0">Nội dung</th>
+                                            <th className="px-6 py-3.5 font-bold w-[9%] min-w-0">Nội dung</th>
                                             <th className="px-6 py-3.5 font-bold text-center w-[5%] min-w-[5.5rem]">Thao tác</th>
                                         </tr>
                                     </thead>
                                     <tbody className="divide-y divide-slate-100">
                                         {currentItems.length === 0 ? (
-                                            <tr><td colSpan={9} className="px-6 py-10 text-center text-sm text-slate-500">Không có dữ liệu phù hợp bộ lọc hiện tại</td></tr>
+                                            <tr><td colSpan={10} className="px-6 py-10 text-center text-sm text-slate-500">Không có dữ liệu phù hợp bộ lọc hiện tại</td></tr>
                                         ) : (
                                             currentItems.map((item) => (
                                                 <tr key={item.id} className="hover:bg-slate-50/60 transition-colors">
@@ -1106,6 +1139,24 @@ export function ThuChi() {
                                                             {(item as any).customer_name?.trim()
                                                                 ? (item as any).customer_name
                                                                 : '—'}
+                                                        </div>
+                                                    </td>
+                                                    <td className="px-6 py-4 text-sm text-slate-700 min-w-0 align-top max-w-0">
+                                                        <div
+                                                            className="truncate font-medium"
+                                                            title={
+                                                                (
+                                                                    (item as any).so_hop_dong_display ||
+                                                                    item.so_hop_dong ||
+                                                                    ''
+                                                                ).trim() || undefined
+                                                            }
+                                                        >
+                                                            {(
+                                                                (item as any).so_hop_dong_display ||
+                                                                item.so_hop_dong ||
+                                                                ''
+                                                            ).trim() || '—'}
                                                         </div>
                                                     </td>
                                                     <td className="px-6 py-4 text-sm text-slate-500 tabular-nums whitespace-nowrap align-top">
