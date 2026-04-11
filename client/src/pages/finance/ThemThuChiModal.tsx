@@ -48,6 +48,13 @@ function contractSelValue(c: ContractRow): string {
     return String(c.hop_dong_row_id || c.id || '').trim();
 }
 
+function tinhTrangPhieuFromInitial(raw: unknown): string {
+    const t = String(raw ?? '').trim();
+    if (!t) return 'Tạm ứng';
+    if (t.toLowerCase() === 'thanh_toan') return 'Thanh toán';
+    return t;
+}
+
 function filterProjectsByCustomer(rows: ProjectOpt[], customerId: string, tenDonVi?: string): ProjectOpt[] {
     const cid = String(customerId).trim();
     const nameKey = normCustomerKey(tenDonVi);
@@ -95,6 +102,7 @@ export function ThemThuChiModal({
         noiDung: '',
         nhanSuId: '',
         hangMucChi: 'chi_du_an' as HangMucChi,
+        tinhTrangPhieu: 'Tạm ứng',
     });
 
     const effectiveCustomerId = (customerScope?.customer_id || formData.customerId || '').trim();
@@ -273,6 +281,9 @@ export function ThemThuChiModal({
                                 : '',
                         hangMucChi:
                             initialData.hang_muc_chi === 'chi_nhan_su' ? 'chi_nhan_su' : 'chi_du_an',
+                        tinhTrangPhieu: tinhTrangPhieuFromInitial(
+                            initialData.tinh_trang_phieu ?? initialData.tinhTrangPhieu,
+                        ),
                     });
                     const labelInit =
                         customerIdInit && custList.length
@@ -295,6 +306,7 @@ export function ThemThuChiModal({
                         soTien: 0,
                         noiDung: '',
                         hangMucChi: 'chi_du_an',
+                        tinhTrangPhieu: 'Tạm ứng',
                     });
                     setCustomerSearch('');
                 }
@@ -427,6 +439,7 @@ export function ThemThuChiModal({
                 nhan_su_id: formData.loaiPhieu === 'Phiếu chi' ? String(formData.nhanSuId).trim() || null : null,
                 nguoi_nhan: null,
                 hang_muc_chi: formData.loaiPhieu === 'Phiếu chi' ? formData.hangMucChi : null,
+                tinh_trang_phieu: String(formData.tinhTrangPhieu || '').trim() || null,
             };
 
             if (mode === 'edit' && initialData) {
@@ -531,6 +544,47 @@ export function ThemThuChiModal({
                                         required
                                     />
                                 </div>
+                            </div>
+
+                            <div className="space-y-1.5 md:col-span-2">
+                                <label className="text-[11px] font-bold text-slate-500 uppercase tracking-wider ml-1">
+                                    Tình trạng phiếu
+                                </label>
+                                <div className="relative">
+                                    <select
+                                        name="tinhTrangPhieu"
+                                        value={formData.tinhTrangPhieu}
+                                        onChange={handleChange}
+                                        className="w-full appearance-none pl-4 pr-14 py-3 bg-white border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500/10 focus:border-indigo-500 text-sm text-slate-800 transition-all hover:border-slate-300 shadow-sm"
+                                    >
+                                        <option value="">— Trống —</option>
+                                        <option value="Tạm ứng">Tạm ứng</option>
+                                        <option value="Thanh toán">Thanh toán</option>
+                                        {formData.tinhTrangPhieu &&
+                                        formData.tinhTrangPhieu !== 'Tạm ứng' &&
+                                        formData.tinhTrangPhieu !== 'Thanh toán' && (
+                                            <option value={formData.tinhTrangPhieu}>
+                                                {formData.tinhTrangPhieu}
+                                            </option>
+                                        )}
+                                    </select>
+                                    <div className="absolute right-3 top-1/2 -translate-y-1/2 flex items-center gap-1">
+                                        <button
+                                            type="button"
+                                            onClick={() =>
+                                                setFormData((prev) => ({ ...prev, tinhTrangPhieu: '' }))
+                                            }
+                                            className="rounded-lg p-1 text-slate-400 hover:text-slate-600 hover:bg-slate-100"
+                                            aria-label="Xóa tình trạng"
+                                        >
+                                            <X size={16} />
+                                        </button>
+                                        <ChevronDown size={16} className="text-slate-400 pointer-events-none" />
+                                    </div>
+                                </div>
+                                <p className="text-[11px] text-slate-500 ml-1">
+                                    Khớp cột «Tình trạng» trên danh sách (ví dụ thu CĐT: Thanh toán / Tạm ứng).
+                                </p>
                             </div>
 
                             <div className="space-y-1.5 md:col-span-2">
