@@ -1403,6 +1403,15 @@ BEGIN
   ) THEN
     ALTER TABLE public.thu_chi ADD COLUMN nhan_su_id UUID;
   END IF;
+
+  IF NOT EXISTS (
+    SELECT FROM information_schema.columns 
+    WHERE table_schema = 'public' 
+    AND table_name = 'thu_chi' 
+    AND column_name = 'ten_goi_thau'
+  ) THEN
+    ALTER TABLE public.thu_chi ADD COLUMN ten_goi_thau TEXT;
+  END IF;
   
   -- Thêm foreign key constraints
   IF NOT EXISTS (

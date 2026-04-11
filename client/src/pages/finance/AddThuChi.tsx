@@ -105,6 +105,7 @@ export function AddThuChi() {
         soTien: 0,
         noiDung: '',
         hangMucChi: 'chi_du_an' as HangMucChi,
+        tenGoiThau: '',
         file: null as File | null,
         imageUrl: '' as string | null // URL ảnh chứng từ (link)
     });
@@ -312,6 +313,9 @@ export function AddThuChi() {
                     soTien: item.so_tien,
                     noiDung: item.noi_dung || '',
                     hangMucChi: item.hang_muc_chi === 'chi_nhan_su' ? 'chi_nhan_su' : 'chi_du_an',
+                    tenGoiThau:
+                        String(item.ten_goi_thau ?? '').trim() ||
+                        String(ct?.ten_goi_thau ?? '').trim(),
                     file: null,
                     imageUrl: item.anh_url || null,
                 });
@@ -378,6 +382,7 @@ export function AddThuChi() {
                 tinh_trang_phieu: formData.tinhTrangPhieu || null,
                 nguoi_nhan: null,
                 hang_muc_chi: formData.loaiPhieu === 'Phiếu chi' ? formData.hangMucChi : null,
+                ten_goi_thau: String(formData.tenGoiThau || '').trim() || null,
                 file_url: fileUrl || null,
                 anh_url: imageUrl || null
             };
@@ -539,7 +544,14 @@ export function AddThuChi() {
                         <div className="md:w-2/3 relative flex-1">
                             <select
                                 value={formData.duAnId}
-                                onChange={(e) => setFormData({ ...formData, duAnId: e.target.value, hopDongId: '' })}
+                                onChange={(e) =>
+                                    setFormData({
+                                        ...formData,
+                                        duAnId: e.target.value,
+                                        hopDongId: '',
+                                        tenGoiThau: '',
+                                    })
+                                }
                                 disabled={!String(formData.customerId || '').trim()}
                                 className="w-full max-w-full px-4 py-2.5 bg-white border border-slate-300 rounded-md appearance-none focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 text-slate-700 project-select disabled:bg-slate-50 disabled:text-slate-500"
                             >
@@ -568,7 +580,21 @@ export function AddThuChi() {
                         <div className="md:w-2/3 relative flex-1">
                             <select
                                 value={formData.hopDongId}
-                                onChange={(e) => setFormData({ ...formData, hopDongId: e.target.value })}
+                                onChange={(e) => {
+                                    const v = e.target.value;
+                                    const c = contractsForSelect.find(
+                                        (x) => contractSelValue(x) === v,
+                                    );
+                                    setFormData({
+                                        ...formData,
+                                        hopDongId: v,
+                                        tenGoiThau:
+                                            v && c
+                                                ? String(c.ten_goi_thau || '').trim() ||
+                                                  formData.tenGoiThau
+                                                : formData.tenGoiThau,
+                                    });
+                                }}
                                 className="w-full px-4 py-2.5 bg-white border border-slate-300 rounded-md appearance-none focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 text-slate-700 disabled:bg-slate-50 disabled:text-slate-500"
                                 disabled={!formData.duAnId}
                             >
@@ -588,6 +614,25 @@ export function AddThuChi() {
                                 })}
                             </select>
                             <ChevronDown size={16} className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
+                        </div>
+                    </div>
+
+                    {/* Tên gói thầu */}
+                    <div className="flex flex-col md:flex-row md:items-center gap-4 md:gap-8">
+                        <div className="md:w-1/3 md:text-right">
+                            <label className="text-sm font-medium text-slate-500">Tên gói thầu</label>
+                        </div>
+                        <div className="md:w-2/3 relative flex-1">
+                            <input
+                                type="text"
+                                value={formData.tenGoiThau}
+                                onChange={(e) => setFormData({ ...formData, tenGoiThau: e.target.value })}
+                                placeholder="Một dự án có thể nhiều gói thầu…"
+                                className="w-full px-4 py-2.5 bg-white border border-slate-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 text-slate-700"
+                            />
+                            <p className="text-[11px] text-slate-500 mt-1">
+                                Chọn hợp đồng sẽ điền tên từ HĐ; có thể sửa hoặc nhập tay.
+                            </p>
                         </div>
                     </div>
 

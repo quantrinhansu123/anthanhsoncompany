@@ -144,6 +144,7 @@ export function ThuChi() {
         { key: 'hang_muc_chi', header: 'Hạng mục chi', example: 'Chi dự án / Chi nhân sự (phiếu chi)' },
         { key: 'ten_nhan_su', header: 'Tên nhân sự', example: 'Bắt buộc nếu Phiếu chi' },
         { key: 'tinh_trang', header: 'Tình trạng phiếu', example: 'Tạm ứng' },
+        { key: 'ten_goi_thau', header: 'Tên gói thầu', example: 'Tùy chọn' },
     ];
 
     const customCdtExcelColumns: ExcelColumnDef[] = [
@@ -521,7 +522,8 @@ export function ThuChi() {
                 (item as any).ten_du_an?.toLowerCase().includes(term) ||
                 (item as any).customer_name?.toLowerCase().includes(term) ||
                 (item as any).so_hop_dong_display?.toLowerCase().includes(term) ||
-                (item as any).so_hop_dong?.toLowerCase().includes(term);
+                (item as any).so_hop_dong?.toLowerCase().includes(term) ||
+                (item as any).ten_goi_thau?.toLowerCase().includes(term);
 
             const matchesCustomer =
                 selectedCustomerIds.length === 0 ||
@@ -717,6 +719,7 @@ export function ThuChi() {
                     noi_dung: string;
                     /** Số HĐ & PLHĐ (hoặc Số HĐ) — dùng khớp `hop_dong.so_hop_dong`; rỗng = chỉ gắn dự án */
                     so_hd_lien_ket: string;
+                    ten_goi_thau: string;
                 };
                 const grouped = new Map<string, CdtAgg>();
                 for (let i = 0; i < rows.length; i++) {
@@ -729,6 +732,8 @@ export function ThuChi() {
                     const ngayFinal = ngayP || new Date().toISOString().split('T')[0];
                     const soHdLienKet = (r.so_hd_plhd || r.so_hd || '').trim();
                     const soHdKey = soHdLienKet.toLowerCase();
+                    const tenGoiThauRow = String(r.ten_goi_thau ?? '').trim();
+                    const tenGoiKey = tenGoiThauRow.toLowerCase();
 
                     const tt =
                         parseMoneyVi(String(r.cdt_thanh_toan ?? '').trim() || '0') || 0;
@@ -737,7 +742,7 @@ export function ThuChi() {
 
                     const bump = (amount: number, tinhTrang: string, noiDung: string) => {
                         if (amount <= 0) return;
-                        const key = `${tenDa}_${ngayFinal}_${tinhTrang}_${soHdKey}`;
+                        const key = `${tenDa}_${ngayFinal}_${tinhTrang}_${soHdKey}_${tenGoiKey}`;
                         const cur = grouped.get(key);
                         if (cur) cur.so_tien += amount;
                         else
@@ -748,6 +753,7 @@ export function ThuChi() {
                                 tinh_trang_phieu: tinhTrang,
                                 noi_dung: noiDung,
                                 so_hd_lien_ket: soHdLienKet,
+                                ten_goi_thau: tenGoiThauRow,
                             });
                     };
 
@@ -803,6 +809,7 @@ export function ThuChi() {
                             hop_dong_id: hopDongId,
                             noi_dung: r.noi_dung,
                             tinh_trang_phieu: r.tinh_trang_phieu,
+                            ten_goi_thau: String(r.ten_goi_thau || '').trim() || null,
                         });
                         ok++;
                     } catch (e: any) {
@@ -830,6 +837,11 @@ export function ThuChi() {
                         continue;
                     }
                     const loaiPhieu = isPhieuThu ? 'Phiếu thu' : 'Phiếu chi';
+                    const tinhTrangRaw = String(r.tinh_trang || r.tinh_trang_phieu || '').trim();
+                    const tinhTrangPhieu =
+                        tinhTrangRaw.toLowerCase() === 'thanh_toan'
+                            ? 'Thanh toán'
+                            : tinhTrangRaw || null;
                     try {
                         await thuChiService.create({
                             loai_phieu: loaiPhieu,
@@ -838,6 +850,8 @@ export function ThuChi() {
                                 parseExcelDate(r.ngay) || new Date().toISOString().split('T')[0],
                             du_an_id: project.id,
                             noi_dung: String(r.noi_dung || '').trim() || null,
+                            tinh_trang_phieu: tinhTrangPhieu,
+                            ten_goi_thau: String(r.ten_goi_thau || '').trim() || null,
                         });
                         ok++;
                     } catch (e: any) {
@@ -1078,11 +1092,11 @@ export function ThuChi() {
                                     disabled={loading}
                                 />
                             </div>
-                            <div className="overflow-x-auto">
-                                <table className="w-full table-fixed text-left border-collapse">
+                            <div className="max-w-full overflow-x-auto overscroll-x-contain [-webkit-overflow-scrolling:touch] [scrollbar-gutter:stable]">
+                                <table className="min-w-[1520px] w-full text-left border-collapse">
                                     <thead>
                                         <tr className="bg-blue-950 border-b border-blue-900 text-[11px] uppercase tracking-wider text-white">
-                                            <th className="px-4 py-3.5 w-[4%]">
+                                            <th className="px-4 py-3.5 w-11 shrink-0">
                                                 <button
                                                     type="button"
                                                     title="Chọn tất cả trên các dòng đang lọc"
@@ -1096,20 +1110,21 @@ export function ThuChi() {
                                                     )}
                                                 </button>
                                             </th>
-                                            <th className="px-6 py-3.5 font-bold w-[9%]">Mã chứng từ</th>
-                                            <th className="px-6 py-3.5 font-bold w-[21%] min-w-0">Đối tượng</th>
-                                            <th className="px-6 py-3.5 font-bold w-[9%] min-w-0">Số HĐ</th>
-                                            <th className="px-6 py-3.5 font-bold w-[9%] whitespace-nowrap">Ngày chứng từ</th>
-                                            <th className="px-6 py-3.5 font-bold w-[10%]">Loại</th>
-                                            <th className="px-6 py-3.5 font-bold w-[12%] min-w-0">Tình trạng</th>
-                                            <th className="px-6 py-3.5 font-bold text-right w-[12%] whitespace-nowrap">Số tiền</th>
-                                            <th className="px-6 py-3.5 font-bold w-[9%] min-w-0">Nội dung</th>
-                                            <th className="px-6 py-3.5 font-bold text-center w-[5%] min-w-[5.5rem]">Thao tác</th>
+                                            <th className="px-6 py-3.5 font-bold min-w-[9.5rem]">Mã chứng từ</th>
+                                            <th className="px-6 py-3.5 font-bold min-w-[17rem]">Đối tượng</th>
+                                            <th className="px-6 py-3.5 font-bold min-w-[8rem]">Số HĐ</th>
+                                            <th className="px-6 py-3.5 font-bold min-w-[16rem]">Tên gói thầu</th>
+                                            <th className="px-6 py-3.5 font-bold min-w-[9rem] whitespace-nowrap">Ngày chứng từ</th>
+                                            <th className="px-6 py-3.5 font-bold min-w-[9.5rem]">Loại</th>
+                                            <th className="px-6 py-3.5 font-bold min-w-[12rem]">Tình trạng</th>
+                                            <th className="px-6 py-3.5 font-bold min-w-[11rem] text-right whitespace-nowrap">Số tiền</th>
+                                            <th className="px-6 py-3.5 font-bold min-w-[15rem]">Nội dung</th>
+                                            <th className="px-6 py-3.5 font-bold min-w-[8rem] text-center">Thao tác</th>
                                         </tr>
                                     </thead>
                                     <tbody className="divide-y divide-slate-100">
                                         {currentItems.length === 0 ? (
-                                            <tr><td colSpan={10} className="px-6 py-10 text-center text-sm text-slate-500">Không có dữ liệu phù hợp bộ lọc hiện tại</td></tr>
+                                            <tr><td colSpan={11} className="px-6 py-10 text-center text-sm text-slate-500">Không có dữ liệu phù hợp bộ lọc hiện tại</td></tr>
                                         ) : (
                                             currentItems.map((item) => (
                                                 <tr key={item.id} className="hover:bg-slate-50/60 transition-colors">
@@ -1127,8 +1142,8 @@ export function ThuChi() {
                                                             )}
                                                         </button>
                                                     </td>
-                                                    <td className="px-6 py-4 text-sm font-bold text-blue-600 align-top">{item.code || '-'}</td>
-                                                    <td className="px-6 py-4 text-sm text-slate-900 min-w-0 align-top max-w-0">
+                                                    <td className="px-6 py-4 text-sm font-bold text-blue-600 align-top whitespace-nowrap">{item.code || '-'}</td>
+                                                    <td className="px-6 py-4 text-sm text-slate-900 align-top min-w-[17rem] max-w-[22rem]">
                                                         <div
                                                             className="truncate"
                                                             title={
@@ -1141,7 +1156,7 @@ export function ThuChi() {
                                                                 : '—'}
                                                         </div>
                                                     </td>
-                                                    <td className="px-6 py-4 text-sm text-slate-700 min-w-0 align-top max-w-0">
+                                                    <td className="px-6 py-4 text-sm text-slate-700 align-top min-w-[8rem] max-w-[11rem]">
                                                         <div
                                                             className="truncate font-medium"
                                                             title={
@@ -1159,6 +1174,17 @@ export function ThuChi() {
                                                             ).trim() || '—'}
                                                         </div>
                                                     </td>
+                                                    <td className="px-6 py-4 text-sm text-slate-700 align-top min-w-[16rem] max-w-[22rem]">
+                                                        <div
+                                                            className="truncate"
+                                                            title={
+                                                                String((item as any).ten_goi_thau || '').trim() ||
+                                                                undefined
+                                                            }
+                                                        >
+                                                            {String((item as any).ten_goi_thau || '').trim() || '—'}
+                                                        </div>
+                                                    </td>
                                                     <td className="px-6 py-4 text-sm text-slate-500 tabular-nums whitespace-nowrap align-top">
                                                         {item.ngay
                                                             ? new Date(item.ngay).toLocaleDateString('vi-VN')
@@ -1171,7 +1197,7 @@ export function ThuChi() {
                                                             {item.type}
                                                         </span>
                                                     </td>
-                                                    <td className="px-6 py-4 text-sm min-w-0 align-top max-w-0">
+                                                    <td className="px-6 py-4 text-sm align-top min-w-[12rem] max-w-[16rem]">
                                                         {item.tinh_trang_display ? (
                                                             <span
                                                                 title={tinhTrangThuCdtLabel(item.tinh_trang_display)}
@@ -1195,7 +1221,7 @@ export function ThuChi() {
                                                     <td className="px-6 py-4 text-sm font-black text-right text-slate-900 whitespace-nowrap align-top">
                                                         {new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND' }).format(Number(item.so_tien || 0))}
                                                     </td>
-                                                    <td className="px-6 py-4 text-sm text-slate-500 min-w-0 align-top max-w-0">
+                                                    <td className="px-6 py-4 text-sm text-slate-500 align-top min-w-[15rem] max-w-[24rem]">
                                                         <div
                                                             className="truncate"
                                                             title={
@@ -1205,7 +1231,7 @@ export function ThuChi() {
                                                             {item.description?.trim() ? item.description : '—'}
                                                         </div>
                                                     </td>
-                                                    <td className="px-6 py-4 text-center align-top">
+                                                    <td className="px-6 py-4 text-center align-top whitespace-nowrap min-w-[8rem]">
                                                         <div className="flex justify-center gap-2">
                                                             <button type="button" onClick={() => handleViewClick(item)} className="text-slate-400 hover:text-blue-600"><Eye size={18} /></button>
                                                             <button type="button" onClick={() => handleEditClick(item)} className="text-slate-400 hover:text-slate-700"><Edit size={18} /></button>

@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { X, Eye, FileText, Calendar, DollarSign, User, Briefcase, Clock, Layout } from 'lucide-react';
+import { X, Eye, FileText, Calendar, DollarSign, User, Briefcase, Clock, Layout, Package } from 'lucide-react';
 import { PreviewLinkModal } from '../../components/PreviewLinkModal';
 import { NhanSuAvatar } from '../../components/NhanSuTenAnhPicker';
 
@@ -199,6 +199,23 @@ export function ChiTietThuChiModal({ isOpen, onClose, item }: Props) {
                                                 >
                                                     {String(item.so_hop_dong_display || item.so_hop_dong || '').trim() ||
                                                         '—'}
+                                                </div>
+                                            </div>
+
+                                            <div className="flex items-center justify-between group gap-3">
+                                                <div className="flex items-center gap-3 shrink-0">
+                                                    <div className="w-8 h-8 rounded-lg bg-amber-50 flex items-center justify-center text-amber-700 group-hover:bg-amber-100 transition-colors">
+                                                        <Package size={16} />
+                                                    </div>
+                                                    <div className="text-sm text-slate-500">Tên gói thầu:</div>
+                                                </div>
+                                                <div
+                                                    className="text-sm font-semibold text-slate-800 text-right min-w-0 max-w-[58%] truncate"
+                                                    title={
+                                                        String(item.ten_goi_thau || '').trim() || undefined
+                                                    }
+                                                >
+                                                    {String(item.ten_goi_thau || '').trim() || '—'}
                                                 </div>
                                             </div>
                                         </div>

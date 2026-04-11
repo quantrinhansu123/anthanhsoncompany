@@ -103,6 +103,7 @@ export function ThemThuChiModal({
         nhanSuId: '',
         hangMucChi: 'chi_du_an' as HangMucChi,
         tinhTrangPhieu: 'Tạm ứng',
+        tenGoiThau: '',
     });
 
     const effectiveCustomerId = (customerScope?.customer_id || formData.customerId || '').trim();
@@ -284,6 +285,9 @@ export function ThemThuChiModal({
                         tinhTrangPhieu: tinhTrangPhieuFromInitial(
                             initialData.tinh_trang_phieu ?? initialData.tinhTrangPhieu,
                         ),
+                        tenGoiThau:
+                            String(initialData.ten_goi_thau ?? initialData.tenGoiThau ?? '').trim() ||
+                            String(ctHd?.ten_goi_thau ?? '').trim(),
                     });
                     const labelInit =
                         customerIdInit && custList.length
@@ -307,6 +311,7 @@ export function ThemThuChiModal({
                         noiDung: '',
                         hangMucChi: 'chi_du_an',
                         tinhTrangPhieu: 'Tạm ứng',
+                        tenGoiThau: '',
                     });
                     setCustomerSearch('');
                 }
@@ -352,7 +357,7 @@ export function ThemThuChiModal({
         if (!isOpen) return;
         const du = String(formData.duAnId || '').trim();
         setFormData((prev) => {
-            if (!du && prev.hopDongId) return { ...prev, hopDongId: '' };
+            if (!du && prev.hopDongId) return { ...prev, hopDongId: '', tenGoiThau: '' };
             if (!du) return prev;
             const ok = contractsForSelect.some(
                 (c) =>
@@ -360,7 +365,7 @@ export function ThemThuChiModal({
                     String(c.hop_dong_row_id || '') === String(prev.hopDongId),
             );
             if (ok || !prev.hopDongId) return prev;
-            return { ...prev, hopDongId: '' };
+            return { ...prev, hopDongId: '', tenGoiThau: '' };
         });
     }, [isOpen, formData.duAnId, contractsForSelect]);
 
@@ -440,6 +445,7 @@ export function ThemThuChiModal({
                 nguoi_nhan: null,
                 hang_muc_chi: formData.loaiPhieu === 'Phiếu chi' ? formData.hangMucChi : null,
                 tinh_trang_phieu: String(formData.tinhTrangPhieu || '').trim() || null,
+                ten_goi_thau: String(formData.tenGoiThau || '').trim() || null,
             };
 
             if (mode === 'edit' && initialData) {
@@ -644,6 +650,7 @@ export function ThemThuChiModal({
                                                             customerId: '',
                                                             duAnId: '',
                                                             hopDongId: '',
+                                                            tenGoiThau: '',
                                                         }));
                                                     }
                                                 }
@@ -669,6 +676,7 @@ export function ThemThuChiModal({
                                                             customerId: '',
                                                             duAnId: '',
                                                             hopDongId: '',
+                                                            tenGoiThau: '',
                                                         }));
                                                         setCustomerPickerOpen(false);
                                                     }}
@@ -700,6 +708,7 @@ export function ThemThuChiModal({
                                                                 customerId: '',
                                                                 duAnId: '',
                                                                 hopDongId: '',
+                                                                tenGoiThau: '',
                                                             }));
                                                             setCustomerSearch('');
                                                             setCustomerPickerOpen(false);
@@ -731,6 +740,7 @@ export function ThemThuChiModal({
                                                                         customerId: c.id,
                                                                         duAnId: '',
                                                                         hopDongId: '',
+                                                                        tenGoiThau: '',
                                                                     }));
                                                                     setCustomerSearch(c.ten_don_vi);
                                                                     setCustomerPickerOpen(false);
@@ -764,6 +774,7 @@ export function ThemThuChiModal({
                                                 ...prev,
                                                 duAnId: e.target.value,
                                                 hopDongId: '',
+                                                tenGoiThau: '',
                                             }))
                                         }
                                         disabled={scopedNoProjects || needSelectCustomerFirst}
@@ -801,7 +812,21 @@ export function ThemThuChiModal({
                                     <select
                                         name="hopDongId"
                                         value={formData.hopDongId}
-                                        onChange={handleChange}
+                                        onChange={(e) => {
+                                            const v = e.target.value;
+                                            const c = contractsForSelect.find(
+                                                (x) => contractSelValue(x) === v,
+                                            );
+                                            setFormData((prev) => ({
+                                                ...prev,
+                                                hopDongId: v,
+                                                tenGoiThau:
+                                                    v && c
+                                                        ? String(c.ten_goi_thau || '').trim() ||
+                                                          prev.tenGoiThau
+                                                        : prev.tenGoiThau,
+                                            }));
+                                        }}
                                         disabled={
                                             scopedNoProjects ||
                                             needSelectCustomerFirst ||
@@ -827,6 +852,23 @@ export function ThemThuChiModal({
                                         })}
                                     </select>
                                 </div>
+                            </div>
+
+                            <div className="space-y-1.5 md:col-span-2">
+                                <label className="text-[11px] font-bold text-slate-500 uppercase tracking-wider ml-1">
+                                    Tên gói thầu
+                                </label>
+                                <input
+                                    type="text"
+                                    name="tenGoiThau"
+                                    value={formData.tenGoiThau}
+                                    onChange={handleChange}
+                                    placeholder="Ghi rõ gói thầu (một dự án có thể nhiều gói)…"
+                                    className="w-full px-4 py-3 bg-white border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500/10 focus:border-indigo-500 text-sm text-slate-800 transition-all hover:border-slate-300 shadow-sm"
+                                />
+                                <p className="text-[11px] text-slate-500 ml-1">
+                                    Chọn hợp đồng sẽ gợi ý tên từ HĐ; bạn có thể sửa hoặc nhập khi không gắn HĐ.
+                                </p>
                             </div>
 
                             {formData.loaiPhieu === 'Phiếu chi' && (
