@@ -11,7 +11,8 @@ import {
     ChevronsRight,
     X,
     CheckCircle,
-    PlusCircle
+    PlusCircle,
+    Loader2,
 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { useDuAnModal } from '../../contexts/DuAnModalContext';
@@ -22,6 +23,10 @@ import { contractService } from '../../lib/services/contractService';
 import { thuChiService, type ThuChiRow } from '../../lib/services/thuChiService';
 import { ExcelImportExportBar } from '../../components/ExcelImportExportBar';
 import type { ExcelColumnDef } from '../../lib/excelTableTools';
+import { normalizeKey } from '../../lib/excelTableTools';
+
+/** Đặt `true` để hiện nút xóa toàn bộ khách hàng (mặc định ẩn). */
+const SHOW_DELETE_ALL_KHACH_HANG_BUTTON = false;
 
 // Toast notification component
 function Toast({ message, type, onClose }: { message: string; type: 'success' | 'info' | 'warning'; onClose: () => void }) {
@@ -44,25 +49,6 @@ function Toast({ message, type, onClose }: { message: string; type: 'success' | 
     );
 }
 
-const mockData = [
-    {
-        id: 1,
-        Ten_Don_Vi: "Công ty Cổ phần Nước Môi trường và Hạ tầng Kỹ thuật Thủ Đô",
-        Loai_Hinh: "Tư nhân",
-        MST: "0101882929",
-        Dia_Chi: "Số 6 ngõ 347/16 đường Cổ Nhuế, Phường Đông Ngạc, TP Hà Nội",
-        Nguoi_Dai_Dien: "Nguyễn Mạnh Thắng",
-        Chuc_Vu_Dai_Dien: "Giám đốc",
-        Nguoi_Lien_He: "Chị Năm",
-        Chuc_Vu_Lien_He: "Kế toán",
-        SDT_Lien_He: "0976769568",
-        TongHopDong: 65680000,
-        GiaTriQuyetToan: 65680000,
-        DaThu: 55828000,
-        ConPhaiThu: 9852000
-    }
-];
-
 export function DanhSachKhachHang() {
     const navigate = useNavigate();
     const [items, setItems] = useState<any[]>([]);
@@ -71,6 +57,7 @@ export function DanhSachKhachHang() {
     const [itemsPerPage, setItemsPerPage] = useState(10);
     const [toast, setToast] = useState<{ message: string; type: 'success' | 'info' | 'warning' } | null>(null);
     const [reloadKey, setReloadKey] = useState(0);
+    const [deletingAllKhach, setDeletingAllKhach] = useState(false);
 
     const khachHangExcelColumns: ExcelColumnDef[] = [
         { key: 'ten_don_vi', header: 'Tên đơn vị', example: 'Công ty ABC' },
@@ -87,16 +74,22 @@ export function DanhSachKhachHang() {
     const { openDuAnModal } = useDuAnModal();
     const { openChiTietKhachHang, openThemKhachHang, openDelete } = useKhachHangModal();
 
-    // Load khách hàng + tính tự động
+    // Load khách hàng + tính tự động (HĐ theo customer_id / du_an; thu qua hop_dong_id hoặc du_an)
     React.useEffect(() => {
         (async () => {
             try {
-                const [customers, projects, contracts, allThuChi] = await Promise.all([
+                const [customers, projects, contractsRes, allThuChi] = await Promise.all([
                     customerService.getAll(),
                     projectService.getAll(),
                     contractService.getAll(),
                     thuChiService.getAll(),
                 ]);
+
+                const contractsList = Array.isArray(contractsRes)
+                    ? contractsRes
+                    : contractsRes && Array.isArray((contractsRes as { data?: unknown }).data)
+                      ? (contractsRes as { data: any[] }).data
+                      : [];
 
                 if (!customers || customers.length === 0) {
                     setItems([]);
@@ -104,45 +97,99 @@ export function DanhSachKhachHang() {
                     return;
                 }
 
-                const customerIdToProjectIds = new Map<string, string[]>();
-                (projects || []).forEach((p: any) => {
-                    const cid = p.customer_id ? String(p.customer_id) : null;
-                    if (!cid) return;
-                    if (!customerIdToProjectIds.has(cid)) customerIdToProjectIds.set(cid, []);
-                    customerIdToProjectIds.get(cid)!.push(p.id);
+                const customerNameKeyToId = new Map<string, string>();
+                (customers as Customer[]).forEach((kh) => {
+                    const nk = normalizeKey(kh.ten_don_vi || '');
+                    if (nk) customerNameKeyToId.set(nk, String(kh.id));
                 });
 
-                const projectIdToName = new Map<string, string>();
-                (projects || []).forEach((p: any) => projectIdToName.set(p.id, p.ten_du_an || ''));
-
-                const financialsByCustomer = new Map<string, { tongHopDong: number; giaTriQuyetToan: number; daThu: number; conPhaiThu: number }>();
-
-                (contracts || []).forEach((c: any) => {
-                    const duAnId = c.du_an_id ? String(c.du_an_id) : null;
-                    const projectName = c.project_name || (duAnId ? projectIdToName.get(duAnId) : null);
-                    if (!duAnId && !projectName) return;
-                    for (const [cid, pids] of customerIdToProjectIds) {
-                        if (duAnId && pids.includes(duAnId)) {
-                            const f = financialsByCustomer.get(cid) || { tongHopDong: 0, giaTriQuyetToan: 0, daThu: 0, conPhaiThu: 0 };
-                            f.tongHopDong += Number(c.gia_tri_hd) || 0;
-                            f.giaTriQuyetToan += Number(c.gia_tri_qt) || 0;
-                            financialsByCustomer.set(cid, f);
-                            break;
-                        }
+                /** Mỗi dự án → một khách (customer_id hoặc khớp tên KH trên dự án) */
+                const duAnIdToCustomerId = new Map<string, string>();
+                (projects || []).forEach((p: any) => {
+                    const pid = String(p.id);
+                    let khId: string | null =
+                        p.customer_id != null && String(p.customer_id).trim() !== ''
+                            ? String(p.customer_id)
+                            : null;
+                    if (!khId) {
+                        const label = normalizeKey(p.ten_khach_hang || p.customer_name || '');
+                        if (label) khId = customerNameKeyToId.get(label) ?? null;
                     }
+                    if (khId) duAnIdToCustomerId.set(pid, khId);
+                });
+
+                const resolveKhIdForContract = (c: any): string | null => {
+                    const direct =
+                        c.customer_id != null && String(c.customer_id).trim() !== ''
+                            ? String(c.customer_id)
+                            : null;
+                    if (direct) return direct;
+                    const duAnId = c.du_an_id != null ? String(c.du_an_id) : '';
+                    if (duAnId) return duAnIdToCustomerId.get(duAnId) ?? null;
+                    return null;
+                };
+
+                /** hop_dong PK (và id hiển thị) → khách — khớp thu_chi.hop_dong_id */
+                const hopDongPkToCustomerId = new Map<string, string>();
+                contractsList.forEach((c: any) => {
+                    const khId = resolveKhIdForContract(c);
+                    if (!khId) return;
+                    const rowPk = c.hop_dong_row_id != null ? String(c.hop_dong_row_id) : '';
+                    const bizId = c.id != null ? String(c.id) : '';
+                    if (rowPk) hopDongPkToCustomerId.set(rowPk, khId);
+                    if (bizId) hopDongPkToCustomerId.set(bizId, khId);
+                });
+
+                type Fin = {
+                    tongHopDong: number;
+                    giaTriQuyetToan: number;
+                    daThu: number;
+                    conPhaiThu: number;
+                    soHopDong: number;
+                };
+                const financialsByCustomer = new Map<string, Fin>();
+                const ensureFin = (khId: string): Fin => {
+                    let f = financialsByCustomer.get(khId);
+                    if (!f) {
+                        f = {
+                            tongHopDong: 0,
+                            giaTriQuyetToan: 0,
+                            daThu: 0,
+                            conPhaiThu: 0,
+                            soHopDong: 0,
+                        };
+                        financialsByCustomer.set(khId, f);
+                    }
+                    return f;
+                };
+
+                const seenContractKey = new Set<string>();
+                contractsList.forEach((c: any) => {
+                    const khId = resolveKhIdForContract(c);
+                    if (!khId) return;
+                    const dedup = String(c.hop_dong_row_id || c.id || '').trim();
+                    if (!dedup) return;
+                    const ukey = `${khId}|${dedup}`;
+                    if (seenContractKey.has(ukey)) return;
+                    seenContractKey.add(ukey);
+                    const f = ensureFin(khId);
+                    f.tongHopDong += Number(c.gia_tri_hd) || 0;
+                    f.giaTriQuyetToan += Number(c.gia_tri_qt) || 0;
+                    f.soHopDong += 1;
                 });
 
                 (allThuChi || []).forEach((tc: ThuChiRow) => {
-                    const duAnId = tc.du_an_id ? String(tc.du_an_id) : null;
-                    if (!duAnId || tc.loai_phieu !== 'Phiếu thu') return;
-                    for (const [cid, pids] of customerIdToProjectIds) {
-                        if (pids.includes(duAnId)) {
-                            const f = financialsByCustomer.get(cid) || { tongHopDong: 0, giaTriQuyetToan: 0, daThu: 0, conPhaiThu: 0 };
-                            f.daThu += Number(tc.so_tien) || 0;
-                            financialsByCustomer.set(cid, f);
-                            break;
-                        }
+                    if (tc.loai_phieu !== 'Phiếu thu') return;
+                    let khId: string | null = null;
+                    if (tc.hop_dong_id) {
+                        khId = hopDongPkToCustomerId.get(String(tc.hop_dong_id)) ?? null;
                     }
+                    if (!khId && tc.du_an_id) {
+                        khId = duAnIdToCustomerId.get(String(tc.du_an_id)) ?? null;
+                    }
+                    if (!khId) return;
+                    const f = ensureFin(khId);
+                    f.daThu += Number(tc.so_tien) || 0;
                 });
 
                 financialsByCustomer.forEach((f) => {
@@ -150,7 +197,7 @@ export function DanhSachKhachHang() {
                 });
 
                 setItems(
-                    customers.map((c: Customer) => {
+                    (customers as Customer[]).map((c: Customer) => {
                         const cid = String(c.id);
                         const calc = financialsByCustomer.get(cid);
                         return {
@@ -164,10 +211,13 @@ export function DanhSachKhachHang() {
                             Nguoi_Lien_He: c.nguoi_lien_he || '',
                             Chuc_Vu_Lien_He: c.chuc_vu_lien_he || '',
                             SDT_Lien_He: c.sdt_lien_he || '',
+                            SoHopDong: calc?.soHopDong ?? 0,
                             TongHopDong: calc?.tongHopDong ?? c.tong_hop_dong ?? 0,
                             GiaTriQuyetToan: calc?.giaTriQuyetToan ?? c.gia_tri_quyet_toan ?? 0,
                             DaThu: calc?.daThu ?? c.da_thu ?? 0,
-                            ConPhaiThu: calc?.conPhaiThu ?? (calc ? calc.giaTriQuyetToan - calc.daThu : (c.con_phai_thu ?? 0)),
+                            ConPhaiThu:
+                                calc?.conPhaiThu ??
+                                (calc ? calc.giaTriQuyetToan - calc.daThu : (c.con_phai_thu ?? 0)),
                         };
                     }),
                 );
@@ -180,7 +230,7 @@ export function DanhSachKhachHang() {
                 });
             }
         })();
-    }, []);
+    }, [reloadKey]);
 
     // Filtered items by search
     const filteredItems = useMemo(() => {
@@ -215,6 +265,46 @@ export function DanhSachKhachHang() {
         openDelete({ id: item.id, tenDonVi: item.Ten_Don_Vi });
     };
 
+    const handleDeleteAllKhachHang = async () => {
+        const n = items.length;
+        if (n === 0 || deletingAllKhach) return;
+        if (
+            !window.confirm(
+                `Bạn sắp xóa TOÀN BỘ ${n} khách hàng trong hệ thống. Hợp đồng gắn khách có thể bị xóa theo (CASCADE). Không thể hoàn tác.\n\nBấm OK để xác nhận bước tiếp theo.`,
+            )
+        ) {
+            return;
+        }
+        if (!window.confirm('Xác nhận lần 2: Xóa vĩnh viễn toàn bộ khách hàng?')) {
+            return;
+        }
+        setDeletingAllKhach(true);
+        try {
+            const res = await customerService.deleteAll();
+            if (res.ok) {
+                setCurrentPage(1);
+                setReloadKey((k) => k + 1);
+                setToast({
+                    type: 'success',
+                    message:
+                        res.deleted === 0
+                            ? 'Không có khách hàng nào để xóa.'
+                            : `Đã xóa toàn bộ ${res.deleted} khách hàng.`,
+                });
+            } else {
+                setToast({
+                    type: 'warning',
+                    message: res.error
+                        ? `Xóa không hoàn tất: ${res.error}`
+                        : 'Không xóa được toàn bộ khách hàng.',
+                });
+            }
+        } catch {
+            setToast({ type: 'warning', message: 'Lỗi khi xóa toàn bộ khách hàng.' });
+        } finally {
+            setDeletingAllKhach(false);
+        }
+    };
 
     const handleSaveProject = async (data: any) => {
         // Logic lưu dự án rút gọn
@@ -273,7 +363,24 @@ export function DanhSachKhachHang() {
                                 />
                             </div>
                         </div>
-                        <div className="flex items-center gap-2 ml-auto">
+                        <div className="flex flex-wrap items-center gap-2 ml-auto">
+                            {SHOW_DELETE_ALL_KHACH_HANG_BUTTON ? (
+                                <button
+                                    type="button"
+                                    disabled={items.length === 0 || deletingAllKhach}
+                                    onClick={handleDeleteAllKhachHang}
+                                    title="Xóa mọi bản ghi khách hàng — có thể CASCADE sang hợp đồng"
+                                    className="inline-flex items-center gap-1.5 rounded-lg border border-rose-300 bg-rose-50/90 px-3 py-2 text-xs font-bold text-rose-900 shadow-sm hover:bg-rose-100 disabled:cursor-not-allowed disabled:opacity-45"
+                                >
+                                    {deletingAllKhach ? (
+                                        <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                                    ) : (
+                                        <Trash2 className="w-3.5 h-3.5" />
+                                    )}
+                                    Xóa toàn bộ KH
+                                    {items.length > 0 ? ` (${items.length})` : ''}
+                                </button>
+                            ) : null}
                             <ExcelImportExportBar
                                 columns={khachHangExcelColumns}
                                 templateFileName="mau-khach-hang"
@@ -349,7 +456,9 @@ export function DanhSachKhachHang() {
                                     <td className="px-6 py-4 text-sm font-medium text-slate-600">{item.MST || '—'}</td>
                                     <td className="px-6 py-4 text-sm text-slate-600">{item.SDT_Lien_He || '—'}</td>
                                     <td className="px-6 py-4 text-center">
-                                        <span className="text-sm font-bold px-2 py-1 bg-slate-100 rounded-lg">{/* số HĐ theo KH nếu có */}—</span>
+                                        <span className="text-sm font-bold px-2 py-1 bg-slate-100 rounded-lg">
+                                            {Number(item.SoHopDong) > 0 ? item.SoHopDong : '—'}
+                                        </span>
                                     </td>
                                     <td className="px-6 py-4 text-sm font-bold text-slate-900 text-right">{formatCurrency(item.GiaTriQuyetToan ?? 0)}</td>
                                     <td className="px-6 py-4 text-right">

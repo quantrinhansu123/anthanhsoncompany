@@ -155,6 +155,34 @@ export const customerService = {
     }
   },
 
+  /** Xóa mọi bản ghi `khach_hang` (theo lô). Cảnh báo: có thể CASCADE sang dữ liệu liên quan (ví dụ hợp đồng gắn customer_id). */
+  async deleteAll(): Promise<{ ok: boolean; deleted: number; error?: string }> {
+    try {
+      const { data: rows, error: selErr } = await supabase.from('khach_hang').select('id');
+      if (selErr) {
+        console.error('[customerService] deleteAll select:', selErr);
+        return { ok: false, deleted: 0, error: selErr.message };
+      }
+      const ids = (rows || []).map((r: { id: string }) => String(r.id));
+      if (ids.length === 0) return { ok: true, deleted: 0 };
+      const chunkSize = 500;
+      let deleted = 0;
+      for (let i = 0; i < ids.length; i += chunkSize) {
+        const chunk = ids.slice(i, i + chunkSize);
+        const { error } = await supabase.from('khach_hang').delete().in('id', chunk);
+        if (error) {
+          console.error('[customerService] deleteAll chunk:', error);
+          return { ok: false, deleted, error: error.message };
+        }
+        deleted += chunk.length;
+      }
+      return { ok: true, deleted };
+    } catch (err: any) {
+      console.error('Exception in customerService.deleteAll:', err);
+      return { ok: false, deleted: 0, error: err?.message || String(err) };
+    }
+  },
+
   async getByNames(names: string[]) {
     if (!names || names.length === 0) return [];
     try {

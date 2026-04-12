@@ -902,6 +902,53 @@ export function ThuChi() {
                     );
                     return hits.find((x) => !x.du_an_id || String(x.du_an_id) === String(duAnId));
                 };
+
+                /** Đồng bộ `khach_hang`: tạo nếu chưa có (theo tên + MST), dùng khi tạo HĐ từ file CDT */
+                const customerIdByNormKey = new Map<string, string>();
+                for (const c of customers) {
+                    const k = normalizeKey(c.ten_don_vi || '');
+                    if (k) customerIdByNormKey.set(k, String(c.id));
+                }
+                const ensureKhachFromCdt = async (
+                    thongTinKh: string,
+                    mstKh: string | null | undefined,
+                ): Promise<string | null> => {
+                    const name = cleanString(thongTinKh || '');
+                    if (!name) return null;
+                    const nk = normalizeKey(name);
+                    const cached = customerIdByNormKey.get(nk);
+                    if (cached) return cached;
+                    const mst = cleanString(mstKh || '') || undefined;
+                    try {
+                        const row = await customerService.create({
+                            ten_don_vi: name,
+                            ...(mst ? { mst } : {}),
+                        });
+                        const id = row?.id != null ? String(row.id) : null;
+                        if (id) {
+                            customerIdByNormKey.set(nk, id);
+                            return id;
+                        }
+                    } catch {
+                        const fb = customers.find((x) => normalizeKey(x.ten_don_vi || '') === nk);
+                        if (fb?.id) {
+                            const fid = String(fb.id);
+                            customerIdByNormKey.set(nk, fid);
+                            return fid;
+                        }
+                    }
+                    return null;
+                };
+                const khSyncSeen = new Set<string>();
+                for (const r of rows) {
+                    const tn = cleanString(r.thong_tin_kh || '');
+                    if (!tn) continue;
+                    const nk = normalizeKey(tn);
+                    if (khSyncSeen.has(nk)) continue;
+                    khSyncSeen.add(nk);
+                    await ensureKhachFromCdt(tn, cleanString(r.mst_kh || '') || null);
+                }
+
                 const denom = Math.max(rows.length + rows2.length, 1);
                 for (let i = 0; i < rows2.length; i++) {
                     const r = rows2[i];
@@ -941,9 +988,8 @@ export function ThuChi() {
                             let tenDayDu: string | null = null;
                             if (hint?.thong_tin_kh) {
                                 const nk = normalizeKey(hint.thong_tin_kh);
-                                const cust = customers.find((x) => normalizeKey(x.ten_don_vi) === nk);
-                                if (cust) customerId = cust.id;
-                                else tenDayDu = hint.thong_tin_kh;
+                                customerId = customerIdByNormKey.get(nk) ?? null;
+                                if (!customerId) tenDayDu = hint.thong_tin_kh;
                             }
                             const giaHd = hint?.gia_hd_plhd ?? 0;
                             const giaQt = hint?.gia_xuat_hd ?? giaHd;
