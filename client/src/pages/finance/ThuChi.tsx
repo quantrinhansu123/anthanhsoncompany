@@ -18,6 +18,7 @@ import {
     AlertCircle,
     X,
     Filter,
+    FilterX,
     Bookmark,
     Briefcase,
     FileText,
@@ -38,7 +39,7 @@ import { useThuChiModal } from '../../contexts/ThuChiModalContext';
 import { normalizeNguongLoai, tienQuyDoiNguongChiNhanSu } from '../../lib/nguongChiNhanSu';
 import { ExcelImportExportBar, type ExcelImportResult } from '../../components/ExcelImportExportBar';
 import type { ExcelColumnDef } from '../../lib/excelTableTools';
-import { parseMoneyVi, parseExcelDate } from '../../lib/excelTableTools';
+import { parseMoneyVi, parseExcelDate, cleanString, normalizeKey } from '../../lib/excelTableTools';
 import { cn } from '../../lib/utils';
 
 interface ToastProps {
@@ -86,12 +87,16 @@ function tinhTrangThuCdtLabel(display: string): string {
     return display;
 }
 
+/** Đặt `true` để hiện nút xóa toàn bộ phiếu thu chi (mặc định ẩn). */
+const SHOW_DELETE_ALL_THU_CHI_BUTTON = false;
+
 export function ThuChi() {
     const navigate = useNavigate();
-    const [searchParams] = useSearchParams();
+    const [searchParams, setSearchParams] = useSearchParams();
     /** Dữ liệu gốc từ API — chỉ đổi khi fetch lại, tránh gọi getAll() mỗi khi map metadata cập nhật. */
     const [rawThuChi, setRawThuChi] = useState<ThuChiRow[]>([]);
     const [loading, setLoading] = useState(false);
+    const [deletingAll, setDeletingAll] = useState(false);
     const [error, setError] = useState<string | null>(null);
     const [selectedIds, setSelectedIds] = useState<(string | number)[]>([]);
     const [searchTerm, setSearchTerm] = useState('');
@@ -148,6 +153,7 @@ export function ThuChi() {
     ];
 
     const customCdtExcelColumns: ExcelColumnDef[] = [
+        { key: 'tt', header: 'TT' },
         { key: 'so_hd_plhd', header: 'Số HĐ & PLHĐ' },
         { key: 'ngay_ky_hd', header: 'Ngày ký HĐ' },
         { key: 'nam_ky_hd', header: 'Năm ký HĐ' },
@@ -181,60 +187,60 @@ export function ThuChi() {
     };
 
 
-    // Load projects, contracts, employees
-    useEffect(() => {
-        (async () => {
-            try {
-                const [customerList, projectList, contractList, employeeList] =
-                    await Promise.all([
-                        customerService.getAll(),
-                        projectService.getAll(),
-                        contractService.getAll(),
-                        employeeService.getAll(),
-                    ]);
+    const reloadLookupData = useCallback(async () => {
+        try {
+            const [customerList, projectList, contractList, employeeList] = await Promise.all([
+                customerService.getAll(),
+                projectService.getAll(),
+                contractService.getAll(),
+                employeeService.getAll(),
+            ]);
 
-                setCustomers(
-                    (customerList || []).map((c: any) => ({
-                        id: c.id,
-                        ten_don_vi: c.ten_don_vi,
-                    })),
-                );
+            setCustomers(
+                (customerList || []).map((c: any) => ({
+                    id: c.id,
+                    ten_don_vi: c.ten_don_vi,
+                })),
+            );
 
-                setProjects(
-                    projectList.map((p: any) => ({
-                        id: p.id,
-                        ten_du_an: p.ten_du_an,
-                        customer_id: p.customer_id || null,
-                        customer_name: p.customer_name || p.ten_khach_hang || null,
-                    })),
-                );
+            setProjects(
+                projectList.map((p: any) => ({
+                    id: p.id,
+                    ten_du_an: p.ten_du_an,
+                    customer_id: p.customer_id || null,
+                    customer_name: p.customer_name || p.ten_khach_hang || null,
+                })),
+            );
 
-                setContracts(
-                    contractList.map((c: any) => ({
-                        id: c.id,
-                        hop_dong_row_id: c.hop_dong_row_id ?? null,
-                        so_hop_dong: c.so_hop_dong,
-                        du_an_id: c.du_an_id || null,
-                        customer_id: c.customer_id || null,
-                        customer_name: c.customer_name || null,
-                        gia_tri_qt: c.gia_tri_qt ?? null,
-                        nguong_chi_nhan_su: c.nguong_chi_nhan_su ?? null,
-                        nguong_chi_nhan_su_loai: c.nguong_chi_nhan_su_loai ?? null,
-                    })),
-                );
+            setContracts(
+                contractList.map((c: any) => ({
+                    id: c.id,
+                    hop_dong_row_id: c.hop_dong_row_id ?? null,
+                    so_hop_dong: c.so_hop_dong,
+                    du_an_id: c.du_an_id || null,
+                    customer_id: c.customer_id || null,
+                    customer_name: c.customer_name || null,
+                    gia_tri_qt: c.gia_tri_qt ?? null,
+                    nguong_chi_nhan_su: c.nguong_chi_nhan_su ?? null,
+                    nguong_chi_nhan_su_loai: c.nguong_chi_nhan_su_loai ?? null,
+                })),
+            );
 
-                setEmployees(
-                    employeeList.map((emp) => ({
-                        id: emp.id.toString(),
-                        full_name: emp.full_name || emp.name || emp.hoTen || '',
-                        code: emp.code || '',
-                    })),
-                );
-            } catch (error) {
-                console.error('Error loading filter data:', error);
-            }
-        })();
+            setEmployees(
+                employeeList.map((emp) => ({
+                    id: emp.id.toString(),
+                    full_name: emp.full_name || emp.name || emp.hoTen || '',
+                    code: emp.code || '',
+                })),
+            );
+        } catch (error) {
+            console.error('Error loading filter data:', error);
+        }
     }, []);
+
+    useEffect(() => {
+        void reloadLookupData();
+    }, [reloadLookupData]);
 
     useEffect(() => {
         const id = selectedCustomerIds[0];
@@ -315,6 +321,11 @@ export function ThuChi() {
             setLoading(false);
         }
     }, []);
+
+    const handleImportDone = useCallback(() => {
+        void loadRecords();
+        void reloadLookupData();
+    }, [loadRecords, reloadLookupData]);
 
     useEffect(() => {
         loadRecords();
@@ -464,6 +475,50 @@ export function ThuChi() {
     };
 
     // Xử lý quick date filter
+    const searchParamsStr = searchParams.toString();
+    const hasActiveFilters = useMemo(() => {
+        if (searchParamsStr) return true;
+        return (
+            selectedCustomerIds.length > 0 ||
+            selectedDuAnIds.length > 0 ||
+            selectedHopDongIds.length > 0 ||
+            selectedNhanSuIds.length > 0 ||
+            Boolean(dateFrom) ||
+            Boolean(dateTo) ||
+            Boolean(quickDateFilter) ||
+            Boolean(selectedMonth) ||
+            searchTerm.trim().length > 0
+        );
+    }, [
+        searchParamsStr,
+        selectedCustomerIds,
+        selectedDuAnIds,
+        selectedHopDongIds,
+        selectedNhanSuIds,
+        dateFrom,
+        dateTo,
+        quickDateFilter,
+        selectedMonth,
+        searchTerm,
+    ]);
+
+    const clearAllFilters = useCallback(() => {
+        setSelectedCustomerIds([]);
+        setSelectedDuAnIds([]);
+        setSelectedHopDongIds([]);
+        setSelectedNhanSuIds([]);
+        setDateFrom('');
+        setDateTo('');
+        setQuickDateFilter('');
+        setSelectedMonth('');
+        setSearchTerm('');
+        setOpenColumnFilter(null);
+        setCustomerSearchInput('');
+        setCustomerPickerOpen(false);
+        setCurrentPage(1);
+        setSearchParams({}, { replace: true });
+    }, [setSearchParams]);
+
     const handleQuickDateFilter = (filter: string) => {
         setQuickDateFilter(filter);
         setSelectedMonth('');
@@ -696,6 +751,52 @@ export function ThuChi() {
         }
     };
 
+    const handleDeleteAllThuChi = async () => {
+        const n = rawThuChi.length;
+        if (n === 0 || deletingAll) return;
+        if (
+            !window.confirm(
+                `Bạn sắp xóa TOÀN BỘ ${n} phiếu thu & chi trong hệ thống (mọi bộ lọc/tab). Hành động không thể hoàn tác.\n\nBấm OK để tiếp tục bước xác nhận tiếp theo.`,
+            )
+        ) {
+            return;
+        }
+        if (
+            !window.confirm(
+                'Xác nhận lần 2: Xóa vĩnh viễn toàn bộ dữ liệu thu chi khỏi cơ sở dữ liệu?',
+            )
+        ) {
+            return;
+        }
+        setDeletingAll(true);
+        try {
+            const res = await thuChiService.deleteAll();
+            setSelectedIds([]);
+            await loadRecords();
+            if (res.ok) {
+                setToast({
+                    type: 'success',
+                    message:
+                        res.deleted === 0
+                            ? 'Không có phiếu thu chi nào để xóa.'
+                            : `Đã xóa toàn bộ ${res.deleted} phiếu thu & chi.`,
+                });
+            } else {
+                setToast({
+                    type: 'error',
+                    message: res.error
+                        ? `Xóa không hoàn tất: ${res.error}`
+                        : 'Không xóa được toàn bộ thu chi.',
+                });
+            }
+        } catch {
+            await loadRecords();
+            setToast({ type: 'error', message: 'Lỗi khi xóa toàn bộ thu chi.' });
+        } finally {
+            setDeletingAll(false);
+        }
+    };
+
     useEffect(() => {
         setSelectedIds([]);
     }, [activeTab]);
@@ -721,6 +822,17 @@ export function ThuChi() {
                     so_hd_lien_ket: string;
                     ten_goi_thau: string;
                 };
+                type CdtContractHint = {
+                    loai_dv: string | null;
+                    gia_hd_plhd: number;
+                    gia_xuat_hd: number;
+                    ngay_ky_hd: string | null;
+                    thong_tin_kh: string | null;
+                    mst_kh: string | null;
+                    ten_goi_thau: string | null;
+                };
+                /** Gợi ý tạo HĐ: một cặp (Tên DA + số HĐ) → một hợp đồng, nhiều dòng thu chi vẫn gắn cùng HĐ */
+                const contractHintsByKey = new Map<string, CdtContractHint>();
                 const grouped = new Map<string, CdtAgg>();
                 for (let i = 0; i < rows.length; i++) {
                     const r = rows[i];
@@ -731,6 +843,23 @@ export function ThuChi() {
                     const ngayP = parseExcelDate(ngayRaw, (r.nam_xuat_hd || '').trim());
                     const ngayFinal = ngayP || new Date().toISOString().split('T')[0];
                     const soHdLienKet = (r.so_hd_plhd || r.so_hd || '').trim();
+                    if (soHdLienKet) {
+                        const hk = `${normalizeKey(tenDa)}|${normalizeKey(soHdLienKet)}`;
+                        if (!contractHintsByKey.has(hk)) {
+                            const gPlhd = parseMoneyVi(String(r.gia_hd_plhd ?? '').trim() || '0') || 0;
+                            const gXuatRaw = parseMoneyVi(String(r.gia_xuat_hd ?? '').trim() || '0') || 0;
+                            contractHintsByKey.set(hk, {
+                                loai_dv: cleanString(r.loai_dv) || null,
+                                gia_hd_plhd: gPlhd,
+                                gia_xuat_hd: gXuatRaw > 0 ? gXuatRaw : gPlhd,
+                                ngay_ky_hd:
+                                    parseExcelDate(r.ngay_ky_hd, (r.nam_ky_hd || '').trim()) || null,
+                                thong_tin_kh: cleanString(r.thong_tin_kh) || null,
+                                mst_kh: cleanString(r.mst_kh) || null,
+                                ten_goi_thau: cleanString(r.ten_goi_thau) || null,
+                            });
+                        }
+                    }
                     const soHdKey = soHdLienKet.toLowerCase();
                     const tenGoiThauRow = String(r.ten_goi_thau ?? '').trim();
                     const tenGoiKey = tenGoiThauRow.toLowerCase();
@@ -761,6 +890,18 @@ export function ThuChi() {
                     bump(tu, 'Tạm ứng', `Thu CĐT tạm ứng (${tenDa})`);
                 }
                 const rows2 = Array.from(grouped.values());
+                type ContractRowLite = (typeof contracts)[number];
+                const contractsWorking: ContractRowLite[] = contracts.map((c) => ({ ...c }));
+                const findContractLocal = (
+                    soHd: string,
+                    duAnId: string,
+                ): ContractRowLite | undefined => {
+                    const norm = soHd.trim().toLowerCase();
+                    const hits = contractsWorking.filter(
+                        (x) => (x.so_hop_dong || '').trim().toLowerCase() === norm,
+                    );
+                    return hits.find((x) => !x.du_an_id || String(x.du_an_id) === String(duAnId));
+                };
                 const denom = Math.max(rows.length + rows2.length, 1);
                 for (let i = 0; i < rows2.length; i++) {
                     const r = rows2[i];
@@ -779,25 +920,79 @@ export function ThuChi() {
                     let hopDongId: string | null = null;
                     let duAnId = project.id;
                     if (soHd) {
-                        const c = contracts.find(
-                            (x) =>
-                                (x.so_hop_dong || '').trim().toLowerCase() ===
-                                soHd.toLowerCase(),
-                        );
-                        if (!c) {
-                            errors.push(
-                                `CDT «${r.ten_da}»: không tìm thấy hợp đồng số «${soHd}» — kiểm tra cột Số HĐ & PLHĐ trùng hệ thống`,
-                            );
-                            continue;
+                        const c = findContractLocal(soHd, project.id);
+                        if (c) {
+                            if (c.du_an_id && c.du_an_id !== project.id) {
+                                errors.push(
+                                    `CDT: hợp đồng «${soHd}» thuộc dự án khác, không khớp «${r.ten_da}»`,
+                                );
+                                continue;
+                            }
+                            hopDongId = hopDongRef(c);
+                            if (c.du_an_id) duAnId = c.du_an_id;
+                        } else {
+                            const hk = `${normalizeKey(r.ten_da)}|${normalizeKey(soHd)}`;
+                            const hint = contractHintsByKey.get(hk) ?? null;
+                            const tenGoi =
+                                String(r.ten_goi_thau || '').trim() ||
+                                (hint?.ten_goi_thau || '').trim() ||
+                                'Theo file CDT';
+                            let customerId: string | null = null;
+                            let tenDayDu: string | null = null;
+                            if (hint?.thong_tin_kh) {
+                                const nk = normalizeKey(hint.thong_tin_kh);
+                                const cust = customers.find((x) => normalizeKey(x.ten_don_vi) === nk);
+                                if (cust) customerId = cust.id;
+                                else tenDayDu = hint.thong_tin_kh;
+                            }
+                            const giaHd = hint?.gia_hd_plhd ?? 0;
+                            const giaQt = hint?.gia_xuat_hd ?? giaHd;
+                            try {
+                                const created = await contractService.create({
+                                    du_an_id: project.id,
+                                    project_name: project.ten_du_an || null,
+                                    so_hop_dong: soHd,
+                                    ten_goi_thau: tenGoi,
+                                    loai_dich_vu: hint?.loai_dv || null,
+                                    ngay_ky_hd: hint?.ngay_ky_hd || null,
+                                    gia_tri_hd: giaHd,
+                                    gia_tri_qt: giaQt,
+                                    da_thu: 0,
+                                    con_phai_thu: giaQt,
+                                    file_status: 'Chưa có file',
+                                    ...(customerId ? { customer_id: customerId } : {}),
+                                    ...(tenDayDu && !customerId
+                                        ? { ten_day_du_chu_dau_tu: tenDayDu }
+                                        : {}),
+                                });
+                                if (!created?.id) {
+                                    errors.push(
+                                        `CDT «${r.ten_da}»: không tạo được hợp đồng «${soHd}» từ file`,
+                                    );
+                                    continue;
+                                }
+                                const newRow: ContractRowLite = {
+                                    id: created.id,
+                                    hop_dong_row_id: (created as { hop_dong_row_id?: string | null })
+                                        .hop_dong_row_id ?? null,
+                                    so_hop_dong: created.so_hop_dong || soHd,
+                                    du_an_id: created.du_an_id ?? project.id,
+                                    customer_id: created.customer_id ?? null,
+                                    customer_name: created.customer_name ?? null,
+                                    gia_tri_qt: created.gia_tri_qt ?? null,
+                                    nguong_chi_nhan_su: created.nguong_chi_nhan_su ?? null,
+                                    nguong_chi_nhan_su_loai: created.nguong_chi_nhan_su_loai ?? null,
+                                };
+                                contractsWorking.push(newRow);
+                                hopDongId = hopDongRef(newRow);
+                                if (newRow.du_an_id) duAnId = newRow.du_an_id;
+                            } catch (e: any) {
+                                errors.push(
+                                    `CDT «${r.ten_da}»: lỗi tạo HĐ «${soHd}»: ${e?.message || e}`,
+                                );
+                                continue;
+                            }
                         }
-                        if (c.du_an_id && c.du_an_id !== project.id) {
-                            errors.push(
-                                `CDT: hợp đồng «${soHd}» thuộc dự án khác, không khớp «${r.ten_da}»`,
-                            );
-                            continue;
-                        }
-                        hopDongId = hopDongRef(c);
-                        if (c.du_an_id) duAnId = c.du_an_id;
                     }
 
                     try {
@@ -861,7 +1056,7 @@ export function ThuChi() {
             }
             return { ok, errors };
         },
-        [projects, contracts],
+        [projects, contracts, customers],
     );
 
     return (
@@ -1056,6 +1251,16 @@ export function ThuChi() {
                             <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
                             <input type="text" placeholder="Tìm mã, nội dung..." value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} className="w-full pl-10 pr-4 py-2 bg-white border border-slate-200 rounded-lg text-sm text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500/25 focus:border-blue-400" />
                         </div>
+                        <button
+                            type="button"
+                            onClick={clearAllFilters}
+                            disabled={!hasActiveFilters}
+                            title="Xóa khách, dự án, HĐ, nhân sự, ngày, tìm kiếm và tham số URL"
+                            className="inline-flex shrink-0 items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-700 shadow-sm hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40"
+                        >
+                            <FilterX size={14} className="text-slate-500" aria-hidden />
+                            Xóa bộ lọc
+                        </button>
                     </div>
                 </section>
 
@@ -1078,6 +1283,23 @@ export function ThuChi() {
                                         Xóa đã chọn
                                         {selectedInTab.length > 0 ? ` (${selectedInTab.length})` : ''}
                                     </button>
+                                    {SHOW_DELETE_ALL_THU_CHI_BUTTON ? (
+                                        <button
+                                            type="button"
+                                            disabled={loading || deletingAll || rawThuChi.length === 0}
+                                            onClick={handleDeleteAllThuChi}
+                                            title="Xóa mọi phiếu thu & chi trong hệ thống (không chỉ tab/bộ lọc hiện tại)"
+                                            className="inline-flex items-center gap-1.5 rounded-lg border border-rose-300 bg-rose-50/80 px-3 py-1.5 text-xs font-bold text-rose-900 shadow-sm hover:bg-rose-100 disabled:cursor-not-allowed disabled:opacity-45"
+                                        >
+                                            {deletingAll ? (
+                                                <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                                            ) : (
+                                                <Trash2 className="w-3.5 h-3.5" />
+                                            )}
+                                            Xóa toàn bộ thu chi
+                                            {rawThuChi.length > 0 ? ` (${rawThuChi.length})` : ''}
+                                        </button>
+                                    ) : null}
                                     <span className="text-[11px] text-slate-500">
                                         Chọn từng dòng hoặc tick đầu cột để chọn/bỏ tất cả phiếu đang lọc (có thể nhiều trang).
                                     </span>
@@ -1088,7 +1310,7 @@ export function ThuChi() {
                                     templateFileName="mau-thu-chi"
                                     sheetName="Thu chi"
                                     onImport={handleThuChiExcelImport}
-                                    onDone={loadRecords}
+                                    onDone={handleImportDone}
                                     disabled={loading}
                                 />
                             </div>

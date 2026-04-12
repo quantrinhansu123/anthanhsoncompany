@@ -66,6 +66,14 @@ router.delete('/tasks/:id', taskController.delete);
 router.get('/contracts', contractController.getAll);
 router.post('/contracts', contractController.create);
 router.put('/contracts/:id', contractController.update);
+router.delete('/contracts/all', async (req, res) => {
+  try {
+    const { deleted } = await contractService.deleteAll();
+    res.json({ deleted });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message || 'deleteAll failed' });
+  }
+});
 router.delete('/contracts/:id', contractController.delete);
 router.post('/contracts/bulk-import', async (req, res) => {
   try {

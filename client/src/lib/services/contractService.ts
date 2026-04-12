@@ -1,5 +1,7 @@
 import { api } from '../api';
 
+const API_BASE_URL = (import.meta as any).env.VITE_API_BASE_URL || 'http://localhost:3000/api';
+
 export interface ContractFile {
   file_type: string;
   file_name: string;
@@ -72,6 +74,20 @@ export const contractService = {
 
   async delete(id: string): Promise<boolean> {
     return api.delete(`/contracts/${id}`);
+  },
+
+  /** Xóa toàn bộ hợp đồng (`hop_dong`) qua API — cần xác nhận rõ ràng ở UI. */
+  async deleteAll(): Promise<{ ok: boolean; deleted: number; error?: string }> {
+    try {
+      const res = await fetch(`${API_BASE_URL}/contracts/all`, { method: 'DELETE' });
+      const body = (await res.json().catch(() => ({}))) as { deleted?: number; error?: string };
+      if (!res.ok) {
+        return { ok: false, deleted: 0, error: body.error || res.statusText || 'Request failed' };
+      }
+      return { ok: true, deleted: Number(body.deleted) || 0 };
+    } catch (err: any) {
+      return { ok: false, deleted: 0, error: err?.message || String(err) };
+    }
   },
 
   async exportToGoogleDocs(payload: any): Promise<any> {

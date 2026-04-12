@@ -187,6 +187,36 @@ export const contractService = {
     return true;
   },
 
+  /** Xóa mọi bản ghi `hop_dong` (theo PK `id`, từng lô). Công việc gắn HĐ: CASCADE; thu_chi: SET NULL theo FK. */
+  async deleteAll(): Promise<{ deleted: number }> {
+    const supabase = getSupabase();
+    const allIds: string[] = [];
+    let offset = 0;
+    while (true) {
+      const { data, error } = await supabase
+        .from('hop_dong')
+        .select('id')
+        .range(offset, offset + HOP_DONG_FETCH_CHUNK - 1);
+      if (error) throw error;
+      const batch = data || [];
+      for (const row of batch) {
+        if (row?.id != null) allIds.push(String(row.id));
+      }
+      if (batch.length < HOP_DONG_FETCH_CHUNK) break;
+      offset += HOP_DONG_FETCH_CHUNK;
+    }
+    if (allIds.length === 0) return { deleted: 0 };
+    const chunkSize = 500;
+    let deleted = 0;
+    for (let i = 0; i < allIds.length; i += chunkSize) {
+      const chunk = allIds.slice(i, i + chunkSize);
+      const { error } = await supabase.from('hop_dong').delete().in('id', chunk);
+      if (error) throw error;
+      deleted += chunk.length;
+    }
+    return { deleted };
+  },
+
   async bulkImport(rows: any[]) {
     const supabase = getSupabase();
     

@@ -151,6 +151,9 @@ function Toast({ message, type, onClose, action }: {
     );
 }
 
+/** Đặt `true` để hiện nút xóa toàn bộ hợp đồng (mặc định ẩn). */
+const SHOW_DELETE_ALL_HOP_DONG_BUTTON = false;
+
 export function HopDong() {
     const [searchParams] = useSearchParams();
     const filterFromUrl = searchParams.get('project');
@@ -179,6 +182,7 @@ export function HopDong() {
     const [isLoading, setIsLoading] = useState(false);
     const [totalGiaTriQT, setTotalGiaTriQT] = useState(0);
     const [totalDaThu, setTotalDaThu] = useState(0);
+    const [deletingAllContracts, setDeletingAllContracts] = useState(false);
 
     /** Bộ lọc checkbox: khách + dự án (client-side trên trang hiện tại) */
     const [filterHopDongKhachKeys, setFilterHopDongKhachKeys] = useState<string[]>([]);
@@ -658,6 +662,51 @@ export function HopDong() {
         });
     };
 
+    const handleDeleteAllHopDong = async () => {
+        const n = totalContracts;
+        if (n === 0 || deletingAllContracts || isLoading) return;
+        if (
+            !window.confirm(
+                `Bạn sắp xóa TOÀN BỘ ${n} hợp đồng trong hệ thống (mọi bộ lọc/trang). Công việc gắn hợp đồng sẽ bị xóa theo; phiếu thu chi vẫn giữ nhưng có thể mất liên kết hợp đồng. Không thể hoàn tác.\n\nBấm OK để tiếp tục bước xác nhận tiếp theo.`,
+            )
+        ) {
+            return;
+        }
+        if (
+            !window.confirm(
+                'Xác nhận lần 2: Xóa vĩnh viễn toàn bộ hợp đồng khỏi cơ sở dữ liệu?',
+            )
+        ) {
+            return;
+        }
+        setDeletingAllContracts(true);
+        try {
+            const res = await contractService.deleteAll();
+            if (res.ok) {
+                setPage(1);
+                setReloadKey((k) => k + 1);
+                setToast({
+                    type: 'success',
+                    message:
+                        res.deleted === 0
+                            ? 'Không có hợp đồng nào để xóa.'
+                            : `Đã xóa toàn bộ ${res.deleted} hợp đồng.`,
+                });
+            } else {
+                setToast({
+                    type: 'warning',
+                    message: res.error
+                        ? `Xóa không hoàn tất: ${res.error}`
+                        : 'Không xóa được toàn bộ hợp đồng.',
+                });
+            }
+        } catch {
+            setToast({ type: 'warning', message: 'Lỗi khi xóa toàn bộ hợp đồng.' });
+        } finally {
+            setDeletingAllContracts(false);
+        }
+    };
+
     const handleExportGoogleDocs = async (contract: Contract, projectName: string) => {
         try {
             setIsExporting(true);
@@ -937,7 +986,24 @@ export function HopDong() {
                         ) : null}
                     </div>
                 </div>
-                <div className="flex items-center gap-2 shrink-0">
+                <div className="flex flex-wrap items-center gap-2 shrink-0">
+                    {SHOW_DELETE_ALL_HOP_DONG_BUTTON ? (
+                        <button
+                            type="button"
+                            disabled={isLoading || deletingAllContracts || totalContracts === 0}
+                            onClick={handleDeleteAllHopDong}
+                            title="Xóa mọi hợp đồng trong hệ thống (không chỉ trang/bộ lọc hiện tại)"
+                            className="inline-flex items-center gap-1.5 rounded-lg border border-rose-300 bg-rose-50/90 px-3 py-2 text-xs font-bold text-rose-900 shadow-sm hover:bg-rose-100 disabled:cursor-not-allowed disabled:opacity-45"
+                        >
+                            {deletingAllContracts ? (
+                                <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                            ) : (
+                                <Trash2 className="w-3.5 h-3.5" />
+                            )}
+                            Xóa toàn bộ HĐ
+                            {totalContracts > 0 ? ` (${totalContracts})` : ''}
+                        </button>
+                    ) : null}
                     <ExcelImportExportBar
                         columns={hopDongExcelColumns}
                         data={[...allContracts].sort((a, b) => {

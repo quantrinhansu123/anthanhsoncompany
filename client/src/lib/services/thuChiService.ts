@@ -309,6 +309,36 @@ export const thuChiService = {
     }
   },
 
+  /** Xóa mọi bản ghi `thu_chi` (theo lô) — chỉ dùng khi người dùng xác nhận rõ ràng. */
+  async deleteAll(): Promise<{ ok: boolean; deleted: number; error?: string }> {
+    try {
+      const { data: rows, error: selErr } = await supabase.from('thu_chi').select('id');
+      if (selErr) {
+        console.error('[thuChiService] deleteAll select:', selErr);
+        return { ok: false, deleted: 0, error: selErr.message };
+      }
+      const ids = (rows || []).map((r: { id: string }) => String(r.id));
+      if (ids.length === 0) {
+        return { ok: true, deleted: 0 };
+      }
+      const chunkSize = 500;
+      let deleted = 0;
+      for (let i = 0; i < ids.length; i += chunkSize) {
+        const chunk = ids.slice(i, i + chunkSize);
+        const { error } = await supabase.from('thu_chi').delete().in('id', chunk);
+        if (error) {
+          console.error('[thuChiService] deleteAll chunk:', error);
+          return { ok: false, deleted, error: error.message };
+        }
+        deleted += chunk.length;
+      }
+      return { ok: true, deleted };
+    } catch (err: any) {
+      console.error('Exception in thuChiService.deleteAll:', err);
+      return { ok: false, deleted: 0, error: err?.message || String(err) };
+    }
+  },
+
   // Upload ảnh chứng từ
   async uploadImage(bucket: string, path: string, file: File): Promise<string> {
     try {
