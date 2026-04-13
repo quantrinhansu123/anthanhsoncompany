@@ -238,6 +238,27 @@ export function ChiTietKhachHangModal({ isOpen, onClose, selectedCustomer }: Pro
         });
     };
 
+    const editThuChiFromKhach = (tc: ThuChiRow) => {
+        if (!selectedCustomer?.id) return;
+        const prefill = {
+            customer_id: String(selectedCustomer.id),
+            ten_don_vi: selectedCustomer.Ten_Don_Vi,
+            projects_for_customer: customerProjects.map((p) => ({
+                id: String(p.id),
+                ten_du_an: p.projectName || '',
+            })),
+        };
+        onClose();
+        requestAnimationFrame(() => {
+            openThemThuChi(
+                'edit',
+                tc,
+                tc.loai_phieu === 'Phiếu chi' ? 'Phiếu chi' : 'Phiếu thu',
+                prefill,
+            );
+        });
+    };
+
     const handleEditProjectClick = async (project: any) => {
         try {
             const details = await projectService.getById(String(project.id));
@@ -547,7 +568,7 @@ export function ChiTietKhachHangModal({ isOpen, onClose, selectedCustomer }: Pro
                                                 <th className="px-4 py-2.5 text-right">Số tiền</th>
                                                 <th className="px-4 py-2.5 hidden sm:table-cell">Dự án / HĐ</th>
                                                 <th className="px-4 py-2.5 hidden md:table-cell">Nội dung</th>
-                                                <th className="px-4 py-2.5 w-10" />
+                                                <th className="px-4 py-2.5 text-right w-[5.25rem] shrink-0">Thao tác</th>
                                             </tr>
                                         </thead>
                                         <tbody className="divide-y divide-slate-100">
@@ -600,17 +621,30 @@ export function ChiTietKhachHangModal({ isOpen, onClose, selectedCustomer }: Pro
                                                             {tc.noi_dung || '—'}
                                                         </td>
                                                         <td className="px-4 py-2.5">
-                                                            <button
-                                                                type="button"
-                                                                onClick={(e) => {
-                                                                    e.stopPropagation();
-                                                                    viewThuChiDetail(tc);
-                                                                }}
-                                                                className="p-1.5 text-blue-600 hover:text-blue-800 hover:bg-blue-50 rounded-md border border-blue-100 transition-colors"
-                                                                title="Xem chi tiết"
-                                                            >
-                                                                <Eye size={14} />
-                                                            </button>
+                                                            <div className="flex items-center justify-end gap-1">
+                                                                <button
+                                                                    type="button"
+                                                                    onClick={(e) => {
+                                                                        e.stopPropagation();
+                                                                        viewThuChiDetail(tc);
+                                                                    }}
+                                                                    className="p-1.5 text-blue-600 hover:text-blue-800 hover:bg-blue-50 rounded-md border border-blue-100 transition-colors"
+                                                                    title="Xem chi tiết"
+                                                                >
+                                                                    <Eye size={14} />
+                                                                </button>
+                                                                <button
+                                                                    type="button"
+                                                                    onClick={(e) => {
+                                                                        e.stopPropagation();
+                                                                        editThuChiFromKhach(tc);
+                                                                    }}
+                                                                    className="p-1.5 text-slate-600 hover:text-amber-800 hover:bg-amber-50 rounded-md border border-slate-200 transition-colors"
+                                                                    title="Sửa phiếu"
+                                                                >
+                                                                    <Edit size={14} />
+                                                                </button>
+                                                            </div>
                                                         </td>
                                                     </tr>
                                                 );

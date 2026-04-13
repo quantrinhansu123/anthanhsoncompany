@@ -8,7 +8,8 @@ import {
     FileDown,
     CheckCircle2,
     Info,
-    AlertCircle
+    AlertCircle,
+    Search,
 } from 'lucide-react';
 import {
     normalizeNguongLoai,
@@ -23,6 +24,7 @@ import { employeeService } from '../../lib/services/employeeService';
 import type { ContractRow } from '../../lib/services/contractService';
 import { type NhanSuOption } from '../../lib/formatNhanSu';
 import { NhanSuTenAnhPicker } from '../../components/NhanSuTenAnhPicker';
+import { cn } from '../../lib/utils';
 
 type HangMucChi = 'chi_du_an' | 'chi_nhan_su';
 
@@ -112,6 +114,11 @@ export function AddThuChi() {
     const [projects, setProjects] = useState<ProjectOpt[]>([]);
     const [customers, setCustomers] = useState<Array<{ id: string; ten_don_vi: string }>>([]);
     const [customerSearch, setCustomerSearch] = useState('');
+    const [customerPickerOpen, setCustomerPickerOpen] = useState(false);
+    const [duAnSearch, setDuAnSearch] = useState('');
+    const [duAnPickerOpen, setDuAnPickerOpen] = useState(false);
+    const [hopDongSearch, setHopDongSearch] = useState('');
+    const [hopDongPickerOpen, setHopDongPickerOpen] = useState(false);
     const [contracts, setContracts] = useState<ContractRow[]>([]);
     const [existingNhanSuChiTotal, setExistingNhanSuChiTotal] = useState(0);
     const [employees, setEmployees] = useState<NhanSuOption[]>([]);
@@ -129,6 +136,8 @@ export function AddThuChi() {
         if (!term) return sorted;
         return sorted.filter((c) => c.ten_don_vi.toLowerCase().includes(term));
     }, [customers, customerSearch]);
+
+    const needSelectCustomerFirst = !String(formData.customerId || '').trim();
 
     const projectsForSelect = useMemo(() => {
         const cid = String(formData.customerId || '').trim();
@@ -149,6 +158,24 @@ export function AddThuChi() {
         if (!du) return [];
         return contracts.filter((c) => String(c.du_an_id ?? '').trim() === du);
     }, [contracts, formData.duAnId]);
+
+    const filteredProjectsForPicker = useMemo(() => {
+        const term = duAnSearch.trim().toLowerCase();
+        const rows = projectsForSelect;
+        if (!term) return rows;
+        return rows.filter((p) => (p.ten_du_an || '').toLowerCase().includes(term));
+    }, [projectsForSelect, duAnSearch]);
+
+    const filteredContractsForPicker = useMemo(() => {
+        const term = hopDongSearch.trim().toLowerCase();
+        const rows = contractsForSelect;
+        if (!term) return rows;
+        return rows.filter((c) => {
+            const v = contractSelValue(c);
+            const label = `${c.so_hop_dong || ''} ${c.ten_goi_thau || ''} ${v}`.toLowerCase();
+            return label.includes(term);
+        });
+    }, [contractsForSelect, hopDongSearch]);
 
     const selectedContract = useMemo(() => {
         const hid = String(formData.hopDongId || '').trim();
@@ -258,12 +285,11 @@ export function AddThuChi() {
                 projectService.getAll(),
                 customerService.getAll(),
             ]);
-            setCustomers(
-                (customerList || []).map((c: any) => ({
-                    id: String(c.id),
-                    ten_don_vi: String(c.ten_don_vi || '').trim() || '(Không tên)',
-                })),
-            );
+            const mappedCustomers = (customerList || []).map((c: any) => ({
+                id: String(c.id),
+                ten_don_vi: String(c.ten_don_vi || '').trim() || '(Không tên)',
+            }));
+            setCustomers(mappedCustomers);
             const emps: NhanSuOption[] = employeeList.map((emp) => ({
                 id: emp.id.toString(),
                 full_name: emp.full_name || emp.name || emp.hoTen || '',
@@ -319,6 +345,15 @@ export function AddThuChi() {
                     file: null,
                     imageUrl: item.anh_url || null,
                 });
+                const custRow = mappedCustomers.find((c) => c.id === customerPlId);
+                setCustomerSearch(custRow?.ten_don_vi || '');
+                setDuAnSearch(projRow?.ten_du_an || '');
+                if (ct) {
+                    const v = contractSelValue(ct);
+                    setHopDongSearch(String(ct.so_hop_dong || ct.ten_goi_thau || v || '').trim());
+                } else {
+                    setHopDongSearch('');
+                }
             }
         } catch (err: any) {
             setToast({ message: err.message || 'Không thể tải dữ liệu', type: 'error' });
@@ -496,124 +531,428 @@ export function AddThuChi() {
                         </div>
                     </div>
 
-                    {/* Khách hàng */}
+                    {/* Khách hàng — combobox (gõ + chọn) */}
                     <div className="flex flex-col md:flex-row md:items-center gap-4 md:gap-8">
                         <div className="md:w-1/3 md:text-right">
                             <label className="text-sm font-medium text-slate-500">
                                 Khách hàng <span className="text-red-500">*</span>
                             </label>
                         </div>
-                        <div className="md:w-2/3 flex-1 space-y-2">
-                            <input
-                                type="text"
-                                value={customerSearch}
-                                onChange={(e) => setCustomerSearch(e.target.value)}
-                                placeholder="Gõ để tìm khách hàng..."
-                                className="w-full px-4 py-2 bg-white border border-slate-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 text-slate-700"
-                            />
-                            <div className="relative">
-                            <select
-                                value={formData.customerId}
-                                onChange={(e) =>
-                                    setFormData({
-                                        ...formData,
-                                        customerId: e.target.value,
-                                        duAnId: '',
-                                        hopDongId: '',
-                                    })
-                                }
-                                className="w-full max-w-full px-4 py-2.5 bg-white border border-slate-300 rounded-md appearance-none focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 text-slate-700"
-                            >
-                                <option value="">-- Chọn khách hàng --</option>
-                                {filteredCustomers.map((c) => (
-                                    <option key={c.id} value={c.id}>
-                                        {c.ten_don_vi}
-                                    </option>
-                                ))}
-                            </select>
-                            <ChevronDown size={16} className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
+                        <div className="md:w-2/3 flex-1">
+                            <div className="relative z-30">
+                                <Search
+                                    size={16}
+                                    className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none"
+                                />
+                                <input
+                                    type="text"
+                                    role="combobox"
+                                    aria-expanded={customerPickerOpen}
+                                    aria-autocomplete="list"
+                                    autoComplete="off"
+                                    value={customerSearch}
+                                    onChange={(e) => {
+                                        const v = e.target.value;
+                                        setCustomerSearch(v);
+                                        setCustomerPickerOpen(true);
+                                        const selId = String(formData.customerId || '').trim();
+                                        if (selId) {
+                                            const cur = customers.find((x) => String(x.id) === selId);
+                                            if (cur && v !== cur.ten_don_vi) {
+                                                setFormData((prev) => ({
+                                                    ...prev,
+                                                    customerId: '',
+                                                    duAnId: '',
+                                                    hopDongId: '',
+                                                }));
+                                                setDuAnSearch('');
+                                                setHopDongSearch('');
+                                            }
+                                        }
+                                    }}
+                                    onFocus={() => setCustomerPickerOpen(true)}
+                                    onBlur={() => {
+                                        window.setTimeout(() => setCustomerPickerOpen(false), 200);
+                                    }}
+                                    placeholder="Gõ tìm hoặc chọn khách hàng…"
+                                    className="w-full pl-9 pr-20 py-2.5 bg-white border border-slate-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 text-slate-700"
+                                />
+                                <div className="absolute right-2 top-1/2 -translate-y-1/2 flex items-center gap-1">
+                                    {customerSearch ? (
+                                        <button
+                                            type="button"
+                                            className="rounded p-1 text-slate-400 hover:text-slate-600 hover:bg-slate-100"
+                                            aria-label="Xóa khách hàng"
+                                            onMouseDown={(e) => e.preventDefault()}
+                                            onClick={() => {
+                                                setCustomerSearch('');
+                                                setFormData((prev) => ({
+                                                    ...prev,
+                                                    customerId: '',
+                                                    duAnId: '',
+                                                    hopDongId: '',
+                                                }));
+                                                setDuAnSearch('');
+                                                setHopDongSearch('');
+                                                setCustomerPickerOpen(false);
+                                            }}
+                                        >
+                                            <X size={16} />
+                                        </button>
+                                    ) : null}
+                                    <ChevronDown size={16} className="text-slate-400 pointer-events-none" />
+                                </div>
+                                {customerPickerOpen && (
+                                    <ul
+                                        role="listbox"
+                                        className="absolute left-0 right-0 top-full mt-1 max-h-52 overflow-auto rounded-md border border-slate-200 bg-white py-1 shadow-lg z-50"
+                                    >
+                                        <li>
+                                            <button
+                                                type="button"
+                                                role="option"
+                                                className={cn(
+                                                    'w-full text-left px-3 py-2 text-sm hover:bg-slate-50',
+                                                    !formData.customerId
+                                                        ? 'bg-blue-50 text-blue-900 font-medium'
+                                                        : 'text-slate-700',
+                                                )}
+                                                onMouseDown={(e) => e.preventDefault()}
+                                                onClick={() => {
+                                                    setFormData((prev) => ({
+                                                        ...prev,
+                                                        customerId: '',
+                                                        duAnId: '',
+                                                        hopDongId: '',
+                                                    }));
+                                                    setCustomerSearch('');
+                                                    setDuAnSearch('');
+                                                    setHopDongSearch('');
+                                                    setCustomerPickerOpen(false);
+                                                }}
+                                            >
+                                                — Chưa chọn khách hàng —
+                                            </button>
+                                        </li>
+                                        {filteredCustomers.length === 0 ? (
+                                            <li className="px-3 py-2 text-sm text-slate-500">
+                                                Không tìm thấy khách hàng
+                                            </li>
+                                        ) : (
+                                            filteredCustomers.map((c) => (
+                                                <li key={c.id}>
+                                                    <button
+                                                        type="button"
+                                                        role="option"
+                                                        className={cn(
+                                                            'w-full text-left px-3 py-2 text-sm hover:bg-slate-50 truncate',
+                                                            String(formData.customerId) === String(c.id)
+                                                                ? 'bg-blue-50 text-blue-900 font-medium'
+                                                                : 'text-slate-800',
+                                                        )}
+                                                        onMouseDown={(e) => e.preventDefault()}
+                                                        onClick={() => {
+                                                            setFormData((prev) => ({
+                                                                ...prev,
+                                                                customerId: c.id,
+                                                                duAnId: '',
+                                                                hopDongId: '',
+                                                            }));
+                                                            setCustomerSearch(c.ten_don_vi);
+                                                            setDuAnSearch('');
+                                                            setHopDongSearch('');
+                                                            setCustomerPickerOpen(false);
+                                                        }}
+                                                    >
+                                                        {c.ten_don_vi}
+                                                    </button>
+                                                </li>
+                                            ))
+                                        )}
+                                    </ul>
+                                )}
                             </div>
                         </div>
                     </div>
 
-                    {/* Dự án */}
+                    {/* Dự án — combobox */}
                     <div className="flex flex-col md:flex-row md:items-center gap-4 md:gap-8">
                         <div className="md:w-1/3 md:text-right">
-                            <label className="text-sm font-medium text-slate-500">Dự án <span className="text-red-500">*</span></label>
+                            <label className="text-sm font-medium text-slate-500">
+                                Dự án <span className="text-red-500">*</span>
+                            </label>
                         </div>
-                        <div className="md:w-2/3 relative flex-1">
-                            <select
-                                value={formData.duAnId}
-                                onChange={(e) =>
-                                    setFormData({
-                                        ...formData,
-                                        duAnId: e.target.value,
-                                        hopDongId: '',
-                                        tenGoiThau: '',
-                                    })
-                                }
-                                disabled={!String(formData.customerId || '').trim()}
-                                className="w-full max-w-full px-4 py-2.5 bg-white border border-slate-300 rounded-md appearance-none focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 text-slate-700 project-select disabled:bg-slate-50 disabled:text-slate-500"
-                            >
-                                <option value="">
-                                    {formData.customerId ? '-- Chọn dự án --' : '-- Chọn khách hàng trước --'}
-                                </option>
-                                {projectsForSelect.map((p) => (
-                                    <option
-                                        key={p.id}
-                                        value={p.id}
-                                        className="whitespace-normal break-words"
+                        <div className="md:w-2/3 flex-1">
+                            <div className="relative z-20">
+                                <Search
+                                    size={16}
+                                    className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none"
+                                />
+                                <input
+                                    type="text"
+                                    role="combobox"
+                                    aria-expanded={duAnPickerOpen}
+                                    aria-autocomplete="list"
+                                    autoComplete="off"
+                                    disabled={needSelectCustomerFirst}
+                                    value={duAnSearch}
+                                    onChange={(e) => {
+                                        const v = e.target.value;
+                                        setDuAnSearch(v);
+                                        setDuAnPickerOpen(true);
+                                        const selId = String(formData.duAnId || '').trim();
+                                        if (selId) {
+                                            const cur = projectsForSelect.find((x) => String(x.id) === selId);
+                                            if (cur && v !== cur.ten_du_an) {
+                                                setFormData((prev) => ({
+                                                    ...prev,
+                                                    duAnId: '',
+                                                    hopDongId: '',
+                                                }));
+                                                setHopDongSearch('');
+                                            }
+                                        }
+                                    }}
+                                    onFocus={() => !needSelectCustomerFirst && setDuAnPickerOpen(true)}
+                                    onBlur={() => {
+                                        window.setTimeout(() => setDuAnPickerOpen(false), 200);
+                                    }}
+                                    placeholder={
+                                        needSelectCustomerFirst
+                                            ? 'Chọn khách hàng trước…'
+                                            : 'Gõ tìm hoặc chọn dự án…'
+                                    }
+                                    className="w-full pl-9 pr-20 py-2.5 bg-white border border-slate-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 text-slate-700 disabled:bg-slate-50 disabled:text-slate-500"
+                                />
+                                <div className="absolute right-2 top-1/2 -translate-y-1/2 flex items-center gap-1">
+                                    {duAnSearch && !needSelectCustomerFirst ? (
+                                        <button
+                                            type="button"
+                                            className="rounded p-1 text-slate-400 hover:text-slate-600 hover:bg-slate-100"
+                                            aria-label="Xóa dự án"
+                                            onMouseDown={(e) => e.preventDefault()}
+                                            onClick={() => {
+                                                setDuAnSearch('');
+                                                setFormData((prev) => ({
+                                                    ...prev,
+                                                    duAnId: '',
+                                                    hopDongId: '',
+                                                }));
+                                                setHopDongSearch('');
+                                                setDuAnPickerOpen(false);
+                                            }}
+                                        >
+                                            <X size={16} />
+                                        </button>
+                                    ) : null}
+                                    <ChevronDown size={16} className="text-slate-400 pointer-events-none" />
+                                </div>
+                                {duAnPickerOpen && !needSelectCustomerFirst && (
+                                    <ul
+                                        role="listbox"
+                                        className="absolute left-0 right-0 top-full mt-1 max-h-52 overflow-auto rounded-md border border-slate-200 bg-white py-1 shadow-lg z-50"
                                     >
-                                        {p.ten_du_an}
-                                    </option>
-                                ))}
-                            </select>
-                            <ChevronDown size={16} className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
+                                        <li>
+                                            <button
+                                                type="button"
+                                                role="option"
+                                                className={cn(
+                                                    'w-full text-left px-3 py-2 text-sm hover:bg-slate-50',
+                                                    !formData.duAnId
+                                                        ? 'bg-blue-50 text-blue-900 font-medium'
+                                                        : 'text-slate-700',
+                                                )}
+                                                onMouseDown={(e) => e.preventDefault()}
+                                                onClick={() => {
+                                                    setFormData((prev) => ({
+                                                        ...prev,
+                                                        duAnId: '',
+                                                        hopDongId: '',
+                                                    }));
+                                                    setDuAnSearch('');
+                                                    setHopDongSearch('');
+                                                    setDuAnPickerOpen(false);
+                                                }}
+                                            >
+                                                — Chọn dự án —
+                                            </button>
+                                        </li>
+                                        {filteredProjectsForPicker.length === 0 ? (
+                                            <li className="px-3 py-2 text-sm text-slate-500">
+                                                Không có dự án phù hợp
+                                            </li>
+                                        ) : (
+                                            filteredProjectsForPicker.map((p) => (
+                                                <li key={p.id}>
+                                                    <button
+                                                        type="button"
+                                                        role="option"
+                                                        className={cn(
+                                                            'w-full text-left px-3 py-2 text-sm hover:bg-slate-50 truncate',
+                                                            String(formData.duAnId) === String(p.id)
+                                                                ? 'bg-blue-50 text-blue-900 font-medium'
+                                                                : 'text-slate-800',
+                                                        )}
+                                                        onMouseDown={(e) => e.preventDefault()}
+                                                        onClick={() => {
+                                                            setFormData((prev) => ({
+                                                                ...prev,
+                                                                duAnId: p.id,
+                                                                hopDongId: '',
+                                                            }));
+                                                            setDuAnSearch(p.ten_du_an);
+                                                            setHopDongSearch('');
+                                                            setDuAnPickerOpen(false);
+                                                        }}
+                                                    >
+                                                        {p.ten_du_an}
+                                                    </button>
+                                                </li>
+                                            ))
+                                        )}
+                                    </ul>
+                                )}
+                            </div>
                         </div>
                     </div>
 
-                    {/* Hợp đồng */}
+                    {/* Hợp đồng — combobox */}
                     <div className="flex flex-col md:flex-row md:items-center gap-4 md:gap-8">
                         <div className="md:w-1/3 md:text-right">
                             <label className="text-sm font-medium text-slate-500">Hợp đồng</label>
                         </div>
-                        <div className="md:w-2/3 relative flex-1">
-                            <select
-                                value={formData.hopDongId}
-                                onChange={(e) => {
-                                    const v = e.target.value;
-                                    const c = contractsForSelect.find(
-                                        (x) => contractSelValue(x) === v,
-                                    );
-                                    setFormData({
-                                        ...formData,
-                                        hopDongId: v,
-                                        tenGoiThau:
-                                            v && c
-                                                ? String(c.ten_goi_thau || '').trim() ||
-                                                  formData.tenGoiThau
-                                                : formData.tenGoiThau,
-                                    });
-                                }}
-                                className="w-full px-4 py-2.5 bg-white border border-slate-300 rounded-md appearance-none focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 text-slate-700 disabled:bg-slate-50 disabled:text-slate-500"
-                                disabled={!formData.duAnId}
-                            >
-                                <option value="">
-                                    {!formData.duAnId
-                                        ? '-- Chọn dự án trước --'
-                                        : '-- Chọn hợp đồng (tùy chọn) --'}
-                                </option>
-                                {contractsForSelect.map((c) => {
-                                    const v = contractSelValue(c);
-                                    if (!v) return null;
-                                    return (
-                                        <option key={v} value={v}>
-                                            {c.so_hop_dong || c.ten_goi_thau || v}
-                                        </option>
-                                    );
-                                })}
-                            </select>
-                            <ChevronDown size={16} className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
+                        <div className="md:w-2/3 flex-1">
+                            <div className="relative z-10">
+                                <Search
+                                    size={16}
+                                    className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none"
+                                />
+                                <input
+                                    type="text"
+                                    role="combobox"
+                                    aria-expanded={hopDongPickerOpen}
+                                    aria-autocomplete="list"
+                                    autoComplete="off"
+                                    disabled={!formData.duAnId}
+                                    value={hopDongSearch}
+                                    onChange={(e) => {
+                                        const v = e.target.value;
+                                        setHopDongSearch(v);
+                                        setHopDongPickerOpen(true);
+                                        const selVal = String(formData.hopDongId || '').trim();
+                                        if (selVal) {
+                                            const cur = contractsForSelect.find(
+                                                (x) => contractSelValue(x) === selVal,
+                                            );
+                                            const curLabel = cur
+                                                ? String(
+                                                      cur.so_hop_dong || cur.ten_goi_thau || contractSelValue(cur) || '',
+                                                  ).trim()
+                                                : '';
+                                            if (cur && v !== curLabel) {
+                                                setFormData((prev) => ({
+                                                    ...prev,
+                                                    hopDongId: '',
+                                                }));
+                                            }
+                                        }
+                                    }}
+                                    onFocus={() => formData.duAnId && setHopDongPickerOpen(true)}
+                                    onBlur={() => {
+                                        window.setTimeout(() => setHopDongPickerOpen(false), 200);
+                                    }}
+                                    placeholder={
+                                        !formData.duAnId
+                                            ? 'Chọn dự án trước…'
+                                            : 'Gõ số HĐ / gói thầu hoặc chọn…'
+                                    }
+                                    className="w-full pl-9 pr-20 py-2.5 bg-white border border-slate-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 text-slate-700 disabled:bg-slate-50 disabled:text-slate-500"
+                                />
+                                <div className="absolute right-2 top-1/2 -translate-y-1/2 flex items-center gap-1">
+                                    {hopDongSearch && formData.duAnId ? (
+                                        <button
+                                            type="button"
+                                            className="rounded p-1 text-slate-400 hover:text-slate-600 hover:bg-slate-100"
+                                            aria-label="Xóa hợp đồng"
+                                            onMouseDown={(e) => e.preventDefault()}
+                                            onClick={() => {
+                                                setHopDongSearch('');
+                                                setFormData((prev) => ({ ...prev, hopDongId: '' }));
+                                                setHopDongPickerOpen(false);
+                                            }}
+                                        >
+                                            <X size={16} />
+                                        </button>
+                                    ) : null}
+                                    <ChevronDown size={16} className="text-slate-400 pointer-events-none" />
+                                </div>
+                                {hopDongPickerOpen && formData.duAnId && (
+                                    <ul
+                                        role="listbox"
+                                        className="absolute left-0 right-0 top-full mt-1 max-h-52 overflow-auto rounded-md border border-slate-200 bg-white py-1 shadow-lg z-50"
+                                    >
+                                        <li>
+                                            <button
+                                                type="button"
+                                                role="option"
+                                                className={cn(
+                                                    'w-full text-left px-3 py-2 text-sm hover:bg-slate-50',
+                                                    !formData.hopDongId
+                                                        ? 'bg-blue-50 text-blue-900 font-medium'
+                                                        : 'text-slate-700',
+                                                )}
+                                                onMouseDown={(e) => e.preventDefault()}
+                                                onClick={() => {
+                                                    setFormData((prev) => ({ ...prev, hopDongId: '' }));
+                                                    setHopDongSearch('');
+                                                    setHopDongPickerOpen(false);
+                                                }}
+                                            >
+                                                — Không chọn hợp đồng —
+                                            </button>
+                                        </li>
+                                        {filteredContractsForPicker.length === 0 ? (
+                                            <li className="px-3 py-2 text-sm text-slate-500">
+                                                Không có hợp đồng phù hợp
+                                            </li>
+                                        ) : (
+                                            filteredContractsForPicker.map((c) => {
+                                                const v = contractSelValue(c);
+                                                if (!v) return null;
+                                                const label = c.so_hop_dong || c.ten_goi_thau || v;
+                                                return (
+                                                    <li key={v}>
+                                                        <button
+                                                            type="button"
+                                                            role="option"
+                                                            className={cn(
+                                                                'w-full text-left px-3 py-2 text-sm hover:bg-slate-50 truncate',
+                                                                String(formData.hopDongId) === String(v)
+                                                                    ? 'bg-blue-50 text-blue-900 font-medium'
+                                                                    : 'text-slate-800',
+                                                            )}
+                                                            onMouseDown={(e) => e.preventDefault()}
+                                                            onClick={() => {
+                                                                setFormData((prev) => ({
+                                                                    ...prev,
+                                                                    hopDongId: v,
+                                                                    tenGoiThau:
+                                                                        String(c.ten_goi_thau || '').trim() ||
+                                                                        prev.tenGoiThau,
+                                                                }));
+                                                                setHopDongSearch(String(label).trim());
+                                                                setHopDongPickerOpen(false);
+                                                            }}
+                                                        >
+                                                            {label}
+                                                        </button>
+                                                    </li>
+                                                );
+                                            })
+                                        )}
+                                    </ul>
+                                )}
+                            </div>
                         </div>
                     </div>
 
@@ -797,6 +1136,7 @@ export function AddThuChi() {
                                     onChange={(id) => setFormData({ ...formData, nhanSuId: id })}
                                     employees={employees}
                                     placeholder="Chọn nhân sự"
+                                    enableSearch
                                 />
                             </div>
                         </div>

@@ -260,6 +260,9 @@ export function ThemThuChiModal({
                     if (!customerIdInit && ctHd?.customer_id) {
                         customerIdInit = String(ctHd.customer_id).trim();
                     }
+                    if (!customerIdInit && customerScope?.customer_id) {
+                        customerIdInit = String(customerScope.customer_id).trim();
+                    }
                     setFormData({
                         customerId: customerIdInit,
                         duAnId,
@@ -268,13 +271,15 @@ export function ThemThuChiModal({
                         ngayTienVe:
                             initialData.date || initialData.ngay || new Date().toISOString().split('T')[0],
                         soTien:
-                            typeof initialData.amount === 'number'
-                                ? initialData.amount
-                                : Number(
-                                      String(initialData.amount || '0')
-                                          .replace(/\./g, '')
-                                          .replace(/[^\d]/g, ''),
-                                  ),
+                            typeof initialData.so_tien === 'number'
+                                ? Number(initialData.so_tien)
+                                : typeof initialData.amount === 'number'
+                                  ? initialData.amount
+                                  : Number(
+                                        String(initialData.amount || initialData.so_tien || '0')
+                                            .replace(/\./g, '')
+                                            .replace(/[^\d]/g, ''),
+                                    ),
                         noiDung: initialData.description || initialData.noi_dung || '',
                         nhanSuId:
                             (initialData.type || initialData.loai_phieu) === 'Phiếu chi'
