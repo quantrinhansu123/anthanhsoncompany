@@ -24,9 +24,9 @@ export const settingService = {
         .from('setting')
         .select('*')
         .eq('user_id', userId)
-        .single();
+        .maybeSingle();
 
-      if (error && error.code !== 'PGRST116') { // PGRST116 = no rows found
+      if (error) {
         console.error('Error fetching setting:', error);
         throw error;
       }

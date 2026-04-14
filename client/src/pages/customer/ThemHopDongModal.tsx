@@ -11,6 +11,7 @@ import {
     Info,
     ChevronDown,
     Search,
+    Upload,
 } from 'lucide-react';
 import { contractService, ContractFile, type ContractRow } from '../../lib/services/contractService';
 import type { NguongChiNhanSuLoai } from '../../lib/nguongChiNhanSu';
@@ -47,6 +48,16 @@ function filterProjectsByCustomer(rows: ProjectRow[], customerId: string, tenDon
         const label = normCustomerKey(p.ten_khach_hang || p.customer_name || '');
         return nameKey.length > 0 && label.length > 0 && label === nameKey;
     });
+}
+
+function sanitizeStorageFileName(name: string): string {
+    const trimmed = String(name || '').trim();
+    const normalized = trimmed.normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+    const replaced = normalized
+        .replace(/[^a-zA-Z0-9._-]+/g, '_')
+        .replace(/_+/g, '_')
+        .replace(/^_+|_+$/g, '');
+    return replaced || 'file';
 }
 
 interface Contract {
@@ -99,6 +110,7 @@ export function ThemHopDongModal({ isOpen, onClose, editData, contractCreatePref
     const [selectedFileType, setSelectedFileType] = useState<string>('File_BBTT');
     const [fileLink, setFileLink] = useState<string>('');
     const [isAddingLink, setIsAddingLink] = useState(false);
+    const [isUploadingFile, setIsUploadingFile] = useState(false);
     const [openNhanSuDropdown, setOpenNhanSuDropdown] = useState(false);
     const [nhanSuSearch, setNhanSuSearch] = useState('');
     const [nhanSuDdRect, setNhanSuDdRect] = useState({ top: 0, left: 0, width: 0 });
@@ -438,6 +450,38 @@ export function ThemHopDongModal({ isOpen, onClose, editData, contractCreatePref
 
     const handleDeleteFile = (fileType: string) => {
         setContractFiles(prev => prev.filter(f => f.file_type !== fileType));
+    };
+
+    const handleUploadFile = async (file: File | null) => {
+        if (!file || isUploadingFile) return;
+        setIsUploadingFile(true);
+        try {
+            const safeName = sanitizeStorageFileName(file.name);
+            const filePath = `hop-dong/${Date.now()}_${safeName}`;
+            let uploadedUrl = '';
+            try {
+                uploadedUrl = await thuChiService.uploadFile('hop_dong', filePath, file);
+            } catch (primaryErr: any) {
+                const msg = String(primaryErr?.message || '');
+                if (!msg.includes('Bucket "hop_dong"')) throw primaryErr;
+                uploadedUrl = await thuChiService.uploadFile('thu-chi-files', filePath, file);
+            }
+            const newFile: ContractFile = {
+                file_type: selectedFileType,
+                file_name: file.name,
+                file_url: uploadedUrl,
+                uploaded_at: new Date().toISOString(),
+            };
+            setContractFiles((prev) => {
+                const filtered = prev.filter((f) => f.file_type !== selectedFileType);
+                return [...filtered, newFile];
+            });
+        } catch (error) {
+            console.error('Error uploading contract file:', error);
+            alert('Upload tài liệu thất bại. Vui lòng kiểm tra bucket "hop_dong" (hoặc fallback "thu-chi-files") và thử lại.');
+        } finally {
+            setIsUploadingFile(false);
+        }
     };
 
     const handleSave = async () => {
@@ -1119,9 +1163,24 @@ export function ThemHopDongModal({ isOpen, onClose, editData, contractCreatePref
                                     placeholder="Dán link tài liệu..." 
                                     className="flex-[2] px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-orange-500/20" 
                                 />
+                                <label className="px-3 py-2 border border-slate-200 rounded-lg text-sm font-semibold text-slate-700 bg-white hover:bg-slate-50 transition-colors cursor-pointer flex items-center gap-2">
+                                    <Upload size={15} />
+                                    {isUploadingFile ? 'Đang tải...' : 'Tải lên'}
+                                    <input
+                                        type="file"
+                                        className="hidden"
+                                        disabled={isUploadingFile}
+                                        onChange={(e) => {
+                                            const file = e.target.files?.[0] || null;
+                                            void handleUploadFile(file);
+                                            e.currentTarget.value = '';
+                                        }}
+                                    />
+                                </label>
                                 <button 
                                     type="button"
-                                    onClick={handleAddLink} 
+                                    onClick={handleAddLink}
+                                    disabled={isAddingLink}
                                     className="px-4 py-2 bg-orange-500 text-white rounded-lg text-sm font-bold hover:bg-orange-600 transition-colors flex items-center gap-2"
                                 >
                                     <Plus size={16} />
