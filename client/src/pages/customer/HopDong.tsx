@@ -1191,7 +1191,7 @@ export function HopDong() {
                                     onClick={() => toggleHopDongSort('ngay_update')}
                                     className="w-full inline-flex items-center justify-center gap-1.5 uppercase tracking-wider font-bold text-[#f2f2ff] hover:text-white hover:bg-white/10 rounded px-1 py-0.5 -mx-1 transition-colors"
                                 >
-                                    <span>Ngày cập nhật HS</span>
+                                    <span>Lịch sử HS</span>
                                     <SortIcon active={hopDongSortKey === 'ngay_update'} dir={hopDongSortDir} />
                                 </button>
                             </th>
@@ -1242,7 +1242,7 @@ export function HopDong() {
                                         {formatCurrency(c.conPhaiThu)}
                                     </td>
                                     <td className="px-4 py-4 text-center text-xs text-slate-600 font-medium">
-                                        {c.ngayUpdate || '—'}
+                                        {c.ngayUpdate ? `Sửa gần nhất: ${c.ngayUpdate}` : 'Chưa cập nhật'}
                                     </td>
                                     <td className="px-4 py-4">
                                         <div className="flex items-center gap-3">

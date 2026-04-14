@@ -463,8 +463,10 @@ export function ChiTietKhachHangModal({ isOpen, onClose, selectedCustomer }: Pro
                                                             </span>
                                                         </div>
                                                         <div>
-                                                            <span className="text-slate-400">Cập nhật HS:</span>{' '}
-                                                            <span className="font-medium text-slate-700">{ngayCapNhat}</span>
+                                                            <span className="text-slate-400">Lịch sử HS:</span>{' '}
+                                                            <span className="font-medium text-slate-700">
+                                                                {ngayCapNhat === '—' ? 'Chưa cập nhật' : `Sửa gần nhất: ${ngayCapNhat}`}
+                                                            </span>
                                                         </div>
                                                     </div>
                                                 </div>
