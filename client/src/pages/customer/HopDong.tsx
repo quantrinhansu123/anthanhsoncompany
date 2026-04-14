@@ -70,11 +70,30 @@ type ProjectMetaRow = {
     ten_khach_hang?: string | null;
 };
 
-type HopDongSortKey = 'khach' | 'du_an' | 'hop_dong' | 'trang_thai' | 'gia_tri_qt' | 'da_thu' | 'tien_do';
+type HopDongSortKey =
+    | 'khach'
+    | 'du_an'
+    | 'hop_dong'
+    | 'trang_thai'
+    | 'gia_tri_qt'
+    | 'da_thu'
+    | 'con_phai_thu'
+    | 'ngay_update'
+    | 'tien_do';
 
 function SortIcon({ active, dir }: { active: boolean; dir: 'asc' | 'desc' }) {
     if (!active) return <ArrowUpDown size={14} className="opacity-40 shrink-0" aria-hidden />;
     return dir === 'asc' ? <ArrowUp size={14} className="shrink-0" aria-hidden /> : <ArrowDown size={14} className="shrink-0" aria-hidden />;
+}
+
+function parseViDateToTs(value: string): number {
+    const s = String(value || '').trim();
+    if (!s) return 0;
+    const parts = s.split('/');
+    if (parts.length !== 3) return 0;
+    const [d, m, y] = parts.map((x) => Number(x));
+    if (!d || !m || !y) return 0;
+    return new Date(y, m - 1, d).getTime();
 }
 
 function hopDongProjectCustomerKey(p: ProjectMetaRow): string {
@@ -468,7 +487,7 @@ export function HopDong() {
                             nguongChiNhanSuLoai: loaiNs,
                             nguongChiNhanSuTien: tienQuyDoiNguongChiNhanSu(loaiNs, giaTriQT, rawNguong),
                             daThu,
-                            conPhaiThu: giaTriQT - daThu,
+                            conPhaiThu: Number(c.con_phai_thu ?? giaTriQT - daThu),
                             ngayUpdate: c.ngay_update ? new Date(c.ngay_update).toLocaleDateString('vi-VN') : '',
                             nhanSuId: c.nhan_su_id || null,
                             nhanSuIds: (c as any).nhan_su_ids || (c.nhan_su_id ? [c.nhan_su_id] : []),
@@ -639,6 +658,12 @@ export function HopDong() {
                     break;
                 case 'da_thu':
                     cmp = a.c.daThu - b.c.daThu;
+                    break;
+                case 'con_phai_thu':
+                    cmp = a.c.conPhaiThu - b.c.conPhaiThu;
+                    break;
+                case 'ngay_update':
+                    cmp = parseViDateToTs(a.c.ngayUpdate) - parseViDateToTs(b.c.ngayUpdate);
                     break;
                 case 'tien_do':
                     cmp = progress(a.c.uuid) - progress(b.c.uuid);
@@ -1150,6 +1175,26 @@ export function HopDong() {
                                     <SortIcon active={hopDongSortKey === 'da_thu'} dir={hopDongSortDir} />
                                 </button>
                             </th>
+                            <th className="px-3 py-3 text-xs text-right">
+                                <button
+                                    type="button"
+                                    onClick={() => toggleHopDongSort('con_phai_thu')}
+                                    className="w-full inline-flex items-center justify-end gap-1.5 uppercase tracking-wider font-bold text-[#f2f2ff] hover:text-white hover:bg-white/10 rounded px-1 py-0.5 -mx-1 transition-colors"
+                                >
+                                    <span>Còn nợ</span>
+                                    <SortIcon active={hopDongSortKey === 'con_phai_thu'} dir={hopDongSortDir} />
+                                </button>
+                            </th>
+                            <th className="px-3 py-3 text-xs text-center min-w-[8rem]">
+                                <button
+                                    type="button"
+                                    onClick={() => toggleHopDongSort('ngay_update')}
+                                    className="w-full inline-flex items-center justify-center gap-1.5 uppercase tracking-wider font-bold text-[#f2f2ff] hover:text-white hover:bg-white/10 rounded px-1 py-0.5 -mx-1 transition-colors"
+                                >
+                                    <span>Ngày cập nhật HS</span>
+                                    <SortIcon active={hopDongSortKey === 'ngay_update'} dir={hopDongSortDir} />
+                                </button>
+                            </th>
                             <th className="px-3 py-3 text-xs w-40">
                                 <button
                                     type="button"
@@ -1192,6 +1237,12 @@ export function HopDong() {
                                     </td>
                                     <td className="px-4 py-4 text-right font-mono text-sm font-semibold text-emerald-700">
                                         {formatCurrency(c.daThu)}
+                                    </td>
+                                    <td className="px-4 py-4 text-right font-mono text-sm font-semibold text-rose-700">
+                                        {formatCurrency(c.conPhaiThu)}
+                                    </td>
+                                    <td className="px-4 py-4 text-center text-xs text-slate-600 font-medium">
+                                        {c.ngayUpdate || '—'}
                                     </td>
                                     <td className="px-4 py-4">
                                         <div className="flex items-center gap-3">

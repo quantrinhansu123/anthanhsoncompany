@@ -419,6 +419,14 @@ export function ChiTietKhachHangModal({ isOpen, onClose, selectedCustomer }: Pro
                                 <div className="divide-y divide-slate-100">
                                     {customerContracts.map((c, idx) => (
                                         <div key={String(c.id)} className="p-5 hover:bg-slate-50 transition-colors">
+                                            {(() => {
+                                                const giaTriQT = Number(c.gia_tri_qt || 0);
+                                                const daThu = Number(c.da_thu || 0);
+                                                const conNo = Number(c.con_phai_thu ?? giaTriQT - daThu);
+                                                const ngayCapNhat = c.ngay_update
+                                                    ? new Date(c.ngay_update).toLocaleDateString('vi-VN')
+                                                    : '—';
+                                                return (
                                             <div className="flex items-start justify-between gap-3">
                                                 <div className="flex-1 min-w-0">
                                                     <div className="flex flex-wrap items-center gap-2 mb-1">
@@ -448,6 +456,16 @@ export function ChiTietKhachHangModal({ isOpen, onClose, selectedCustomer }: Pro
                                                                     : '—'}
                                                             </span>
                                                         </div>
+                                                        <div>
+                                                            <span className="text-slate-400">Còn nợ:</span>{' '}
+                                                            <span className="font-semibold text-rose-700">
+                                                                {conNo.toLocaleString('vi-VN')} đ
+                                                            </span>
+                                                        </div>
+                                                        <div>
+                                                            <span className="text-slate-400">Cập nhật HS:</span>{' '}
+                                                            <span className="font-medium text-slate-700">{ngayCapNhat}</span>
+                                                        </div>
                                                     </div>
                                                 </div>
                                                 <div className="flex items-center gap-1 shrink-0">
@@ -475,6 +493,8 @@ export function ChiTietKhachHangModal({ isOpen, onClose, selectedCustomer }: Pro
                                                     </button>
                                                 </div>
                                             </div>
+                                                );
+                                            })()}
                                         </div>
                                     ))}
                                 </div>
