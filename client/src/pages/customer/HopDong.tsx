@@ -11,6 +11,7 @@ import { customerService } from '../../lib/services/customerService';
 import { useHopDongModal } from '../../contexts/HopDongModalContext';
 import type { NguongChiNhanSuLoai } from '../../lib/nguongChiNhanSu';
 import { normalizeNguongLoai, tienQuyDoiNguongChiNhanSu } from '../../lib/nguongChiNhanSu';
+import { HOPDONG_PROFILE_ACCESS_EVENT, type HopDongProfileAccessDetail } from '../../lib/hopDongProfileAccess';
 import { ExcelImportExportBar } from '../../components/ExcelImportExportBar';
 import {
     parseExcelToRows,
@@ -105,6 +106,17 @@ function hopDongProjectCustomerKey(p: ProjectMetaRow): string {
         .toLowerCase()
         .replace(/\s+/g, ' ');
     return n ? `name:${n}` : 'empty:';
+}
+
+/** Tổng Phiếu thu theo HĐ: `thu_chi.hop_dong_id` có thể trùng PK bảng `hop_dong` hoặc `contract_id` tùy dữ liệu. */
+function sumPhieuThuForHopDong(c: ContractRow, thuChiMap: Map<string, number>): number {
+    const rowPk = c.hop_dong_row_id != null ? String(c.hop_dong_row_id).trim() : '';
+    const logicalId = c.id != null ? String(c.id).trim() : '';
+    const v1 = rowPk ? thuChiMap.get(rowPk) : undefined;
+    const v2 = logicalId ? thuChiMap.get(logicalId) : undefined;
+    if (v1 !== undefined) return v1;
+    if (v2 !== undefined) return v2;
+    return 0;
 }
 
 function hopDongGroupCustomerKey(
@@ -435,11 +447,12 @@ export function HopDong() {
 
                 // Calculate "Đã thu" map
                 const thuChiMap = new Map<string, number>();
-                allThuChi.forEach(tc => {
-                    if (tc.hop_dong_id && tc.loai_phieu === 'Phiếu thu') {
-                        const current = thuChiMap.get(tc.hop_dong_id) || 0;
-                        thuChiMap.set(tc.hop_dong_id, current + (tc.so_tien || 0));
-                    }
+                allThuChi.forEach((tc) => {
+                    if (tc.loai_phieu !== 'Phiếu thu') return;
+                    const hid = tc.hop_dong_id != null ? String(tc.hop_dong_id).trim() : '';
+                    if (!hid) return;
+                    const current = thuChiMap.get(hid) || 0;
+                    thuChiMap.set(hid, current + (tc.so_tien || 0));
                 });
 
                 // Grouping logic
@@ -467,7 +480,7 @@ export function HopDong() {
                     duAnId,
                     customerLabel,
                     contracts: contracts.map((c, idx) => {
-                        const daThu = thuChiMap.get(c.id) || 0;
+                        const daThu = sumPhieuThuForHopDong(c, thuChiMap);
                         const giaTriQT = Number(c.gia_tri_qt || 0);
                         const loaiNs = normalizeNguongLoai(c.nguong_chi_nhan_su_loai);
                         const rawNguong = Number(c.nguong_chi_nhan_su ?? 0);
@@ -511,7 +524,7 @@ export function HopDong() {
 
                 // Tổng QT / đã thu chỉ cho các HĐ trên trang hiện tại (tránh nhầm với toàn hệ thống khi phân trang)
                 setTotalGiaTriQT(contractRows.reduce((s: number, c: any) => s + Number(c.gia_tri_qt || 0), 0));
-                setTotalDaThu(contractRows.reduce((s: number, c: any) => s + (thuChiMap.get(c.id) || 0), 0));
+                setTotalDaThu(contractRows.reduce((s: number, c: ContractRow) => s + sumPhieuThuForHopDong(c, thuChiMap), 0));
 
             } catch (error) {
                 console.error("[HopDong] Error loading paged data:", error);
@@ -520,6 +533,23 @@ export function HopDong() {
             }
         })();
     }, [page, debouncedSearch, reloadKey]);
+
+    useEffect(() => {
+        const onAccess = (ev: Event) => {
+            const d = (ev as CustomEvent<HopDongProfileAccessDetail>).detail;
+            if (!d?.uuid) return;
+            setItems((prev) =>
+                prev.map((g) => ({
+                    ...g,
+                    contracts: g.contracts.map((row) =>
+                        row.uuid === d.uuid ? { ...row, ngayUpdate: d.ngayUpdate } : row,
+                    ),
+                })),
+            );
+        };
+        window.addEventListener(HOPDONG_PROFILE_ACCESS_EVENT, onAccess);
+        return () => window.removeEventListener(HOPDONG_PROFILE_ACCESS_EVENT, onAccess);
+    }, []);
 
     const openedContractFromUrlRef = useRef<string | null>(null);
 
@@ -1243,7 +1273,9 @@ export function HopDong() {
                                         {formatCurrency(c.conPhaiThu)}
                                     </td>
                                     <td className="px-4 py-4 text-center text-xs text-slate-600 font-medium">
-                                        {c.ngayUpdate ? `Sửa gần nhất: ${c.ngayUpdate}` : 'Chưa cập nhật'}
+                                        {c.ngayUpdate
+                                            ? `Vào xem / sửa gần nhất: ${c.ngayUpdate}`
+                                            : 'Chưa cập nhật'}
                                     </td>
                                     <td className="px-4 py-4">
                                         <div className="flex items-center gap-3">

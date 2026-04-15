@@ -23,6 +23,7 @@ import { thuChiService } from '../../lib/services/thuChiService';
 import { PreviewLinkModal } from '../../components/PreviewLinkModal';
 import type { ContractCreatePrefill } from '../../contexts/HopDongModalContext';
 import { cn } from '../../lib/utils';
+import { emitHopDongProfileAccess } from '../../lib/hopDongProfileAccess';
 
 function normCustomerKey(s: string | null | undefined): string {
     return String(s || '')
@@ -127,6 +128,27 @@ export function ThemHopDongModal({ isOpen, onClose, editData, contractCreatePref
     useEffect(() => {
         if (!isOpen) setPreviewUrl(null);
     }, [isOpen]);
+
+    /** Mở form sửa HĐ = truy cập hồ sơ — đồng bộ cột Lịch sử HS (kể cả khi bấm Hủy không lưu). */
+    useEffect(() => {
+        if (!isOpen || !editData?.uuid) return;
+        let cancelled = false;
+        const uuid = editData.uuid;
+        (async () => {
+            try {
+                const iso = new Date().toISOString().slice(0, 10);
+                await contractService.update(uuid, { ngay_update: iso });
+                if (cancelled) return;
+                const ngayUpdateVi = new Date(`${iso}T12:00:00`).toLocaleDateString('vi-VN');
+                emitHopDongProfileAccess(uuid, ngayUpdateVi);
+            } catch (e) {
+                console.warn('[ThemHopDongModal] Ghi nhận truy cập hồ sơ:', e);
+            }
+        })();
+        return () => {
+            cancelled = true;
+        };
+    }, [isOpen, editData?.uuid]);
 
     useEffect(() => {
         if (!isOpen) {

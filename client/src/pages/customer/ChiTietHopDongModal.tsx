@@ -11,6 +11,7 @@ import { useHopDongModal } from '../../contexts/HopDongModalContext';
 import { useNavigate } from 'react-router-dom';
 import { PreviewLinkModal } from '../../components/PreviewLinkModal';
 import { thuChiService, ThuChiRow } from '../../lib/services/thuChiService';
+import { emitHopDongProfileAccess } from '../../lib/hopDongProfileAccess';
 import type { NguongChiNhanSuLoai } from '../../lib/nguongChiNhanSu';
 import { normalizeNguongLoai, tienQuyDoiNguongChiNhanSu } from '../../lib/nguongChiNhanSu';
 
@@ -135,6 +136,27 @@ export function ChiTietHopDongModal({ isOpen, onClose, contract }: ChiTietHopDon
             loadTasks();
         }
     }, [isOpen, contract?.uuid, loadTasks]);
+
+    /** Ghi `ngay_update` khi mở xem để cột "Lịch sử HS" trên danh sách HĐ phản ánh lần truy cập gần nhất. */
+    useEffect(() => {
+        if (!isOpen || !contract?.uuid) return;
+        let cancelled = false;
+        const uuid = contract.uuid;
+        (async () => {
+            try {
+                const iso = new Date().toISOString().slice(0, 10);
+                await contractService.update(uuid, { ngay_update: iso });
+                if (cancelled) return;
+                const ngayUpdateVi = new Date(`${iso}T12:00:00`).toLocaleDateString('vi-VN');
+                emitHopDongProfileAccess(uuid, ngayUpdateVi);
+            } catch (e) {
+                console.warn('[ChiTietHopDongModal] Ghi nhận truy cập hồ sơ:', e);
+            }
+        })();
+        return () => {
+            cancelled = true;
+        };
+    }, [isOpen, contract?.uuid]);
 
     const contractProgress = useMemo(() => {
         if (!tasks.length) return 0;
