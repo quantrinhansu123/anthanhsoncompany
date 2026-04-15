@@ -487,7 +487,8 @@ export function HopDong() {
                             nguongChiNhanSuLoai: loaiNs,
                             nguongChiNhanSuTien: tienQuyDoiNguongChiNhanSu(loaiNs, giaTriQT, rawNguong),
                             daThu,
-                            conPhaiThu: Number(c.con_phai_thu ?? giaTriQT - daThu),
+                            // Đồng bộ với cột "Đã thu" (tổng Phiếu thu theo HĐ). Cột `con_phai_thu` trên DB dễ lệch vì không luôn được cập nhật khi có thu chi.
+                            conPhaiThu: Math.max(0, giaTriQT - daThu),
                             ngayUpdate: c.ngay_update ? new Date(c.ngay_update).toLocaleDateString('vi-VN') : '',
                             nhanSuId: c.nhan_su_id || null,
                             nhanSuIds: (c as any).nhan_su_ids || (c.nhan_su_id ? [c.nhan_su_id] : []),
