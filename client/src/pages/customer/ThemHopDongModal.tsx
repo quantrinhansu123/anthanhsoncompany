@@ -125,6 +125,9 @@ export function ThemHopDongModal({ isOpen, onClose, editData, contractCreatePref
     const [customerPickerOpen, setCustomerPickerOpen] = useState(false);
     const [projectPickerOpen, setProjectPickerOpen] = useState(false);
     const [isQuickAddingCustomer, setIsQuickAddingCustomer] = useState(false);
+    const [quickCustomerModalOpen, setQuickCustomerModalOpen] = useState(false);
+    const [quickCustomerForm, setQuickCustomerForm] = useState({ tenDonVi: '', mst: '' });
+    const [quickCustomerError, setQuickCustomerError] = useState('');
 
     useEffect(() => {
         if (!isOpen) setPreviewUrl(null);
@@ -292,9 +295,18 @@ export function ThemHopDongModal({ isOpen, onClose, editData, contractCreatePref
 
     const handleQuickAddCustomer = async () => {
         if (isQuickAddingCustomer || isCustomerContractCreate || !!editData) return;
-        const tenDonVi = window.prompt('Nhập tên khách hàng mới:')?.trim();
-        if (!tenDonVi) return;
-        const mst = window.prompt('Nhập mã khách hàng/MST (không bắt buộc):')?.trim() || '';
+        setQuickCustomerError('');
+        setQuickCustomerForm({ tenDonVi: '', mst: '' });
+        setQuickCustomerModalOpen(true);
+    };
+
+    const submitQuickAddCustomer = async () => {
+        const tenDonVi = quickCustomerForm.tenDonVi.trim();
+        const mst = quickCustomerForm.mst.trim();
+        if (!tenDonVi) {
+            setQuickCustomerError('Vui lòng nhập tên khách hàng.');
+            return;
+        }
         try {
             setIsQuickAddingCustomer(true);
             const created = await customerService.create({
@@ -312,8 +324,9 @@ export function ThemHopDongModal({ isOpen, onClose, editData, contractCreatePref
             setCustomerSearch(String(created.ten_don_vi || tenDonVi));
             setProjectSearch('');
             setCustomerPickerOpen(false);
+            setQuickCustomerModalOpen(false);
         } catch (e: any) {
-            alert(e?.message || 'Không thể thêm khách hàng mới.');
+            setQuickCustomerError(e?.message || 'Không thể thêm khách hàng mới.');
         } finally {
             setIsQuickAddingCustomer(false);
         }
@@ -1368,6 +1381,77 @@ export function ThemHopDongModal({ isOpen, onClose, editData, contractCreatePref
                                         className="px-4 py-2 bg-blue-600 rounded-lg text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
                                     >
                                         Thêm
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                )}
+                {quickCustomerModalOpen && (
+                    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-[90] p-4">
+                        <div className="bg-white w-full max-w-sm rounded-xl shadow-xl overflow-hidden">
+                            <div className="px-6 py-4 border-b border-slate-200 flex items-center justify-between">
+                                <h3 className="text-lg font-bold text-slate-800">Thêm khách hàng nhanh</h3>
+                                <button
+                                    type="button"
+                                    onClick={() => setQuickCustomerModalOpen(false)}
+                                    className="p-1.5 hover:bg-slate-100 rounded transition-colors"
+                                    disabled={isQuickAddingCustomer}
+                                >
+                                    <X size={18} className="text-slate-600" />
+                                </button>
+                            </div>
+                            <div className="p-6 space-y-4">
+                                <div>
+                                    <label className="block text-sm font-medium text-slate-700 mb-1">Tên khách hàng *</label>
+                                    <input
+                                        type="text"
+                                        value={quickCustomerForm.tenDonVi}
+                                        onChange={(e) =>
+                                            setQuickCustomerForm((prev) => ({
+                                                ...prev,
+                                                tenDonVi: e.target.value,
+                                            }))
+                                        }
+                                        className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-purple-500"
+                                        placeholder="Ví dụ: Công ty TNHH ABC"
+                                        autoFocus
+                                    />
+                                </div>
+                                <div>
+                                    <label className="block text-sm font-medium text-slate-700 mb-1">Mã khách hàng / MST</label>
+                                    <input
+                                        type="text"
+                                        value={quickCustomerForm.mst}
+                                        onChange={(e) =>
+                                            setQuickCustomerForm((prev) => ({
+                                                ...prev,
+                                                mst: e.target.value,
+                                            }))
+                                        }
+                                        className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-purple-500"
+                                        placeholder="Không bắt buộc"
+                                    />
+                                </div>
+                                {quickCustomerError ? (
+                                    <p className="text-xs text-red-600 font-medium">{quickCustomerError}</p>
+                                ) : null}
+                                <div className="flex items-center justify-end gap-2">
+                                    <button
+                                        type="button"
+                                        onClick={() => setQuickCustomerModalOpen(false)}
+                                        className="px-4 py-2 border border-slate-200 rounded-lg text-sm font-semibold text-slate-600 hover:bg-slate-50"
+                                        disabled={isQuickAddingCustomer}
+                                    >
+                                        Hủy
+                                    </button>
+                                    <button
+                                        type="button"
+                                        onClick={submitQuickAddCustomer}
+                                        disabled={isQuickAddingCustomer}
+                                        className="px-4 py-2 bg-blue-600 rounded-lg text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                                    >
+                                        {isQuickAddingCustomer ? 'Đang tạo...' : 'Tạo nhanh'}
                                     </button>
                                 </div>
                             </div>

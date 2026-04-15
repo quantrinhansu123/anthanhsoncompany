@@ -84,6 +84,15 @@ export function ThemThuChiModal({
 }: Props) {
     const [isSaving, setIsSaving] = useState(false);
     const [isQuickAdding, setIsQuickAdding] = useState(false);
+    const [quickAddType, setQuickAddType] = useState<'customer' | 'project' | 'contract' | null>(null);
+    const [quickAddForm, setQuickAddForm] = useState({
+        customerName: '',
+        customerMst: '',
+        projectName: '',
+        contractNo: '',
+        packageName: '',
+    });
+    const [quickAddError, setQuickAddError] = useState('');
     const [projects, setProjects] = useState<any[]>([]);
     const [contracts, setContracts] = useState<ContractRow[]>([]);
     const [customers, setCustomers] = useState<Array<{ id: string; ten_don_vi: string }>>([]);
@@ -463,76 +472,26 @@ export function ThemThuChiModal({
         await loadData();
     };
 
-    const handleQuickAddCustomer = async () => {
+    const openQuickAddCustomer = () => {
         if (customerSelectLocked || isQuickAdding) return;
-        const tenDonVi = window.prompt('Nhập tên khách hàng mới:')?.trim();
-        if (!tenDonVi) return;
-        try {
-            setIsQuickAdding(true);
-            const created = await customerService.create({ ten_don_vi: tenDonVi });
-            if (!created?.id) throw new Error('Không tạo được khách hàng mới.');
-            await reloadPickersData();
-            const newId = String(created.id);
-            setFormData((prev) => ({
-                ...prev,
-                customerId: newId,
-                duAnId: '',
-                hopDongId: '',
-                tenGoiThau: '',
-            }));
-            setCustomerSearch(String(created.ten_don_vi || tenDonVi));
-            setDuAnSearch('');
-            setHopDongSearch('');
-            setCustomerPickerOpen(false);
-        } catch (e: any) {
-            alert(e?.message || 'Không thể thêm khách hàng mới.');
-        } finally {
-            setIsQuickAdding(false);
-        }
+        setQuickAddError('');
+        setQuickAddForm((prev) => ({ ...prev, customerName: '', customerMst: '' }));
+        setQuickAddType('customer');
     };
 
-    const handleQuickAddProject = async () => {
+    const openQuickAddProject = () => {
         if (isQuickAdding) return;
         const customerId = String(formData.customerId || '').trim();
         if (!customerId) {
             alert('Vui lòng chọn khách hàng trước khi thêm dự án.');
             return;
         }
-        const tenDuAn = window.prompt('Nhập tên dự án mới:')?.trim();
-        if (!tenDuAn) return;
-        try {
-            setIsQuickAdding(true);
-            const tenKhachHang =
-                customers.find((c) => String(c.id) === customerId)?.ten_don_vi ||
-                effectiveCustomerTenDonVi ||
-                null;
-            const created = await projectService.create({
-                ten_du_an: tenDuAn,
-                customer_id: customerId,
-                ten_khach_hang: tenKhachHang,
-                status: 'Đang thực hiện',
-                progress: 0,
-            });
-            if (!created?.id) throw new Error('Không tạo được dự án mới.');
-            await reloadPickersData();
-            const newProjectId = String(created.id);
-            setFormData((prev) => ({
-                ...prev,
-                duAnId: newProjectId,
-                hopDongId: '',
-                tenGoiThau: '',
-            }));
-            setDuAnSearch(String(created.ten_du_an || tenDuAn));
-            setHopDongSearch('');
-            setDuAnPickerOpen(false);
-        } catch (e: any) {
-            alert(e?.message || 'Không thể thêm dự án mới.');
-        } finally {
-            setIsQuickAdding(false);
-        }
+        setQuickAddError('');
+        setQuickAddForm((prev) => ({ ...prev, projectName: '' }));
+        setQuickAddType('project');
     };
 
-    const handleQuickAddContract = async () => {
+    const openQuickAddContract = () => {
         if (isQuickAdding) return;
         const customerId = String(formData.customerId || '').trim();
         const duAnId = String(formData.duAnId || '').trim();
@@ -544,43 +503,119 @@ export function ThemThuChiModal({
             alert('Vui lòng chọn dự án trước khi thêm hợp đồng.');
             return;
         }
-        const soHopDong = window.prompt('Nhập số hợp đồng mới:')?.trim();
-        if (!soHopDong) return;
-        const tenGoiThau = window.prompt('Nhập tên gói thầu:')?.trim();
-        if (!tenGoiThau) return;
+        setQuickAddError('');
+        setQuickAddForm((prev) => ({
+            ...prev,
+            contractNo: '',
+            packageName: formData.tenGoiThau || '',
+        }));
+        setQuickAddType('contract');
+    };
+
+    const handleSubmitQuickAdd = async () => {
         try {
             setIsQuickAdding(true);
-            const duAnName =
-                projectsForSelect.find((p) => String(p.id) === duAnId)?.ten_du_an ||
-                (projects as ProjectOpt[]).find((p) => String(p.id) === duAnId)?.ten_du_an ||
-                null;
-            const created = await contractService.create({
-                customer_id: customerId,
-                du_an_id: duAnId,
-                project_name: duAnName,
-                so_hop_dong: soHopDong,
-                ten_goi_thau: tenGoiThau,
-                ngay_ky_hd: new Date().toISOString().slice(0, 10),
-                gia_tri_hd: 0,
-                gia_tri_qt: 0,
-                da_thu: 0,
-                con_phai_thu: 0,
-                ngay_update: new Date().toISOString().slice(0, 10),
-                file_status: 'Chưa có file',
-            });
-            if (!created) throw new Error('Không tạo được hợp đồng mới.');
-            await reloadPickersData();
-            const newHopDongId = String(created.hop_dong_row_id || created.id || '').trim();
-            if (!newHopDongId) throw new Error('Không lấy được mã hợp đồng mới.');
-            setFormData((prev) => ({
-                ...prev,
-                hopDongId: newHopDongId,
-                tenGoiThau,
-            }));
-            setHopDongSearch(soHopDong || tenGoiThau || newHopDongId);
-            setHopDongPickerOpen(false);
+            setQuickAddError('');
+            if (quickAddType === 'customer') {
+                const tenDonVi = quickAddForm.customerName.trim();
+                if (!tenDonVi) {
+                    setQuickAddError('Vui lòng nhập tên khách hàng.');
+                    return;
+                }
+                const created = await customerService.create({
+                    ten_don_vi: tenDonVi,
+                    mst: quickAddForm.customerMst.trim() || undefined,
+                });
+                if (!created?.id) throw new Error('Không tạo được khách hàng mới.');
+                await reloadPickersData();
+                const newId = String(created.id);
+                setFormData((prev) => ({
+                    ...prev,
+                    customerId: newId,
+                    duAnId: '',
+                    hopDongId: '',
+                    tenGoiThau: '',
+                }));
+                setCustomerSearch(String(created.ten_don_vi || tenDonVi));
+                setDuAnSearch('');
+                setHopDongSearch('');
+                setCustomerPickerOpen(false);
+            } else if (quickAddType === 'project') {
+                const customerId = String(formData.customerId || '').trim();
+                const tenDuAn = quickAddForm.projectName.trim();
+                if (!tenDuAn) {
+                    setQuickAddError('Vui lòng nhập tên dự án.');
+                    return;
+                }
+                const tenKhachHang =
+                    customers.find((c) => String(c.id) === customerId)?.ten_don_vi ||
+                    effectiveCustomerTenDonVi ||
+                    null;
+                const created = await projectService.create({
+                    ten_du_an: tenDuAn,
+                    customer_id: customerId,
+                    ten_khach_hang: tenKhachHang,
+                    status: 'Đang thực hiện',
+                    progress: 0,
+                });
+                if (!created?.id) throw new Error('Không tạo được dự án mới.');
+                await reloadPickersData();
+                const newProjectId = String(created.id);
+                setFormData((prev) => ({
+                    ...prev,
+                    duAnId: newProjectId,
+                    hopDongId: '',
+                    tenGoiThau: '',
+                }));
+                setDuAnSearch(String(created.ten_du_an || tenDuAn));
+                setHopDongSearch('');
+                setDuAnPickerOpen(false);
+            } else if (quickAddType === 'contract') {
+                const customerId = String(formData.customerId || '').trim();
+                const duAnId = String(formData.duAnId || '').trim();
+                const soHopDong = quickAddForm.contractNo.trim();
+                const tenGoiThau = quickAddForm.packageName.trim();
+                if (!soHopDong) {
+                    setQuickAddError('Vui lòng nhập số hợp đồng.');
+                    return;
+                }
+                if (!tenGoiThau) {
+                    setQuickAddError('Vui lòng nhập tên gói thầu.');
+                    return;
+                }
+                const duAnName =
+                    projectsForSelect.find((p) => String(p.id) === duAnId)?.ten_du_an ||
+                    (projects as ProjectOpt[]).find((p) => String(p.id) === duAnId)?.ten_du_an ||
+                    null;
+                const created = await contractService.create({
+                    customer_id: customerId,
+                    du_an_id: duAnId,
+                    project_name: duAnName,
+                    so_hop_dong: soHopDong,
+                    ten_goi_thau: tenGoiThau,
+                    ngay_ky_hd: new Date().toISOString().slice(0, 10),
+                    gia_tri_hd: 0,
+                    gia_tri_qt: 0,
+                    da_thu: 0,
+                    con_phai_thu: 0,
+                    ngay_update: new Date().toISOString().slice(0, 10),
+                    file_status: 'Chưa có file',
+                });
+                if (!created) throw new Error('Không tạo được hợp đồng mới.');
+                await reloadPickersData();
+                const newHopDongId = String(created.hop_dong_row_id || created.id || '').trim();
+                if (!newHopDongId) throw new Error('Không lấy được mã hợp đồng mới.');
+                setFormData((prev) => ({
+                    ...prev,
+                    hopDongId: newHopDongId,
+                    tenGoiThau,
+                }));
+                setHopDongSearch(soHopDong || tenGoiThau || newHopDongId);
+                setHopDongPickerOpen(false);
+            }
+            setQuickAddType(null);
         } catch (e: any) {
-            alert(e?.message || 'Không thể thêm hợp đồng mới.');
+            setQuickAddError(e?.message || 'Không thể tạo mới dữ liệu.');
         } finally {
             setIsQuickAdding(false);
         }
@@ -802,7 +837,7 @@ export function ThemThuChiModal({
                                     {!customerSelectLocked && (
                                         <button
                                             type="button"
-                                            onClick={handleQuickAddCustomer}
+                                            onClick={openQuickAddCustomer}
                                             disabled={isQuickAdding}
                                             className="text-[11px] font-semibold px-2 py-1 rounded-lg border border-indigo-200 text-indigo-700 hover:bg-indigo-50 disabled:opacity-60"
                                         >
@@ -975,7 +1010,7 @@ export function ThemThuChiModal({
                                     </label>
                                     <button
                                         type="button"
-                                        onClick={handleQuickAddProject}
+                                        onClick={openQuickAddProject}
                                         disabled={isQuickAdding || needSelectCustomerFirst}
                                         className="text-[11px] font-semibold px-2 py-1 rounded-lg border border-indigo-200 text-indigo-700 hover:bg-indigo-50 disabled:opacity-60"
                                     >
@@ -1140,7 +1175,7 @@ export function ThemThuChiModal({
                                     </label>
                                     <button
                                         type="button"
-                                        onClick={handleQuickAddContract}
+                                        onClick={openQuickAddContract}
                                         disabled={
                                             isQuickAdding ||
                                             needSelectCustomerFirst ||
@@ -1509,6 +1544,135 @@ export function ThemThuChiModal({
                         {isSaving ? 'Đang lưu...' : mode === 'edit' ? 'Cập nhật phiếu' : 'Lập phiếu ngay'}
                     </button>
                 </div>
+                {quickAddType && (
+                    <div className="fixed inset-0 z-[95] bg-black/45 flex items-center justify-center p-4">
+                        <div className="w-full max-w-md rounded-2xl bg-white shadow-xl border border-slate-200 overflow-hidden">
+                            <div className="px-5 py-4 border-b border-slate-100 flex items-center justify-between">
+                                <h3 className="text-sm font-bold text-slate-800">
+                                    {quickAddType === 'customer'
+                                        ? 'Thêm khách hàng nhanh'
+                                        : quickAddType === 'project'
+                                          ? 'Thêm dự án nhanh'
+                                          : 'Thêm hợp đồng / gói thầu nhanh'}
+                                </h3>
+                                <button
+                                    type="button"
+                                    onClick={() => setQuickAddType(null)}
+                                    disabled={isQuickAdding}
+                                    className="p-1.5 rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-100 disabled:opacity-50"
+                                >
+                                    <X size={16} />
+                                </button>
+                            </div>
+                            <div className="px-5 py-4 space-y-3">
+                                {quickAddType === 'customer' && (
+                                    <>
+                                        <div>
+                                            <label className="text-xs font-semibold text-slate-600">Tên khách hàng *</label>
+                                            <input
+                                                autoFocus
+                                                value={quickAddForm.customerName}
+                                                onChange={(e) =>
+                                                    setQuickAddForm((prev) => ({
+                                                        ...prev,
+                                                        customerName: e.target.value,
+                                                    }))
+                                                }
+                                                className="mt-1 w-full px-3 py-2 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/10 focus:border-indigo-500"
+                                                placeholder="Ví dụ: Công ty ABC"
+                                            />
+                                        </div>
+                                        <div>
+                                            <label className="text-xs font-semibold text-slate-600">Mã khách/MST</label>
+                                            <input
+                                                value={quickAddForm.customerMst}
+                                                onChange={(e) =>
+                                                    setQuickAddForm((prev) => ({
+                                                        ...prev,
+                                                        customerMst: e.target.value,
+                                                    }))
+                                                }
+                                                className="mt-1 w-full px-3 py-2 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/10 focus:border-indigo-500"
+                                                placeholder="Tùy chọn"
+                                            />
+                                        </div>
+                                    </>
+                                )}
+                                {quickAddType === 'project' && (
+                                    <div>
+                                        <label className="text-xs font-semibold text-slate-600">Tên dự án *</label>
+                                        <input
+                                            autoFocus
+                                            value={quickAddForm.projectName}
+                                            onChange={(e) =>
+                                                setQuickAddForm((prev) => ({
+                                                    ...prev,
+                                                    projectName: e.target.value,
+                                                }))
+                                            }
+                                            className="mt-1 w-full px-3 py-2 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/10 focus:border-indigo-500"
+                                            placeholder="Nhập tên dự án mới"
+                                        />
+                                    </div>
+                                )}
+                                {quickAddType === 'contract' && (
+                                    <>
+                                        <div>
+                                            <label className="text-xs font-semibold text-slate-600">Số hợp đồng *</label>
+                                            <input
+                                                autoFocus
+                                                value={quickAddForm.contractNo}
+                                                onChange={(e) =>
+                                                    setQuickAddForm((prev) => ({
+                                                        ...prev,
+                                                        contractNo: e.target.value,
+                                                    }))
+                                                }
+                                                className="mt-1 w-full px-3 py-2 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/10 focus:border-indigo-500"
+                                                placeholder="Ví dụ: 12/2026/HĐ"
+                                            />
+                                        </div>
+                                        <div>
+                                            <label className="text-xs font-semibold text-slate-600">Tên gói thầu *</label>
+                                            <input
+                                                value={quickAddForm.packageName}
+                                                onChange={(e) =>
+                                                    setQuickAddForm((prev) => ({
+                                                        ...prev,
+                                                        packageName: e.target.value,
+                                                    }))
+                                                }
+                                                className="mt-1 w-full px-3 py-2 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/10 focus:border-indigo-500"
+                                                placeholder="Nhập tên gói thầu"
+                                            />
+                                        </div>
+                                    </>
+                                )}
+                                {quickAddError ? (
+                                    <p className="text-xs text-red-600 font-medium">{quickAddError}</p>
+                                ) : null}
+                            </div>
+                            <div className="px-5 py-4 border-t border-slate-100 flex justify-end gap-2">
+                                <button
+                                    type="button"
+                                    onClick={() => setQuickAddType(null)}
+                                    disabled={isQuickAdding}
+                                    className="px-4 py-2 rounded-xl border border-slate-200 text-sm font-semibold text-slate-600 hover:bg-slate-50 disabled:opacity-60"
+                                >
+                                    Hủy
+                                </button>
+                                <button
+                                    type="button"
+                                    onClick={handleSubmitQuickAdd}
+                                    disabled={isQuickAdding}
+                                    className="px-4 py-2 rounded-xl bg-indigo-600 text-sm font-semibold text-white hover:bg-indigo-700 disabled:opacity-60"
+                                >
+                                    {isQuickAdding ? 'Đang tạo...' : 'Tạo nhanh'}
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                )}
             </div>
         </div>
     );
