@@ -124,6 +124,7 @@ export function ThemHopDongModal({ isOpen, onClose, editData, contractCreatePref
     const [customerSearch, setCustomerSearch] = useState('');
     const [customerPickerOpen, setCustomerPickerOpen] = useState(false);
     const [projectPickerOpen, setProjectPickerOpen] = useState(false);
+    const [isQuickAddingCustomer, setIsQuickAddingCustomer] = useState(false);
 
     useEffect(() => {
         if (!isOpen) setPreviewUrl(null);
@@ -249,6 +250,16 @@ export function ThemHopDongModal({ isOpen, onClose, editData, contractCreatePref
         }
     }, [isOpen]);
 
+    const reloadCustomersOnly = useCallback(async () => {
+        const customerList = await customerService.getAll();
+        setCustomers(
+            (customerList || []).map((c: any) => ({
+                id: String(c.id),
+                ten_don_vi: String(c.ten_don_vi || '').trim() || '(Không tên)',
+            })),
+        );
+    }, []);
+
     const projectsForSelect = useMemo((): ProjectRow[] => {
         if (editData) return projects;
         const pre = contractCreatePrefill;
@@ -278,6 +289,35 @@ export function ThemHopDongModal({ isOpen, onClose, editData, contractCreatePref
         if (!term) return sorted;
         return sorted.filter((c) => c.ten_don_vi.toLowerCase().includes(term));
     }, [customers, customerSearch]);
+
+    const handleQuickAddCustomer = async () => {
+        if (isQuickAddingCustomer || isCustomerContractCreate || !!editData) return;
+        const tenDonVi = window.prompt('Nhập tên khách hàng mới:')?.trim();
+        if (!tenDonVi) return;
+        const mst = window.prompt('Nhập mã khách hàng/MST (không bắt buộc):')?.trim() || '';
+        try {
+            setIsQuickAddingCustomer(true);
+            const created = await customerService.create({
+                ten_don_vi: tenDonVi,
+                mst: mst || undefined,
+            });
+            if (!created?.id) throw new Error('Không tạo được khách hàng mới.');
+            await reloadCustomersOnly();
+            const cid = String(created.id);
+            setFormData((prev) => ({
+                ...prev,
+                customerId: cid,
+                projectId: '',
+            }));
+            setCustomerSearch(String(created.ten_don_vi || tenDonVi));
+            setProjectSearch('');
+            setCustomerPickerOpen(false);
+        } catch (e: any) {
+            alert(e?.message || 'Không thể thêm khách hàng mới.');
+        } finally {
+            setIsQuickAddingCustomer(false);
+        }
+    };
 
     /** Đồng bộ dropdown dự án khách: gỡ lựa chọn sai, tự chọn nếu chỉ còn 1 dự án. */
     useEffect(() => {
@@ -628,9 +668,21 @@ export function ThemHopDongModal({ isOpen, onClose, editData, contractCreatePref
                             <div className="md:col-span-2">
                                 {!isCustomerContractCreate && (
                                     <div className="mb-3">
-                                        <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1">
-                                            Khách hàng <span className="text-red-500">*</span>
-                                        </label>
+                                        <div className="mb-1 flex items-center justify-between gap-2">
+                                            <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider">
+                                                Khách hàng <span className="text-red-500">*</span>
+                                            </label>
+                                            {!editData ? (
+                                                <button
+                                                    type="button"
+                                                    onClick={handleQuickAddCustomer}
+                                                    disabled={isQuickAddingCustomer}
+                                                    className="text-[11px] font-semibold px-2 py-1 rounded-lg border border-purple-200 text-purple-700 hover:bg-purple-50 disabled:opacity-60"
+                                                >
+                                                    + Thêm khách hàng
+                                                </button>
+                                            ) : null}
+                                        </div>
                                         {editData ? (
                                             <div className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm bg-slate-50 text-slate-800">
                                                 {customerSearch.trim() || '—'}

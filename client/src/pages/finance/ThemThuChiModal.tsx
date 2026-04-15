@@ -83,6 +83,7 @@ export function ThemThuChiModal({
     customerScope = null,
 }: Props) {
     const [isSaving, setIsSaving] = useState(false);
+    const [isQuickAdding, setIsQuickAdding] = useState(false);
     const [projects, setProjects] = useState<any[]>([]);
     const [contracts, setContracts] = useState<ContractRow[]>([]);
     const [customers, setCustomers] = useState<Array<{ id: string; ten_don_vi: string }>>([]);
@@ -458,6 +459,133 @@ export function ThemThuChiModal({
         return { emps, contracts: cList, projects: pList, custList: rawCust };
     };
 
+    const reloadPickersData = async () => {
+        await loadData();
+    };
+
+    const handleQuickAddCustomer = async () => {
+        if (customerSelectLocked || isQuickAdding) return;
+        const tenDonVi = window.prompt('Nhập tên khách hàng mới:')?.trim();
+        if (!tenDonVi) return;
+        try {
+            setIsQuickAdding(true);
+            const created = await customerService.create({ ten_don_vi: tenDonVi });
+            if (!created?.id) throw new Error('Không tạo được khách hàng mới.');
+            await reloadPickersData();
+            const newId = String(created.id);
+            setFormData((prev) => ({
+                ...prev,
+                customerId: newId,
+                duAnId: '',
+                hopDongId: '',
+                tenGoiThau: '',
+            }));
+            setCustomerSearch(String(created.ten_don_vi || tenDonVi));
+            setDuAnSearch('');
+            setHopDongSearch('');
+            setCustomerPickerOpen(false);
+        } catch (e: any) {
+            alert(e?.message || 'Không thể thêm khách hàng mới.');
+        } finally {
+            setIsQuickAdding(false);
+        }
+    };
+
+    const handleQuickAddProject = async () => {
+        if (isQuickAdding) return;
+        const customerId = String(formData.customerId || '').trim();
+        if (!customerId) {
+            alert('Vui lòng chọn khách hàng trước khi thêm dự án.');
+            return;
+        }
+        const tenDuAn = window.prompt('Nhập tên dự án mới:')?.trim();
+        if (!tenDuAn) return;
+        try {
+            setIsQuickAdding(true);
+            const tenKhachHang =
+                customers.find((c) => String(c.id) === customerId)?.ten_don_vi ||
+                effectiveCustomerTenDonVi ||
+                null;
+            const created = await projectService.create({
+                ten_du_an: tenDuAn,
+                customer_id: customerId,
+                ten_khach_hang: tenKhachHang,
+                status: 'Đang thực hiện',
+                progress: 0,
+            });
+            if (!created?.id) throw new Error('Không tạo được dự án mới.');
+            await reloadPickersData();
+            const newProjectId = String(created.id);
+            setFormData((prev) => ({
+                ...prev,
+                duAnId: newProjectId,
+                hopDongId: '',
+                tenGoiThau: '',
+            }));
+            setDuAnSearch(String(created.ten_du_an || tenDuAn));
+            setHopDongSearch('');
+            setDuAnPickerOpen(false);
+        } catch (e: any) {
+            alert(e?.message || 'Không thể thêm dự án mới.');
+        } finally {
+            setIsQuickAdding(false);
+        }
+    };
+
+    const handleQuickAddContract = async () => {
+        if (isQuickAdding) return;
+        const customerId = String(formData.customerId || '').trim();
+        const duAnId = String(formData.duAnId || '').trim();
+        if (!customerId) {
+            alert('Vui lòng chọn khách hàng trước khi thêm hợp đồng.');
+            return;
+        }
+        if (!duAnId) {
+            alert('Vui lòng chọn dự án trước khi thêm hợp đồng.');
+            return;
+        }
+        const soHopDong = window.prompt('Nhập số hợp đồng mới:')?.trim();
+        if (!soHopDong) return;
+        const tenGoiThau = window.prompt('Nhập tên gói thầu:')?.trim();
+        if (!tenGoiThau) return;
+        try {
+            setIsQuickAdding(true);
+            const duAnName =
+                projectsForSelect.find((p) => String(p.id) === duAnId)?.ten_du_an ||
+                (projects as ProjectOpt[]).find((p) => String(p.id) === duAnId)?.ten_du_an ||
+                null;
+            const created = await contractService.create({
+                customer_id: customerId,
+                du_an_id: duAnId,
+                project_name: duAnName,
+                so_hop_dong: soHopDong,
+                ten_goi_thau: tenGoiThau,
+                ngay_ky_hd: new Date().toISOString().slice(0, 10),
+                gia_tri_hd: 0,
+                gia_tri_qt: 0,
+                da_thu: 0,
+                con_phai_thu: 0,
+                ngay_update: new Date().toISOString().slice(0, 10),
+                file_status: 'Chưa có file',
+            });
+            if (!created) throw new Error('Không tạo được hợp đồng mới.');
+            await reloadPickersData();
+            const newHopDongId = String(created.hop_dong_row_id || created.id || '').trim();
+            if (!newHopDongId) throw new Error('Không lấy được mã hợp đồng mới.');
+            setFormData((prev) => ({
+                ...prev,
+                hopDongId: newHopDongId,
+                tenGoiThau,
+            }));
+            setHopDongSearch(soHopDong || tenGoiThau || newHopDongId);
+            setHopDongPickerOpen(false);
+        } catch (e: any) {
+            alert(e?.message || 'Không thể thêm hợp đồng mới.');
+        } finally {
+            setIsQuickAdding(false);
+        }
+    };
+
     const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) => {
         const { name, value } = e.target;
         setFormData(prev => ({ ...prev, [name]: value }));
@@ -667,9 +795,21 @@ export function ThemThuChiModal({
                             </div>
 
                             <div className="space-y-1.5 md:col-span-2">
-                                <label className="text-[11px] font-bold text-slate-500 uppercase tracking-wider ml-1">
-                                    Khách hàng <span className="text-red-500">*</span>
-                                </label>
+                                <div className="flex items-center justify-between gap-2 ml-1">
+                                    <label className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">
+                                        Khách hàng <span className="text-red-500">*</span>
+                                    </label>
+                                    {!customerSelectLocked && (
+                                        <button
+                                            type="button"
+                                            onClick={handleQuickAddCustomer}
+                                            disabled={isQuickAdding}
+                                            className="text-[11px] font-semibold px-2 py-1 rounded-lg border border-indigo-200 text-indigo-700 hover:bg-indigo-50 disabled:opacity-60"
+                                        >
+                                            + Thêm khách hàng
+                                        </button>
+                                    )}
+                                </div>
                                 {customerSelectLocked ? (
                                     <div className="relative">
                                         <UserCircle2
@@ -829,9 +969,19 @@ export function ThemThuChiModal({
                             </div>
 
                             <div className="space-y-1.5 md:col-span-1">
-                                <label className="text-[11px] font-bold text-slate-500 uppercase tracking-wider ml-1">
-                                    Dự án liên quan
-                                </label>
+                                <div className="flex items-center justify-between gap-2 ml-1">
+                                    <label className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">
+                                        Dự án liên quan
+                                    </label>
+                                    <button
+                                        type="button"
+                                        onClick={handleQuickAddProject}
+                                        disabled={isQuickAdding || needSelectCustomerFirst}
+                                        className="text-[11px] font-semibold px-2 py-1 rounded-lg border border-indigo-200 text-indigo-700 hover:bg-indigo-50 disabled:opacity-60"
+                                    >
+                                        + Thêm dự án
+                                    </button>
+                                </div>
                                 <div className="relative z-[15]">
                                     <Search
                                         size={16}
@@ -984,9 +1134,23 @@ export function ThemThuChiModal({
                             </div>
 
                             <div className="space-y-1.5 md:col-span-1">
-                                <label className="text-[11px] font-bold text-slate-500 uppercase tracking-wider ml-1">
-                                    Hợp đồng liên quan
-                                </label>
+                                <div className="flex items-center justify-between gap-2 ml-1">
+                                    <label className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">
+                                        Hợp đồng liên quan
+                                    </label>
+                                    <button
+                                        type="button"
+                                        onClick={handleQuickAddContract}
+                                        disabled={
+                                            isQuickAdding ||
+                                            needSelectCustomerFirst ||
+                                            !String(formData.duAnId || '').trim()
+                                        }
+                                        className="text-[11px] font-semibold px-2 py-1 rounded-lg border border-indigo-200 text-indigo-700 hover:bg-indigo-50 disabled:opacity-60"
+                                    >
+                                        + Thêm HĐ / gói thầu
+                                    </button>
+                                </div>
                                 <div className="relative z-10">
                                     <Search
                                         size={16}
