@@ -76,6 +76,7 @@ type HopDongSortKey =
     | 'du_an'
     | 'hop_dong'
     | 'trang_thai'
+    | 'gia_tri_hd'
     | 'gia_tri_qt'
     | 'da_thu'
     | 'con_phai_thu'
@@ -684,6 +685,9 @@ export function HopDong() {
                 case 'trang_thai':
                     cmp = (a.c.fileStatus || '').localeCompare(b.c.fileStatus || '', 'vi');
                     break;
+                case 'gia_tri_hd':
+                    cmp = a.c.giaTriHD - b.c.giaTriHD;
+                    break;
                 case 'gia_tri_qt':
                     cmp = a.c.giaTriQT - b.c.giaTriQT;
                     break;
@@ -1189,6 +1193,16 @@ export function HopDong() {
                             <th className="px-3 py-3 text-xs text-right">
                                 <button
                                     type="button"
+                                    onClick={() => toggleHopDongSort('gia_tri_hd')}
+                                    className="w-full inline-flex items-center justify-end gap-1.5 uppercase tracking-wider font-bold text-[#f2f2ff] hover:text-white hover:bg-white/10 rounded px-1 py-0.5 -mx-1 transition-colors"
+                                >
+                                    <span>Giá trị HĐ ký</span>
+                                    <SortIcon active={hopDongSortKey === 'gia_tri_hd'} dir={hopDongSortDir} />
+                                </button>
+                            </th>
+                            <th className="px-3 py-3 text-xs text-right">
+                                <button
+                                    type="button"
                                     onClick={() => toggleHopDongSort('gia_tri_qt')}
                                     className="w-full inline-flex items-center justify-end gap-1.5 uppercase tracking-wider font-bold text-[#f2f2ff] hover:text-white hover:bg-white/10 rounded px-1 py-0.5 -mx-1 transition-colors"
                                 >
@@ -1262,6 +1276,9 @@ export function HopDong() {
                                         <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-blue-100 text-blue-700 uppercase">
                                             {c.fileStatus || 'Đang thực hiện'}
                                         </span>
+                                    </td>
+                                    <td className="px-4 py-4 text-right font-mono text-sm font-semibold text-slate-800">
+                                        {formatCurrency(c.giaTriHD)}
                                     </td>
                                     <td className="px-4 py-4 text-right font-mono text-sm font-semibold text-slate-800">
                                         {formatCurrency(c.giaTriQT)}

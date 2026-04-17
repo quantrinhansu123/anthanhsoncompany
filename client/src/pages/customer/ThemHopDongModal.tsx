@@ -125,9 +125,13 @@ export function ThemHopDongModal({ isOpen, onClose, editData, contractCreatePref
     const [customerPickerOpen, setCustomerPickerOpen] = useState(false);
     const [projectPickerOpen, setProjectPickerOpen] = useState(false);
     const [isQuickAddingCustomer, setIsQuickAddingCustomer] = useState(false);
+    const [isQuickAddingProject, setIsQuickAddingProject] = useState(false);
     const [quickCustomerModalOpen, setQuickCustomerModalOpen] = useState(false);
     const [quickCustomerForm, setQuickCustomerForm] = useState({ tenDonVi: '', mst: '' });
     const [quickCustomerError, setQuickCustomerError] = useState('');
+    const [quickProjectModalOpen, setQuickProjectModalOpen] = useState(false);
+    const [quickProjectForm, setQuickProjectForm] = useState({ tenDuAn: '' });
+    const [quickProjectError, setQuickProjectError] = useState('');
 
     useEffect(() => {
         if (!isOpen) setPreviewUrl(null);
@@ -263,6 +267,19 @@ export function ThemHopDongModal({ isOpen, onClose, editData, contractCreatePref
         );
     }, []);
 
+    const reloadProjectsOnly = useCallback(async () => {
+        const projectList = await projectService.getAll();
+        setProjects(
+            projectList.map((p) => ({
+                id: p.id,
+                ten_du_an: p.ten_du_an,
+                customer_id: p.customer_id ?? null,
+                ten_khach_hang: p.ten_khach_hang ?? null,
+                customer_name: p.customer_name ?? null,
+            })),
+        );
+    }, []);
+
     const projectsForSelect = useMemo((): ProjectRow[] => {
         if (editData) return projects;
         const pre = contractCreatePrefill;
@@ -329,6 +346,59 @@ export function ThemHopDongModal({ isOpen, onClose, editData, contractCreatePref
             setQuickCustomerError(e?.message || 'Không thể thêm khách hàng mới.');
         } finally {
             setIsQuickAddingCustomer(false);
+        }
+    };
+
+    const handleQuickAddProject = async () => {
+        if (isQuickAddingProject || !!editData) return;
+        const customerId = String(formData.customerId || contractCreatePrefill?.customer_id || '').trim();
+        if (!customerId) {
+            alert('Vui lòng chọn khách hàng trước khi thêm dự án.');
+            return;
+        }
+        setQuickProjectError('');
+        setQuickProjectForm({ tenDuAn: '' });
+        setQuickProjectModalOpen(true);
+    };
+
+    const submitQuickAddProject = async () => {
+        const customerId = String(formData.customerId || contractCreatePrefill?.customer_id || '').trim();
+        const tenDuAn = quickProjectForm.tenDuAn.trim();
+        if (!customerId) {
+            setQuickProjectError('Vui lòng chọn khách hàng trước khi thêm dự án.');
+            return;
+        }
+        if (!tenDuAn) {
+            setQuickProjectError('Vui lòng nhập tên dự án.');
+            return;
+        }
+        try {
+            setIsQuickAddingProject(true);
+            const customerName =
+                customers.find((c) => String(c.id) === customerId)?.ten_don_vi ||
+                contractCreatePrefill?.ten_don_vi ||
+                null;
+            const created = await projectService.create({
+                ten_du_an: tenDuAn,
+                customer_id: customerId,
+                ten_khach_hang: customerName,
+                status: 'Đang thực hiện',
+                progress: 0,
+            });
+            if (!created?.id) throw new Error('Không tạo được dự án mới.');
+            await reloadProjectsOnly();
+            setFormData((prev) => ({
+                ...prev,
+                customerId: customerId || prev.customerId,
+                projectId: String(created.id),
+            }));
+            setProjectSearch(String(created.ten_du_an || tenDuAn));
+            setProjectPickerOpen(false);
+            setQuickProjectModalOpen(false);
+        } catch (e: any) {
+            setQuickProjectError(e?.message || 'Không thể thêm dự án mới.');
+        } finally {
+            setIsQuickAddingProject(false);
         }
     };
 
@@ -829,9 +899,24 @@ export function ThemHopDongModal({ isOpen, onClose, editData, contractCreatePref
                                         )}
                                     </div>
                                 )}
-                                <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1">
-                                    Dự án <span className="text-red-500">*</span>
-                                </label>
+                                <div className="mb-1 flex items-center justify-between gap-2">
+                                    <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider">
+                                        Dự án <span className="text-red-500">*</span>
+                                    </label>
+                                    {!editData ? (
+                                        <button
+                                            type="button"
+                                            onClick={handleQuickAddProject}
+                                            disabled={
+                                                isQuickAddingProject ||
+                                                (!isCustomerContractCreate && !String(formData.customerId || '').trim())
+                                            }
+                                            className="text-[11px] font-semibold px-2 py-1 rounded-lg border border-purple-200 text-purple-700 hover:bg-purple-50 disabled:opacity-60"
+                                        >
+                                            + Thêm dự án
+                                        </button>
+                                    ) : null}
+                                </div>
                                 {editData ? (
                                     <div className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm bg-slate-50 text-slate-800">
                                         {projectSearch.trim() ||
@@ -965,8 +1050,7 @@ export function ThemHopDongModal({ isOpen, onClose, editData, contractCreatePref
                                 )}
                                 {noProjectsForCustomer ? (
                                     <p className="text-xs text-amber-800 mt-1.5 font-medium">
-                                        Khách hàng này chưa có dự án. Thêm dự án ở tab <strong>Dự án</strong> trong
-                                        chi tiết khách hàng, rồi mở lại thêm hợp đồng.
+                                        Khách hàng này chưa có dự án. Bấm <strong>+ Thêm dự án</strong> ngay tại đây để tạo nhanh.
                                     </p>
                                 ) : isCustomerContractCreate && projectsForSelect.length > 0 ? (
                                     <p className="text-xs text-slate-500 mt-1">
@@ -1452,6 +1536,62 @@ export function ThemHopDongModal({ isOpen, onClose, editData, contractCreatePref
                                         className="px-4 py-2 bg-blue-600 rounded-lg text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
                                     >
                                         {isQuickAddingCustomer ? 'Đang tạo...' : 'Tạo nhanh'}
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                )}
+                {quickProjectModalOpen && (
+                    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-[90] p-4">
+                        <div className="bg-white w-full max-w-sm rounded-xl shadow-xl overflow-hidden">
+                            <div className="px-6 py-4 border-b border-slate-200 flex items-center justify-between">
+                                <h3 className="text-lg font-bold text-slate-800">Thêm dự án nhanh</h3>
+                                <button
+                                    type="button"
+                                    onClick={() => setQuickProjectModalOpen(false)}
+                                    className="p-1.5 hover:bg-slate-100 rounded transition-colors"
+                                    disabled={isQuickAddingProject}
+                                >
+                                    <X size={18} className="text-slate-600" />
+                                </button>
+                            </div>
+                            <div className="p-6 space-y-4">
+                                <div>
+                                    <label className="block text-sm font-medium text-slate-700 mb-1">Tên dự án *</label>
+                                    <input
+                                        type="text"
+                                        value={quickProjectForm.tenDuAn}
+                                        onChange={(e) =>
+                                            setQuickProjectForm((prev) => ({
+                                                ...prev,
+                                                tenDuAn: e.target.value,
+                                            }))
+                                        }
+                                        className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-purple-500"
+                                        placeholder="Ví dụ: Dự án Nhà máy ABC"
+                                        autoFocus
+                                    />
+                                </div>
+                                {quickProjectError ? (
+                                    <p className="text-xs text-red-600 font-medium">{quickProjectError}</p>
+                                ) : null}
+                                <div className="flex items-center justify-end gap-2">
+                                    <button
+                                        type="button"
+                                        onClick={() => setQuickProjectModalOpen(false)}
+                                        className="px-4 py-2 border border-slate-200 rounded-lg text-sm font-semibold text-slate-600 hover:bg-slate-50"
+                                        disabled={isQuickAddingProject}
+                                    >
+                                        Hủy
+                                    </button>
+                                    <button
+                                        type="button"
+                                        onClick={submitQuickAddProject}
+                                        disabled={isQuickAddingProject}
+                                        className="px-4 py-2 bg-blue-600 rounded-lg text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                                    >
+                                        {isQuickAddingProject ? 'Đang tạo...' : 'Tạo nhanh'}
                                     </button>
                                 </div>
                             </div>

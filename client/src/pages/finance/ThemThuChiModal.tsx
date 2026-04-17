@@ -782,7 +782,7 @@ export function ThemThuChiModal({
                                         name="tinhTrangPhieu"
                                         value={formData.tinhTrangPhieu}
                                         onChange={handleChange}
-                                        className="w-full appearance-none pl-4 pr-14 py-3 bg-white border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500/10 focus:border-indigo-500 text-sm text-slate-800 transition-all hover:border-slate-300 shadow-sm"
+                                        className="w-full appearance-none pl-4 pr-10 py-3 bg-white border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500/10 focus:border-indigo-500 text-sm text-slate-800 transition-all hover:border-slate-300 shadow-sm"
                                     >
                                         <option value="">— Trống —</option>
                                         <option value="Tạm ứng">Tạm ứng</option>
@@ -795,19 +795,10 @@ export function ThemThuChiModal({
                                             </option>
                                         )}
                                     </select>
-                                    <div className="absolute right-3 top-1/2 -translate-y-1/2 flex items-center gap-1">
-                                        <button
-                                            type="button"
-                                            onClick={() =>
-                                                setFormData((prev) => ({ ...prev, tinhTrangPhieu: '' }))
-                                            }
-                                            className="rounded-lg p-1 text-slate-400 hover:text-slate-600 hover:bg-slate-100"
-                                            aria-label="Xóa tình trạng"
-                                        >
-                                            <X size={16} />
-                                        </button>
-                                        <ChevronDown size={16} className="text-slate-400 pointer-events-none" />
-                                    </div>
+                                    <ChevronDown
+                                        size={16}
+                                        className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none"
+                                    />
                                 </div>
                                 <p className="text-[11px] text-slate-500 ml-1">
                                     Khớp cột «Tình trạng» trên danh sách (ví dụ thu CĐT: Thanh toán / Tạm ứng).
