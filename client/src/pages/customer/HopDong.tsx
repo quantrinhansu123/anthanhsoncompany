@@ -1147,7 +1147,8 @@ export function HopDong() {
             </section>
 
             <section className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
-                <table className="w-full text-left border-collapse">
+                <div className="overflow-x-auto">
+                <table className="w-full min-w-[1680px] text-left border-collapse">
                     <thead className="bg-[#283044] border-b border-[#1c2436]">
                         <tr>
                             <th className="px-4 py-3 text-xs min-w-[8rem]">
@@ -1323,6 +1324,7 @@ export function HopDong() {
                         })}
                     </tbody>
                 </table>
+                </div>
 
                 <div className="px-6 py-4 bg-slate-50 flex justify-between items-center border-t border-slate-100">
                     <p className="text-sm text-slate-500">
