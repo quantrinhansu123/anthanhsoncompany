@@ -26,6 +26,7 @@ import {
 import { useNavigate } from 'react-router-dom';
 import { certificateService, type ProfessionalCertificate } from '../../lib/services/certificateService';
 import { employeeService } from '../../lib/services/employeeService';
+import { dependentPersonService, type DependentPerson } from '../../lib/services/dependentPersonService';
 import { PreviewLinkModal } from '../../components/PreviewLinkModal';
 import { FileViewerModal } from '../../components/FileViewerModal';
 
@@ -57,6 +58,8 @@ export function ChungChiHanhNghe() {
   const [certificateFileNameSearch, setCertificateFileNameSearch] = useState('');
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [showCertificateFileNameDropdown, setShowCertificateFileNameDropdown] = useState(false);
+  const [dependentPersons, setDependentPersons] = useState<DependentPerson[]>([]);
+  const [loadingDependents, setLoadingDependents] = useState(false);
   const itemsPerPage = 10;
 
   // Load data from Supabase
@@ -88,6 +91,23 @@ export function ChungChiHanhNghe() {
     }
   };
 
+  const loadDependentPersons = async (employeeId: string) => {
+    if (!employeeId) {
+      setDependentPersons([]);
+      return;
+    }
+    try {
+      setLoadingDependents(true);
+      const data = await dependentPersonService.getByEmployeeId(employeeId);
+      setDependentPersons(data);
+    } catch (err: any) {
+      console.error('Error loading dependent persons:', err);
+      setDependentPersons([]);
+    } finally {
+      setLoadingDependents(false);
+    }
+  };
+
   const toggleSelect = (id: string) => {
     setSelectedIds(prev => prev.includes(id) ? prev.filter(i => i !== id) : [...prev, id]);
   };
@@ -107,6 +127,12 @@ export function ChungChiHanhNghe() {
         ...certificate,
         employee_id: certificate.employee_id || ''
       });
+      // Load dependent persons when editing
+      if (certificate.employee_id) {
+        loadDependentPersons(certificate.employee_id.toString());
+      } else {
+        setDependentPersons([]);
+      }
     } else {
       setEditingCertificate(null);
       setCertificateFormData({
@@ -123,6 +149,7 @@ export function ChungChiHanhNghe() {
         employeeName: '',
         employeeCode: ''
       });
+      setDependentPersons([]);
     }
     setShowCertificateModal(true);
   };
@@ -144,10 +171,15 @@ export function ChungChiHanhNghe() {
       employeeName: '',
       employeeCode: ''
     });
+    setDependentPersons([]);
   };
 
   const handleCertificateInputChange = (field: keyof ProfessionalCertificate, value: string | File | null) => {
     setCertificateFormData(prev => ({ ...prev, [field]: value }));
+    // Load dependent persons when employee is selected
+    if (field === 'employee_id' && typeof value === 'string') {
+      loadDependentPersons(value);
+    }
   };
 
   const handleCertificateFileInputChange = async (field: 'file' | 'anh' | 'anh2', e: React.ChangeEvent<HTMLInputElement>) => {
@@ -643,6 +675,70 @@ export function ChungChiHanhNghe() {
                 </select>
               </div>
 
+              {/* Thông tin người phụ thuộc */}
+              {certificateFormData.employee_id && (
+                <div className="bg-slate-50 rounded-lg p-4 border border-slate-200">
+                  <div className="flex items-center gap-2 mb-3">
+                    <User size={16} className="text-slate-600" />
+                    <h4 className="text-sm font-semibold text-slate-700">Thông tin người phụ thuộc</h4>
+                  </div>
+                  {loadingDependents ? (
+                    <div className="flex items-center gap-2 text-sm text-slate-500">
+                      <Loader2 size={14} className="animate-spin" />
+                      Đang tải...
+                    </div>
+                  ) : dependentPersons.length > 0 ? (
+                    <div className="space-y-2">
+                      {dependentPersons.map((person, index) => (
+                        <div key={person.id || index} className="flex items-start gap-3 p-2 bg-white rounded border border-slate-200">
+                          {person.anh_url || person.hinh_anh ? (
+                            <div className="w-10 h-10 rounded-full overflow-hidden border border-slate-200 flex-shrink-0">
+                              <img 
+                                src={person.anh_url || person.hinh_anh} 
+                                alt={person.hoTenNPT || person.ho_ten_npt || 'NPT'}
+                                className="w-full h-full object-cover"
+                              />
+                            </div>
+                          ) : (
+                            <div className="w-10 h-10 rounded-full bg-slate-200 flex items-center justify-center flex-shrink-0">
+                              <User size={18} className="text-slate-500" />
+                            </div>
+                          )}
+                          <div className="flex-1 min-w-0">
+                            <div className="text-sm font-medium text-slate-800">
+                              {person.hoTenNPT || person.ho_ten_npt || '(Trống)'}
+                            </div>
+                            <div className="text-xs text-slate-500 space-y-0.5">
+                              {person.ngaySinhNPT || person.ngay_sinh_npt ? (
+                                <div>Ngày sinh: {person.ngaySinhNPT || person.ngay_sinh_npt}</div>
+                              ) : null}
+                              {person.quanHe || person.quan_he ? (
+                                <div>Quan hệ: {person.quanHe || person.quan_he}</div>
+                              ) : null}
+                              {person.soCCCDNPT || person.so_cccd_npt ? (
+                                <div>CCCD: {person.soCCCDNPT || person.so_cccd_npt}</div>
+                              ) : null}
+                            </div>
+                            {(person.file_url || person.file_dinh_kem) && (
+                              <button
+                                type="button"
+                                onClick={() => setPreviewUrl(person.file_url || person.file_dinh_kem)}
+                                className="mt-1 text-xs text-blue-600 hover:text-blue-800 hover:underline flex items-center gap-1"
+                              >
+                                <Eye size={12} />
+                                Xem file đính kèm
+                              </button>
+                            )}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <div className="text-sm text-slate-500 italic">Không có người phụ thuộc</div>
+                  )}
+                </div>
+              )}
+
               {/* Tên file lưu */}
               <div>
                 <label className="block text-sm font-medium text-slate-700 mb-1.5">
@@ -698,7 +794,7 @@ export function ChungChiHanhNghe() {
                   <input
                     id="cert-file-input"
                     type="file"
-                    accept=".pdf,.doc,.docx"
+                    accept=".pdf,.doc,.docx,.xls,.xlsx"
                     onChange={(e) => handleCertificateFileInputChange('file', e)}
                     className="hidden"
                   />
@@ -736,7 +832,7 @@ export function ChungChiHanhNghe() {
                     ) : (
                       <>
                         <FileText size={24} className="text-slate-400" />
-                        <span className="text-sm text-slate-500">Chọn file PDF</span>
+                        <span className="text-sm text-slate-500">Chọn file PDF, Word, Excel</span>
                       </>
                     )}
                   </label>
