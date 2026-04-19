@@ -12,6 +12,7 @@ import { thuChiService, ThuChiRow } from '../../lib/services/thuChiService';
 import { projectService } from '../../lib/services/projectService';
 import { taskDetailService, type ViPhamNhanSuRow } from '../../lib/services/taskDetailService';
 import { PreviewLinkModal } from '../../components/PreviewLinkModal';
+import { FileViewerModal } from '../../components/FileViewerModal';
 
 function formatLoiNgayGio(iso: string): string {
   try {
@@ -206,6 +207,13 @@ export function ChiTietNhanVienModal({ isOpen, onClose, employeeId }: Props) {
             </div>
         </div>
     <PreviewLinkModal url={previewUrl} onClose={() => setPreviewUrl(null)} title="Xem tệp" zIndexClass="z-[240]" />
+    {previewUrl && (
+      <FileViewerModal
+        isOpen={!!previewUrl}
+        onClose={() => setPreviewUrl(null)}
+        fileUrl={previewUrl}
+      />
+    )}
     </>
     );
   }
@@ -373,9 +381,36 @@ export function ChiTietNhanVienModal({ isOpen, onClose, employeeId }: Props) {
                           </td>
                           <td className="p-3">
                             <div className="flex gap-2 text-xs">
-                                {cert.file_url && <a href={cert.file_url} className="text-blue-600 hover:underline">File</a>}
-                                {cert.anh_url && <a href={cert.anh_url} className="text-blue-600 hover:underline">Ảnh 1</a>}
-                                {cert.anh2_url && <a href={cert.anh2_url} className="text-blue-600 hover:underline">Ảnh 2</a>}
+                                {cert.file_url && (
+                                  <button
+                                    onClick={() => setPreviewUrl(cert.file_url || '')}
+                                    className="text-blue-600 hover:text-blue-800 hover:underline flex items-center gap-1"
+                                  >
+                                    <Eye size={12} />
+                                    File
+                                  </button>
+                                )}
+                                {cert.anh_url && (
+                                  <button
+                                    onClick={() => setPreviewUrl(cert.anh_url || '')}
+                                    className="text-blue-600 hover:text-blue-800 hover:underline flex items-center gap-1"
+                                  >
+                                    <Eye size={12} />
+                                    Ảnh 1
+                                  </button>
+                                )}
+                                {cert.anh2_url && (
+                                  <button
+                                    onClick={() => setPreviewUrl(cert.anh2_url || '')}
+                                    className="text-blue-600 hover:text-blue-800 hover:underline flex items-center gap-1"
+                                  >
+                                    <Eye size={12} />
+                                    Ảnh 2
+                                  </button>
+                                )}
+                                {!cert.file_url && !cert.anh_url && !cert.anh2_url && (
+                                  <span className="text-slate-400 italic">Chưa có file</span>
+                                )}
                             </div>
                           </td>
                         </tr>
@@ -581,6 +616,13 @@ export function ChiTietNhanVienModal({ isOpen, onClose, employeeId }: Props) {
       </div>
     </div>
     <PreviewLinkModal url={previewUrl} onClose={() => setPreviewUrl(null)} title="Xem tệp" zIndexClass="z-[240]" />
+    {previewUrl && (
+      <FileViewerModal
+        isOpen={!!previewUrl}
+        onClose={() => setPreviewUrl(null)}
+        fileUrl={previewUrl}
+      />
+    )}
     </>
   );
 }

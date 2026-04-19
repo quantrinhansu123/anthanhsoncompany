@@ -1128,7 +1128,37 @@ export function HopDong() {
                                             ngay_ky_hd: parseExcelDate(r.ngay_ky_hd, r.nam_ky_hd),
                                         });
                                     }
-                                    const result = await contractService.bulkImport(processedChunk);
+                                    
+                                    // Nhóm các dòng theo số hợp đồng và cộng dồn giá trị quyết toán
+                                    const contractGroups = new Map<string, any>();
+                                    for (const row of processedChunk) {
+                                        const soHd = (row.so_hop_dong || '').trim().toLowerCase();
+                                        const duAnId = row.du_an_id || '';
+                                        const groupKey = `${soHd}|${duAnId}`; // Key = số HĐ + dự án để tránh trùng
+                                        
+                                        if (!soHd) {
+                                            // Không có số HĐ, xử lý như bình thường (không nhóm)
+                                            const uniqueKey = `no_contract_${Math.random()}`;
+                                            contractGroups.set(uniqueKey, row);
+                                            continue;
+                                        }
+                                        
+                                        if (contractGroups.has(groupKey)) {
+                                            // Đã có HĐ này, cộng dồn giá trị
+                                            const existing = contractGroups.get(groupKey);
+                                            existing.gia_tri_hd += row.gia_tri_hd || 0;
+                                            existing.gia_tri_qt += row.gia_tri_qt || 0;
+                                            // Không cộng da_thu và con_phai_thu vì sẽ được tính lại từ phiếu thu
+                                            // Giữ nguyên thông tin khác từ dòng đầu tiên
+                                        } else {
+                                            // HĐ mới, thêm vào map
+                                            contractGroups.set(groupKey, { ...row });
+                                        }
+                                    }
+                                    
+                                    // Chuyển map thành array để import
+                                    const mergedChunk = Array.from(contractGroups.values());
+                                    const result = await contractService.bulkImport(mergedChunk);
                                     totalOk += result.created + result.updated;
                                     if (result.errors.length > 0) allErrors.push(...result.errors);
                                 }
@@ -1148,7 +1178,7 @@ export function HopDong() {
 
             <section className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
                 <div className="overflow-x-auto">
-                <table className="w-full min-w-[1680px] text-left border-collapse">
+                <table className="w-full min-w-[1780px] text-left border-collapse">
                     <thead className="bg-[#283044] border-b border-[#1c2436]">
                         <tr>
                             <th className="px-4 py-3 text-xs min-w-[8rem]">
@@ -1180,6 +1210,11 @@ export function HopDong() {
                                     <span>Hợp đồng / Nội dung</span>
                                     <SortIcon active={hopDongSortKey === 'hop_dong'} dir={hopDongSortDir} />
                                 </button>
+                            </th>
+                            <th className="px-3 py-3 text-xs text-center min-w-[6rem]">
+                                <span className="uppercase tracking-wider font-bold text-[#f2f2ff]">
+                                    Ngày ký HĐ
+                                </span>
                             </th>
                             <th className="px-3 py-3 text-xs">
                                 <button
@@ -1272,6 +1307,9 @@ export function HopDong() {
                                             <span className="font-bold text-slate-900 text-sm">{c.soHopDong}</span>
                                             <span className="text-xs text-slate-500 mt-1">{c.tenGoiThau}</span>
                                         </div>
+                                    </td>
+                                    <td className="px-3 py-3 text-center text-xs text-slate-700 font-medium whitespace-nowrap">
+                                        {c.ngayKyHD || '—'}
                                     </td>
                                     <td className="px-4 py-4">
                                         <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-blue-100 text-blue-700 uppercase">

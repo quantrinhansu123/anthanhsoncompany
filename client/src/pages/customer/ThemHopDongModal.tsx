@@ -21,6 +21,7 @@ import { customerService } from '../../lib/services/customerService';
 import { employeeService } from '../../lib/services/employeeService';
 import { thuChiService } from '../../lib/services/thuChiService';
 import { PreviewLinkModal } from '../../components/PreviewLinkModal';
+import { FileViewerModal } from '../../components/FileViewerModal';
 import type { ContractCreatePrefill } from '../../contexts/HopDongModalContext';
 import { cn } from '../../lib/utils';
 import { emitHopDongProfileAccess } from '../../lib/hopDongProfileAccess';
@@ -1317,46 +1318,52 @@ export function ThemHopDongModal({ isOpen, onClose, editData, contractCreatePref
                         </div>
                         
                         <div className="bg-white border border-slate-200 rounded-xl overflow-hidden shadow-sm">
-                            <div className="p-4 bg-slate-50/50 border-b border-slate-100 flex gap-3">
-                                <select 
-                                    value={selectedFileType} 
-                                    onChange={(e) => setSelectedFileType(e.target.value)} 
-                                    className="flex-1 min-w-[120px] px-3 py-2 border border-slate-200 rounded-lg text-sm bg-white focus:outline-none focus:ring-2 focus:ring-orange-500/20"
-                                >
-                                    {FILE_TYPES.map(type => (
-                                        <option key={type} value={type}>{type}</option>
-                                    ))}
-                                </select>
-                                <input 
-                                    type="url" 
-                                    value={fileLink} 
-                                    onChange={(e) => setFileLink(e.target.value)} 
-                                    placeholder="Dán link tài liệu..." 
-                                    className="flex-[2] px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-orange-500/20" 
-                                />
-                                <label className="px-3 py-2 border border-slate-200 rounded-lg text-sm font-semibold text-slate-700 bg-white hover:bg-slate-50 transition-colors cursor-pointer flex items-center gap-2">
-                                    <Upload size={15} />
-                                    {isUploadingFile ? 'Đang tải...' : 'Tải lên'}
-                                    <input
-                                        type="file"
-                                        className="hidden"
-                                        disabled={isUploadingFile}
-                                        onChange={(e) => {
-                                            const file = e.target.files?.[0] || null;
-                                            void handleUploadFile(file);
-                                            e.currentTarget.value = '';
-                                        }}
+                            <div className="p-4 bg-slate-50/50 border-b border-slate-100">
+                                <div className="flex gap-3 mb-2">
+                                    <select 
+                                        value={selectedFileType} 
+                                        onChange={(e) => setSelectedFileType(e.target.value)} 
+                                        className="flex-1 min-w-[120px] px-3 py-2 border border-slate-200 rounded-lg text-sm bg-white focus:outline-none focus:ring-2 focus:ring-orange-500/20"
+                                    >
+                                        {FILE_TYPES.map(type => (
+                                            <option key={type} value={type}>{type}</option>
+                                        ))}
+                                    </select>
+                                    <input 
+                                        type="url" 
+                                        value={fileLink} 
+                                        onChange={(e) => setFileLink(e.target.value)} 
+                                        placeholder="Dán link tài liệu..." 
+                                        className="flex-[2] px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-orange-500/20" 
                                     />
-                                </label>
-                                <button 
-                                    type="button"
-                                    onClick={handleAddLink}
-                                    disabled={isAddingLink}
-                                    className="px-4 py-2 bg-orange-500 text-white rounded-lg text-sm font-bold hover:bg-orange-600 transition-colors flex items-center gap-2"
-                                >
-                                    <Plus size={16} />
-                                    <span>Thêm</span>
-                                </button>
+                                    <label className="px-3 py-2 border border-slate-200 rounded-lg text-sm font-semibold text-slate-700 bg-white hover:bg-slate-50 transition-colors cursor-pointer flex items-center gap-2">
+                                        <Upload size={15} />
+                                        {isUploadingFile ? 'Đang tải...' : 'Tải lên'}
+                                        <input
+                                            type="file"
+                                            className="hidden"
+                                            disabled={isUploadingFile}
+                                            accept=".pdf,.doc,.docx,.xls,.xlsx,.jpg,.jpeg,.png"
+                                            onChange={(e) => {
+                                                const file = e.target.files?.[0] || null;
+                                                void handleUploadFile(file);
+                                                e.currentTarget.value = '';
+                                            }}
+                                        />
+                                    </label>
+                                    <button 
+                                        type="button"
+                                        onClick={handleAddLink}
+                                        disabled={isAddingLink}
+                                        className="px-4 py-2 bg-orange-500 text-white rounded-lg text-sm font-bold hover:bg-orange-600 transition-colors flex items-center gap-2"
+                                    >
+                                        <Plus size={16} />
+                                        <span>Thêm</span>
+                                    </button>
+                                </div>
+                                <p className="text-[11px] text-slate-500 px-1">
+                                    💡 Hỗ trợ: PDF, Word (.doc, .docx), Excel (.xls, .xlsx), Ảnh (.jpg, .png)
+                                </p>
                             </div>
                             
                             <div className="divide-y divide-slate-100">
@@ -1600,12 +1607,16 @@ export function ThemHopDongModal({ isOpen, onClose, editData, contractCreatePref
                 )}
             </div>
         </div>
-        <PreviewLinkModal
-            url={previewUrl}
-            onClose={() => setPreviewUrl(null)}
-            title="Xem tài liệu"
-            zIndexClass="z-[320]"
-        />
+        
+        {/* File Viewer Modal */}
+        {previewUrl && (
+            <FileViewerModal
+                isOpen={!!previewUrl}
+                onClose={() => setPreviewUrl(null)}
+                fileUrl={previewUrl}
+                fileName={contractFiles.find(f => f.file_url === previewUrl)?.file_name}
+            />
+        )}
         </>
     );
 }

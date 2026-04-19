@@ -19,12 +19,14 @@ import {
   ChevronsRight,
   CheckSquare,
   Square,
-  Loader2
+  Loader2,
+  Eye
 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { certificateService, type ProfessionalCertificate } from '../../lib/services/certificateService';
 import { employeeService } from '../../lib/services/employeeService';
 import { PreviewLinkModal } from '../../components/PreviewLinkModal';
+import { FileViewerModal } from '../../components/FileViewerModal';
 
 export function ChungChiHanhNghe() {
   const navigate = useNavigate();
@@ -426,8 +428,9 @@ export function ChungChiHanhNghe() {
                           <button
                             type="button"
                             onClick={() => setPreviewUrl(certificate.file_url)}
-                            className="text-blue-600 hover:underline"
+                            className="text-blue-600 hover:text-blue-800 hover:underline flex items-center gap-1"
                           >
+                            <Eye size={14} />
                             Xem file
                           </button>
                         ) : (
@@ -444,6 +447,14 @@ export function ChungChiHanhNghe() {
                                 className="w-full h-full object-cover"
                               />
                             </div>
+                            <button
+                              type="button"
+                              onClick={() => setPreviewUrl(certificate.anh_url)}
+                              className="text-blue-600 hover:text-blue-800 hover:underline flex items-center gap-1 text-xs"
+                            >
+                              <Eye size={12} />
+                              Xem
+                            </button>
                           </div>
                         ) : (
                           <span className="text-slate-400">(Trống)</span>
@@ -459,6 +470,14 @@ export function ChungChiHanhNghe() {
                                 className="w-full h-full object-cover"
                               />
                             </div>
+                            <button
+                              type="button"
+                              onClick={() => setPreviewUrl(certificate.anh2_url)}
+                              className="text-blue-600 hover:text-blue-800 hover:underline flex items-center gap-1 text-xs"
+                            >
+                              <Eye size={12} />
+                              Xem
+                            </button>
                           </div>
                         ) : (
                           <span className="text-slate-400">(Trống)</span>
@@ -695,8 +714,9 @@ export function ChungChiHanhNghe() {
                             e.stopPropagation();
                             setPreviewUrl(certificateFormData.file_url);
                           }}
-                          className="flex-1 text-sm text-blue-600 hover:underline text-left"
+                          className="flex-1 text-sm text-blue-600 hover:text-blue-800 hover:underline text-left flex items-center gap-1"
                         >
+                          <Eye size={14} />
                           Xem file
                         </button>
                         <button
@@ -754,8 +774,9 @@ export function ChungChiHanhNghe() {
                             e.stopPropagation();
                             setPreviewUrl(certificateFormData.anh_url);
                           }}
-                          className="flex-1 text-sm text-blue-600 hover:underline text-left"
+                          className="flex-1 text-sm text-blue-600 hover:text-blue-800 hover:underline text-left flex items-center gap-1"
                         >
+                          <Eye size={14} />
                           Xem ảnh
                         </button>
                         <button
@@ -806,9 +827,18 @@ export function ChungChiHanhNghe() {
                             className="w-full h-full object-cover"
                           />
                         </div>
-                        <a href={certificateFormData.anh2_url} rel="noopener noreferrer" className="flex-1 text-sm text-blue-600 hover:underline">
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.preventDefault();
+                            e.stopPropagation();
+                            setPreviewUrl(certificateFormData.anh2_url);
+                          }}
+                          className="flex-1 text-sm text-blue-600 hover:text-blue-800 hover:underline text-left flex items-center gap-1"
+                        >
+                          <Eye size={14} />
                           Xem ảnh
-                        </a>
+                        </button>
                         <button
                           type="button"
                           onClick={(e) => {
@@ -901,6 +931,13 @@ export function ChungChiHanhNghe() {
       title="Xem tài liệu"
       zIndexClass="z-[200]"
     />
+    {previewUrl && (
+      <FileViewerModal
+        isOpen={!!previewUrl}
+        onClose={() => setPreviewUrl(null)}
+        fileUrl={previewUrl}
+      />
+    )}
     </>
   );
 }
