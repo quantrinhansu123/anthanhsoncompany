@@ -247,7 +247,8 @@ export function ThemHopDongModal({ isOpen, onClose, editData, contractCreatePref
                             .map((c) => c?.loai_dich_vu)
                             .filter((v): v is string => Boolean(v && v.toString().trim() !== ''))
                     )
-                ).sort((a, b) => a.localeCompare(b, 'vi'));
+                ) as string[];
+                uniqueLoaiDichVu.sort((a, b) => a.localeCompare(b, 'vi'));
                 setLoaiDichVuOptions(uniqueLoaiDichVu);
             } catch (error) {
                 console.error('Error loading initial data:', error);

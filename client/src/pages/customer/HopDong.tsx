@@ -1312,9 +1312,39 @@ export function HopDong() {
                                         {c.ngayKyHD || '—'}
                                     </td>
                                     <td className="px-4 py-4">
-                                        <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-blue-100 text-blue-700 uppercase">
-                                            {c.fileStatus || 'Đang thực hiện'}
-                                        </span>
+                                        {(() => {
+                                            const status = c.fileStatus || 'Chưa có file';
+                                            const isDayDu = status === 'Đầy đủ file';
+                                            const fileCount = (c.files || []).length;
+                                            
+                                            if (isDayDu) {
+                                                return (
+                                                    <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-emerald-100 text-emerald-700">
+                                                        <CheckCircle size={10} />
+                                                        Đầy đủ
+                                                    </span>
+                                                );
+                                            }
+                                            
+                                            if (fileCount === 0) {
+                                                return (
+                                                    <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-slate-100 text-slate-600">
+                                                        Chưa có file
+                                                    </span>
+                                                );
+                                            }
+                                            
+                                            // Có file nhưng chưa đủ
+                                            return (
+                                                <div className="flex flex-col gap-0.5">
+                                                    <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-amber-100 text-amber-700 w-fit">
+                                                        <FileText size={10} />
+                                                        {fileCount} file
+                                                    </span>
+                                                    <span className="text-[9px] text-slate-500">Chưa đủ</span>
+                                                </div>
+                                            );
+                                        })()}
                                     </td>
                                     <td className="px-4 py-4 text-right font-mono text-sm font-semibold text-slate-800">
                                         {formatCurrency(c.giaTriHD)}
