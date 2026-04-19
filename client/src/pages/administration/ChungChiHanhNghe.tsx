@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { createPortal } from 'react-dom';
 import { addMonths, isBefore, parse, parseISO, startOfDay } from 'date-fns';
 import {
   ArrowLeft,
@@ -153,9 +154,10 @@ export function ChungChiHanhNghe() {
     const file = e.target.files?.[0] || null;
     if (file) {
       try {
-        // Upload file to Supabase Storage
-        const filePath = `certificates/${Date.now()}_${file.name}`;
-        const url = await certificateService.uploadFile('certificates', filePath, file);
+        // Upload file to Supabase Storage - dùng bucket chung với hợp đồng
+        const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, '_');
+        const filePath = `chung-chi/${Date.now()}_${safeName}`;
+        const url = await certificateService.uploadFile('hop_dong', filePath, file);
 
         // Update form data with URL
         const urlField = field === 'file' ? 'file_url' : field === 'anh' ? 'anh_url' : 'anh2_url';
@@ -588,8 +590,8 @@ export function ChungChiHanhNghe() {
       </div>
 
       {/* Certificate Modal */}
-      {showCertificateModal && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+      {showCertificateModal && createPortal(
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-[9999] p-4">
           <div className="bg-white rounded-lg shadow-xl w-full max-w-3xl max-h-[90vh] overflow-y-auto">
             {/* Modal Header */}
             <div className="sticky top-0 bg-white border-b border-slate-200 px-6 py-4 flex items-center justify-between">
@@ -922,7 +924,8 @@ export function ChungChiHanhNghe() {
               </div>
             </div>
           </div>
-        </div>
+        </div>,
+        document.body
       )}
     </div>
     <PreviewLinkModal

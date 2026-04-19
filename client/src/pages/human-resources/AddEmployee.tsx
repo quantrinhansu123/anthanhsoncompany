@@ -74,6 +74,8 @@ export function AddEmployee() {
     namTotNghiep: 0,
     anhNhanSuUrl: '' as string | null // URL ảnh nhân sự (link)
   });
+  
+  const [isUploadingAvatar, setIsUploadingAvatar] = useState(false);
 
   const [dependents, setDependents] = useState<Dependent[]>([]);
   const [certificates, setCertificates] = useState<ProfessionalCertificate[]>([]);
@@ -273,6 +275,26 @@ export function AddEmployee() {
         delete newErrors[field];
         return newErrors;
       });
+    }
+  };
+  
+  const handleUploadAvatar = async (file: File | null) => {
+    if (!file || isUploadingAvatar) return;
+    
+    setIsUploadingAvatar(true);
+    try {
+      const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, '_');
+      const filePath = `nhan-su/${Date.now()}_${safeName}`;
+      
+      // Dùng certificateService.uploadFile vì nó đã có logic fallback bucket
+      const uploadedUrl = await certificateService.uploadFile('hop_dong', filePath, file);
+      
+      setFormData(prev => ({ ...prev, anhNhanSuUrl: uploadedUrl }));
+    } catch (error) {
+      console.error('Error uploading avatar:', error);
+      alert('Upload ảnh thất bại. Vui lòng thử lại.');
+    } finally {
+      setIsUploadingAvatar(false);
     }
   };
 
@@ -784,14 +806,34 @@ export function AddEmployee() {
                   Ảnh nhân sự
                 </label>
                 <div className="space-y-3">
-                  {/* Input URL ảnh */}
-                  <input
-                    type="url"
-                    value={formData.anhNhanSuUrl || ''}
-                    onChange={(e) => setFormData(prev => ({ ...prev, anhNhanSuUrl: e.target.value }))}
-                    placeholder="https://example.com/image.jpg"
-                    className="w-full px-4 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
-                  />
+                  {/* Input URL ảnh hoặc Upload */}
+                  <div className="flex gap-2">
+                    <input
+                      type="url"
+                      value={formData.anhNhanSuUrl || ''}
+                      onChange={(e) => setFormData(prev => ({ ...prev, anhNhanSuUrl: e.target.value }))}
+                      placeholder="Dán link ảnh hoặc tải lên..."
+                      className="flex-1 px-4 py-2 border border-slate-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
+                    />
+                    <label className="px-4 py-2 border border-slate-300 rounded-lg text-sm font-semibold text-slate-700 bg-white hover:bg-slate-50 transition-colors cursor-pointer flex items-center gap-2 whitespace-nowrap">
+                      <Camera size={16} />
+                      {isUploadingAvatar ? 'Đang tải...' : 'Tải lên'}
+                      <input
+                        type="file"
+                        className="hidden"
+                        disabled={isUploadingAvatar}
+                        accept="image/*"
+                        onChange={(e) => {
+                          const file = e.target.files?.[0] || null;
+                          void handleUploadAvatar(file);
+                          e.currentTarget.value = '';
+                        }}
+                      />
+                    </label>
+                  </div>
+                  <p className="text-[10px] text-slate-500">
+                    💡 Hỗ trợ: JPG, PNG, GIF
+                  </p>
                   
                   {/* Preview ảnh nếu có URL */}
                   {formData.anhNhanSuUrl && formData.anhNhanSuUrl.trim() !== '' && (

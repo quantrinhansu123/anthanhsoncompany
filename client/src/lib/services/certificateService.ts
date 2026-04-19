@@ -222,14 +222,14 @@ export const certificateService = {
       .from('nhan_su_chi_tiet')
       .insert([{
         id_nhan_su: employeeId, // id_nhan_su phải là UUID
-        ten_file_luu: certificate.tenFileLuu,
-        file_url: certificate.file_url,
-        anh_url: certificate.anh_url,
-        anh2_url: certificate.anh2_url,
-        ghi_chu: certificate.ghiChu,
-        cchn: certificate.cchn,
-        hang_cchn: certificate.hangCCHN,
-        ngay_het_han_cc: certificate.ngayHetHanCC
+        ten_file_luu: certificate.tenFileLuu || '',
+        file_url: certificate.file_url || '',
+        anh_url: certificate.anh_url || '',
+        anh2_url: certificate.anh2_url || '',
+        ghi_chu: certificate.ghiChu || '',
+        cchn: certificate.cchn || '',
+        hang_cchn: certificate.hangCCHN || '',
+        ngay_het_han_cc: certificate.ngayHetHanCC || ''
       }])
       .select()
       .single();
@@ -265,20 +265,24 @@ export const certificateService = {
       throw new Error(`employee_id phải là UUID hợp lệ, nhận được: ${employeeId}`);
     }
     
+    // Chỉ gửi các trường có giá trị (không undefined)
+    const updateData: any = {
+      id_nhan_su: employeeId,
+      updated_at: new Date().toISOString()
+    };
+    
+    if (certificate.tenFileLuu !== undefined) updateData.ten_file_luu = certificate.tenFileLuu || '';
+    if (certificate.file_url !== undefined) updateData.file_url = certificate.file_url || '';
+    if (certificate.anh_url !== undefined) updateData.anh_url = certificate.anh_url || '';
+    if (certificate.anh2_url !== undefined) updateData.anh2_url = certificate.anh2_url || '';
+    if (certificate.ghiChu !== undefined) updateData.ghi_chu = certificate.ghiChu || '';
+    if (certificate.cchn !== undefined) updateData.cchn = certificate.cchn || '';
+    if (certificate.hangCCHN !== undefined) updateData.hang_cchn = certificate.hangCCHN || '';
+    if (certificate.ngayHetHanCC !== undefined) updateData.ngay_het_han_cc = certificate.ngayHetHanCC || '';
+    
     const { data, error } = await supabase
       .from('nhan_su_chi_tiet')
-      .update({
-        id_nhan_su: employeeId, // id_nhan_su phải là UUID
-        ten_file_luu: certificate.tenFileLuu,
-        file_url: certificate.file_url,
-        anh_url: certificate.anh_url,
-        anh2_url: certificate.anh2_url,
-        ghi_chu: certificate.ghiChu,
-        cchn: certificate.cchn,
-        hang_cchn: certificate.hangCCHN,
-        ngay_het_han_cc: certificate.ngayHetHanCC,
-        updated_at: new Date().toISOString()
-      })
+      .update(updateData)
       .eq('id', id)
       .select()
       .single();
@@ -310,46 +314,66 @@ export const certificateService = {
     if (error) throw error;
   },
 
-  // Upload file
+  // Upload file - dùng bucket chung với hợp đồng
   async uploadFile(bucket: string, path: string, file: File) {
     try {
-      // Kiểm tra bucket có tồn tại không
-      const { data: buckets, error: listError } = await supabase.storage.listBuckets();
+      let uploadedUrl = '';
       
-      if (listError) {
-        console.error('Error listing buckets:', listError);
-        throw new Error(`Không thể truy cập Storage. Vui lòng kiểm tra cấu hình Supabase.`);
+      // Thử upload vào bucket chính (hop_dong)
+      try {
+        const { data, error } = await supabase.storage
+          .from('hop_dong')
+          .upload(path, file, {
+            cacheControl: '3600',
+            upsert: false
+          });
+        
+        if (error) throw error;
+        
+        if (!data) {
+          throw new Error('Không nhận được dữ liệu sau khi upload');
+        }
+        
+        // Get public URL
+        const { data: urlData } = supabase.storage
+          .from('hop_dong')
+          .getPublicUrl(data.path);
+        
+        uploadedUrl = urlData.publicUrl;
+      } catch (primaryErr: any) {
+        const msg = String(primaryErr?.message || '');
+        
+        // Nếu bucket hop_dong không tồn tại, thử fallback sang thu-chi-files
+        if (msg.includes('Bucket') || msg.includes('not found')) {
+          console.warn('Bucket "hop_dong" không tồn tại, thử fallback sang "thu-chi-files"...');
+          
+          const { data, error } = await supabase.storage
+            .from('thu-chi-files')
+            .upload(path, file, {
+              cacheControl: '3600',
+              upsert: false
+            });
+          
+          if (error) {
+            throw new Error(`Upload thất bại. Vui lòng tạo bucket "hop_dong" hoặc "thu-chi-files" trong Supabase Dashboard > Storage.`);
+          }
+          
+          if (!data) {
+            throw new Error('Không nhận được dữ liệu sau khi upload');
+          }
+          
+          // Get public URL
+          const { data: urlData } = supabase.storage
+            .from('thu-chi-files')
+            .getPublicUrl(data.path);
+          
+          uploadedUrl = urlData.publicUrl;
+        } else {
+          throw primaryErr;
+        }
       }
       
-      const bucketExists = buckets?.some(b => b.name === bucket);
-      
-      if (!bucketExists) {
-        console.warn(`Bucket "${bucket}" không tồn tại. Vui lòng tạo bucket trong Supabase Dashboard > Storage.`);
-        throw new Error(`Bucket "${bucket}" chưa được tạo. Vui lòng tạo bucket trong Supabase Dashboard > Storage > New bucket với tên "${bucket}" và chọn Public bucket.`);
-      }
-      
-      const { data, error } = await supabase.storage
-        .from(bucket)
-        .upload(path, file, {
-          cacheControl: '3600',
-          upsert: false
-        });
-      
-      if (error) {
-        console.error('Error uploading file:', error);
-        throw new Error(`Lỗi khi upload file: ${error.message}`);
-      }
-      
-      if (!data) {
-        throw new Error('Không nhận được dữ liệu sau khi upload');
-      }
-      
-      // Get public URL
-      const { data: urlData } = supabase.storage
-        .from(bucket)
-        .getPublicUrl(data.path);
-      
-      return urlData.publicUrl;
+      return uploadedUrl;
     } catch (err: any) {
       console.error('Upload file error:', err);
       throw err;

@@ -617,7 +617,7 @@ export function DanhSachTaiLieu() {
 
             {/* Add Modal */}
             {isModalOpen && (
-                <div className="fixed inset-0 z-[150] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
+                <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
                     <div className="bg-white rounded-2xl shadow-2xl w-full max-w-3xl overflow-hidden animate-in zoom-in-95 duration-200">
                         <div className="px-6 py-4 bg-slate-50 border-b border-slate-200 flex items-center justify-between">
                             <h2 className="text-lg font-bold text-slate-800 uppercase tracking-tight">
