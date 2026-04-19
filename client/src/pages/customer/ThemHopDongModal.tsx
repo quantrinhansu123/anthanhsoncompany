@@ -1311,33 +1311,48 @@ export function ThemHopDongModal({ isOpen, onClose, editData, contractCreatePref
                     </div>
 
                     {/* Files Group */}
-                    <div className="space-y-4">
-                        <div className="flex items-center gap-2 text-slate-800 font-bold text-sm border-l-4 border-orange-500 pl-3">
-                            <LinkIcon size={16} />
-                            <span>Tài liệu đính kèm</span>
+                    <div className="space-y-3">
+                        <div className="flex items-center justify-between">
+                            <div className="flex items-center gap-2 text-slate-800 font-bold text-sm border-l-4 border-orange-500 pl-3">
+                                <LinkIcon size={16} />
+                                <span>Tài liệu đính kèm</span>
+                            </div>
+                            <div className="text-xs text-slate-500">
+                                {contractFiles.length > 0 ? (
+                                    <span className="font-semibold text-orange-600">{contractFiles.length} file</span>
+                                ) : (
+                                    <span>Chưa có file</span>
+                                )}
+                            </div>
                         </div>
                         
-                        <div className="bg-white border border-slate-200 rounded-xl overflow-hidden shadow-sm">
-                            <div className="p-4 bg-slate-50/50 border-b border-slate-100">
-                                <div className="flex gap-3 mb-2">
+                        <div className="bg-slate-50 border border-slate-200 rounded-lg p-3">
+                            <div className="grid grid-cols-12 gap-2 items-end">
+                                <div className="col-span-3">
+                                    <label className="block text-[10px] font-semibold text-slate-600 mb-1">Loại file</label>
                                     <select 
                                         value={selectedFileType} 
                                         onChange={(e) => setSelectedFileType(e.target.value)} 
-                                        className="flex-1 min-w-[120px] px-3 py-2 border border-slate-200 rounded-lg text-sm bg-white focus:outline-none focus:ring-2 focus:ring-orange-500/20"
+                                        className="w-full px-2 py-1.5 border border-slate-200 rounded text-xs bg-white focus:outline-none focus:ring-1 focus:ring-orange-500"
                                     >
                                         {FILE_TYPES.map(type => (
                                             <option key={type} value={type}>{type}</option>
                                         ))}
                                     </select>
+                                </div>
+                                <div className="col-span-5">
+                                    <label className="block text-[10px] font-semibold text-slate-600 mb-1">Link hoặc tải file</label>
                                     <input 
                                         type="url" 
                                         value={fileLink} 
                                         onChange={(e) => setFileLink(e.target.value)} 
-                                        placeholder="Dán link tài liệu..." 
-                                        className="flex-[2] px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-orange-500/20" 
+                                        placeholder="Dán link..." 
+                                        className="w-full px-2 py-1.5 border border-slate-200 rounded text-xs focus:outline-none focus:ring-1 focus:ring-orange-500" 
                                     />
-                                    <label className="px-3 py-2 border border-slate-200 rounded-lg text-sm font-semibold text-slate-700 bg-white hover:bg-slate-50 transition-colors cursor-pointer flex items-center gap-2">
-                                        <Upload size={15} />
+                                </div>
+                                <div className="col-span-4 flex gap-1">
+                                    <label className="flex-1 px-2 py-1.5 border border-slate-200 rounded text-xs font-semibold text-slate-700 bg-white hover:bg-slate-50 transition-colors cursor-pointer flex items-center justify-center gap-1">
+                                        <Upload size={12} />
                                         {isUploadingFile ? 'Đang tải...' : 'Tải lên'}
                                         <input
                                             type="file"
@@ -1354,58 +1369,60 @@ export function ThemHopDongModal({ isOpen, onClose, editData, contractCreatePref
                                     <button 
                                         type="button"
                                         onClick={handleAddLink}
-                                        disabled={isAddingLink}
-                                        className="px-4 py-2 bg-orange-500 text-white rounded-lg text-sm font-bold hover:bg-orange-600 transition-colors flex items-center gap-2"
+                                        disabled={isAddingLink || !fileLink.trim()}
+                                        className="flex-1 px-2 py-1.5 bg-orange-500 text-white rounded text-xs font-bold hover:bg-orange-600 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-1"
                                     >
-                                        <Plus size={16} />
-                                        <span>Thêm</span>
+                                        <Plus size={12} />
+                                        Thêm
                                     </button>
                                 </div>
-                                <p className="text-[11px] text-slate-500 px-1">
-                                    💡 Hỗ trợ: PDF, Word (.doc, .docx), Excel (.xls, .xlsx), Ảnh (.jpg, .png)
-                                </p>
                             </div>
-                            
-                            <div className="divide-y divide-slate-100">
-                                {contractFiles.length > 0 ? contractFiles.map((file, idx) => (
-                                    <div key={idx} className="px-4 py-3 flex items-center justify-between hover:bg-slate-50 transition-colors">
-                                        <div className="flex items-center gap-3 overflow-hidden">
-                                            <FileText size={18} className="text-orange-400 shrink-0" />
-                                            <div className="min-w-0">
-                                                <div className="text-xs font-bold text-slate-800">{file.file_type}</div>
-                                                <div className="text-[10px] text-slate-500 truncate">{file.file_url}</div>
+                            <p className="text-[10px] text-slate-500 mt-2">
+                                💡 Hỗ trợ: PDF, Word, Excel, Ảnh
+                            </p>
+                        </div>
+                        
+                        {contractFiles.length > 0 && (
+                            <div className="bg-white border border-slate-200 rounded-lg divide-y divide-slate-100 max-h-[200px] overflow-y-auto">
+                                {contractFiles.map((file, idx) => (
+                                    <div key={idx} className="px-3 py-2 flex items-center justify-between hover:bg-slate-50 transition-colors">
+                                        <div className="flex items-center gap-2 overflow-hidden min-w-0">
+                                            <FileText size={14} className="text-orange-400 shrink-0" />
+                                            <div className="min-w-0 flex-1">
+                                                <div className="text-[11px] font-bold text-slate-800">{file.file_type}</div>
+                                                <div className="text-[10px] text-slate-500 truncate">{file.file_name || file.file_url}</div>
                                             </div>
                                         </div>
-                                        <div className="flex items-center gap-2 shrink-0">
+                                        <div className="flex items-center gap-1 shrink-0">
                                             <button
                                                 type="button"
                                                 onClick={() => setPreviewUrl(file.file_url)}
                                                 className="p-1 text-blue-600 hover:bg-blue-50 rounded"
-                                                title="Xem tài liệu"
+                                                title="Xem"
                                             >
-                                                <ExternalLink size={14} />
+                                                <ExternalLink size={12} />
                                             </button>
-                                            <button onClick={() => handleDeleteFile(file.file_type)} className="p-1 text-red-500 hover:bg-red-50 rounded">
-                                                <Trash2 size={14} />
+                                            <button 
+                                                type="button"
+                                                onClick={() => handleDeleteFile(file.file_type)} 
+                                                className="p-1 text-red-500 hover:bg-red-50 rounded"
+                                                title="Xóa"
+                                            >
+                                                <Trash2 size={12} />
                                             </button>
                                         </div>
                                     </div>
-                                )) : (
-                                    <div className="p-8 text-center text-slate-400 italic text-sm">
-                                        Chưa có tài liệu đính kèm
-                                    </div>
-                                )}
+                                ))}
                             </div>
-                        </div>
+                        )}
 
-                        {/* Status Preview */}
-                        <div className="bg-amber-50 border border-amber-100 rounded-lg p-3 flex items-start gap-3">
-                            <Info size={16} className="text-amber-600 mt-0.5 shrink-0" />
-                            <div>
-                                <p className="text-xs font-bold text-amber-800 uppercase tracking-wide">Trạng thái file dự kiến:</p>
-                                <p className="text-xs text-amber-700 mt-1 font-medium">{calculateFileStatus(contractFiles)}</p>
+                        {/* Status Preview - Compact */}
+                        {contractFiles.length > 0 && (
+                            <div className="bg-amber-50 border border-amber-100 rounded-lg p-2 flex items-center gap-2">
+                                <Info size={12} className="text-amber-600 shrink-0" />
+                                <p className="text-[10px] text-amber-700 font-medium">{calculateFileStatus(contractFiles)}</p>
                             </div>
-                        </div>
+                        )}
                     </div>
                 </div>
 
