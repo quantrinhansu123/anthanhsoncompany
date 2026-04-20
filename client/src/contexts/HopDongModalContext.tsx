@@ -28,6 +28,7 @@ interface HopDong {
     nhanSuId?: string | null;
     nhanSuIds?: string[];
     nhanSuTen?: string | null;
+    customerId?: string | null;
 }
 
 interface ContractToDelete {

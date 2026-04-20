@@ -82,6 +82,7 @@ interface Contract {
     nhanSuId?: string | null;
     nhanSuIds?: string[];
     nhanSuTen?: string | null;
+    customerId?: string | null;
 }
 
 interface ThemHopDongModalProps {
@@ -450,10 +451,12 @@ export function ThemHopDongModal({ isOpen, onClose, editData, contractCreatePref
                     return { nguongChiNhanSuLoai: loai, nguongChiNhanSu: s };
                 })(),
                 projectId: editData.duAnId || '',
-                customerId: '',
+                customerId: editData.customerId || '',
                 nhanSuIds: (editData.nhanSuIds || (editData.nhanSuId ? [editData.nhanSuId] : [])).map(String),
             });
             setContractFiles(editData.files || []);
+            setCustomerSearch(''); // Will be set by next useEffect
+            setProjectSearch('');  // Will be set by next useEffect
         } else {
             setFormData({
                 soHopDong: '',
@@ -478,24 +481,35 @@ export function ThemHopDongModal({ isOpen, onClose, editData, contractCreatePref
         }
     }, [editData, isOpen, contractCreatePrefill?.customer_id, contractCreatePrefill?.ten_don_vi]);
 
-    /** Sửa HĐ: gắn khách từ dự án + nhãn ô (chạy sau effect reset form). */
+    /** Sửa HĐ: gắn khách từ dự án / khách có sẵn + nhãn ô. */
     useEffect(() => {
-        if (!isOpen || !editData || !projects.length) return;
-        const du = String(editData.duAnId || '').trim();
-        if (!du) return;
-        const p = projects.find((pr) => String(pr.id) === du);
-        const cid =
-            p?.customer_id != null && String(p.customer_id).trim()
-                ? String(p.customer_id).trim()
-                : '';
+        if (!isOpen || !editData) return;
+        
+        // 1. Determine customerId
+        let cid = editData.customerId ? String(editData.customerId).trim() : '';
+        const du = editData.duAnId ? String(editData.duAnId).trim() : '';
+        
+        // If customerId is missing but duAnId exists, try to find it from projects
+        if (!cid && du && projects.length) {
+            const p = projects.find((pr) => String(pr.id) === du);
+            if (p?.customer_id) cid = String(p.customer_id).trim();
+        }
+
+        // 2. Set formData
         setFormData((prev) => {
             if (prev.customerId === cid && prev.projectId === du) return prev;
             return { ...prev, customerId: cid, projectId: du };
         });
-        setProjectSearch(p?.ten_du_an || '');
+
+        // 3. Set search labels (only if labels weren't already set or if searching)
+        if (projects.length) {
+            const p = projects.find((pr) => String(pr.id) === du);
+            if (p?.ten_du_an) setProjectSearch(p.ten_du_an);
+        }
+        
         if (cid && customers.length) {
-            const name = customers.find((c) => String(c.id) === cid)?.ten_don_vi || '';
-            if (name) setCustomerSearch(name);
+            const c = customers.find((cust) => String(cust.id) === cid);
+            if (c?.ten_don_vi) setCustomerSearch(c.ten_don_vi);
         }
     }, [isOpen, editData, projects, customers]);
 
@@ -667,6 +681,9 @@ export function ThemHopDongModal({ isOpen, onClose, editData, contractCreatePref
                     projectsForSelect.find((p) => p.id === formData.projectId)?.ten_du_an
                     ?? projects.find((p) => p.id === formData.projectId)?.ten_du_an
                     ?? null,
+                customer_id: formData.customerId || null,
+                ten_day_du_chu_dau_tu: 
+                    customers.find(c => String(c.id) === String(formData.customerId))?.ten_don_vi || null,
                 nhan_su_ids: formData.nhanSuIds,
                 nhan_su_id: formData.nhanSuIds?.[0] || null,
                 so_hop_dong: formData.soHopDong,
@@ -682,11 +699,6 @@ export function ThemHopDongModal({ isOpen, onClose, editData, contractCreatePref
                 ngay_update: new Date().toISOString().slice(0, 10),
             };
 
-            if (!editData?.uuid && contractCreatePrefill?.customer_id) {
-                payload.customer_id = String(contractCreatePrefill.customer_id);
-                const ten = contractCreatePrefill.ten_don_vi?.trim();
-                if (ten) payload.ten_day_du_chu_dau_tu = ten;
-            }
 
             if (editData?.uuid) {
                 const allThuChi = await thuChiService.getAll();
@@ -768,7 +780,7 @@ export function ThemHopDongModal({ isOpen, onClose, editData, contractCreatePref
                                                 </button>
                                             ) : null}
                                         </div>
-                                        {editData ? (
+                                        {false ? (
                                             <div className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm bg-slate-50 text-slate-800">
                                                 {customerSearch.trim() || '—'}
                                             </div>
@@ -919,7 +931,7 @@ export function ThemHopDongModal({ isOpen, onClose, editData, contractCreatePref
                                         </button>
                                     ) : null}
                                 </div>
-                                {editData ? (
+                                {false ? (
                                     <div className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm bg-slate-50 text-slate-800">
                                         {projectSearch.trim() ||
                                             projects.find((pr) => String(pr.id) === String(formData.projectId))
@@ -972,7 +984,7 @@ export function ThemHopDongModal({ isOpen, onClose, editData, contractCreatePref
                                             className="w-full pl-10 pr-20 py-2.5 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-purple-500/20 focus:border-purple-500 transition-all bg-white disabled:bg-slate-50 disabled:text-slate-500"
                                         />
                                         <div className="absolute right-2 top-1/2 -translate-y-1/2 flex items-center gap-1">
-                                            {projectSearch && !(!isCustomerContractCreate && !formData.customerId) ? (
+                                            {projectSearch && (isCustomerContractCreate || formData.customerId || editData) ? (
                                                 <button
                                                     type="button"
                                                     className="rounded-lg p-1 text-slate-400 hover:text-slate-600 hover:bg-slate-100"
@@ -990,7 +1002,7 @@ export function ThemHopDongModal({ isOpen, onClose, editData, contractCreatePref
                                             <ChevronDown size={16} className="text-slate-400 pointer-events-none" />
                                         </div>
                                         {projectPickerOpen &&
-                                            (isCustomerContractCreate || formData.customerId) && (
+                                            (isCustomerContractCreate || formData.customerId || editData) && (
                                                 <ul
                                                     role="listbox"
                                                     className="absolute left-0 right-0 top-full mt-1 max-h-52 overflow-auto rounded-lg border border-slate-200 bg-white py-1 shadow-lg"
