@@ -597,10 +597,7 @@ export function ThemHopDongModal({ isOpen, onClose, editData, contractCreatePref
                 file_url: fileLink.trim(),
                 uploaded_at: new Date().toISOString()
             };
-            setContractFiles(prev => {
-                const filtered = prev.filter(f => f.file_type !== selectedFileType);
-                return [...filtered, newFile];
-            });
+            setContractFiles(prev => [...prev, newFile]);
             setFileLink('');
         } catch (error) {
             console.error('Error adding link:', error);
@@ -609,34 +606,35 @@ export function ThemHopDongModal({ isOpen, onClose, editData, contractCreatePref
         }
     };
 
-    const handleDeleteFile = (fileType: string) => {
-        setContractFiles(prev => prev.filter(f => f.file_type !== fileType));
+    const handleDeleteFile = (fileType: string, fileUrl: string) => {
+        setContractFiles(prev => prev.filter(f => !(f.file_type === fileType && f.file_url === fileUrl)));
     };
 
-    const handleUploadFile = async (file: File | null) => {
-        if (!file || isUploadingFile) return;
+    const handleUploadFile = async (files: FileList | null) => {
+        if (!files || files.length === 0 || isUploadingFile) return;
         setIsUploadingFile(true);
         try {
-            const safeName = sanitizeStorageFileName(file.name);
-            const filePath = `hop-dong/${Date.now()}_${safeName}`;
-            let uploadedUrl = '';
-            try {
-                uploadedUrl = await thuChiService.uploadFile('hop_dong', filePath, file);
-            } catch (primaryErr: any) {
-                const msg = String(primaryErr?.message || '');
-                if (!msg.includes('Bucket "hop_dong"')) throw primaryErr;
-                uploadedUrl = await thuChiService.uploadFile('thu-chi-files', filePath, file);
+            const newFiles: ContractFile[] = [];
+            for (let i = 0; i < files.length; i++) {
+                const file = files[i];
+                const safeName = sanitizeStorageFileName(file.name);
+                const filePath = `hop-dong/${Date.now()}_${safeName}`;
+                let uploadedUrl = '';
+                try {
+                    uploadedUrl = await thuChiService.uploadFile('hop_dong', filePath, file);
+                } catch (primaryErr: any) {
+                    const msg = String(primaryErr?.message || '');
+                    if (!msg.includes('Bucket "hop_dong"')) throw primaryErr;
+                    uploadedUrl = await thuChiService.uploadFile('thu-chi-files', filePath, file);
+                }
+                newFiles.push({
+                    file_type: selectedFileType,
+                    file_name: file.name,
+                    file_url: uploadedUrl,
+                    uploaded_at: new Date().toISOString(),
+                });
             }
-            const newFile: ContractFile = {
-                file_type: selectedFileType,
-                file_name: file.name,
-                file_url: uploadedUrl,
-                uploaded_at: new Date().toISOString(),
-            };
-            setContractFiles((prev) => {
-                const filtered = prev.filter((f) => f.file_type !== selectedFileType);
-                return [...filtered, newFile];
-            });
+            setContractFiles((prev) => [...prev, ...newFiles]);
         } catch (error) {
             console.error('Error uploading contract file:', error);
             alert('Upload tài liệu thất bại. Vui lòng kiểm tra bucket "hop_dong" (hoặc fallback "thu-chi-files") và thử lại.');
@@ -1417,7 +1415,7 @@ export function ThemHopDongModal({ isOpen, onClose, editData, contractCreatePref
                                             </button>
                                             <button 
                                                 type="button"
-                                                onClick={() => handleDeleteFile(file.file_type)} 
+                                                onClick={() => handleDeleteFile(file.file_type, file.file_url)} 
                                                 className="p-1 text-red-500 hover:bg-red-50 rounded"
                                                 title="Xóa"
                                             >
