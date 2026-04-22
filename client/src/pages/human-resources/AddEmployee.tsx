@@ -18,6 +18,7 @@ import {
   FileText,
   Image as ImageIcon,
   Camera,
+  Eye,
   ChevronDown,
   X,
   Loader2
