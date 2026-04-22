@@ -126,6 +126,8 @@ export function AddEmployee() {
   const [loadingOrgOptions, setLoadingOrgOptions] = useState(false);
   const [previewDependentFileUrl, setPreviewDependentFileUrl] = useState('');
   const [previewDependentFileName, setPreviewDependentFileName] = useState('');
+  const [previewCertificateFileUrl, setPreviewCertificateFileUrl] = useState('');
+  const [previewCertificateFileName, setPreviewCertificateFileName] = useState('');
 
   // Load employee data nếu là edit mode
   useEffect(() => {
@@ -1431,6 +1433,23 @@ export function AddEmployee() {
                             </td>
                             <td className="px-4 py-3">
                               <div className="flex items-center justify-center gap-2">
+                                {certificate.file_url ? (
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      setPreviewCertificateFileUrl(certificate.file_url || '');
+                                      setPreviewCertificateFileName(
+                                        certificate.tenFileLuu || certificate.file_url.split('/').pop() || 'File'
+                                      );
+                                    }}
+                                    className="p-1.5 text-emerald-600 hover:bg-emerald-50 rounded-md transition-colors"
+                                    title="Xem file"
+                                  >
+                                    <Eye size={16} />
+                                  </button>
+                                ) : (
+                                  <span className="text-slate-300 px-1.5">-</span>
+                                )}
                                 <button
                                   onClick={() => editCertificate(certificate)}
                                   className="p-1.5 text-blue-500 hover:bg-blue-50 rounded-md transition-colors"
@@ -1827,6 +1846,20 @@ export function AddEmployee() {
                             Đã lưu: {dependentFormData.file_type || 'unknown'}
                           </p>
                         )}
+                        {dependentFormData.file_url && (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setPreviewDependentFileUrl(dependentFormData.file_url || '');
+                              setPreviewDependentFileName(
+                                dependentFormData.file_name || dependentFormData.file_url.split('/').pop() || 'File'
+                              );
+                            }}
+                            className="mt-1 text-xs font-semibold text-blue-600 hover:text-blue-700"
+                          >
+                            Xem file đã tải lên
+                          </button>
+                        )}
                       </div>
                       <button
                         type="button"
@@ -1965,11 +1998,41 @@ export function AddEmployee() {
                     ) : (
                       <>
                         <FileText size={24} className="text-slate-400" />
-                        <span className="text-sm text-slate-500">Chọn file PDF</span>
+                        <span className="text-sm text-slate-500">
+                          {certificateFormData.file_url ? 'Đã có file tải lên' : 'Chọn file PDF'}
+                        </span>
                       </>
                     )}
                   </label>
                 </div>
+                {(certificateFormData.file || certificateFormData.file_url) && (
+                  <div className="mt-2 flex items-center justify-between gap-3 rounded-md border border-slate-200 bg-slate-50 px-3 py-2">
+                    <div className="min-w-0">
+                      <p className="text-sm font-medium text-slate-700 break-all">
+                        {certificateFormData.file?.name || certificateFormData.tenFileLuu || certificateFormData.file_url?.split('/').pop() || 'File đã đính kèm'}
+                      </p>
+                      {certificateFormData.file_url && !certificateFormData.file && (
+                        <p className="text-xs text-slate-500 break-all">
+                          Đã lưu: {certificateFormData.file_url.split('/').pop() || 'unknown'}
+                        </p>
+                      )}
+                    </div>
+                    {certificateFormData.file_url && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setPreviewCertificateFileUrl(certificateFormData.file_url || '');
+                          setPreviewCertificateFileName(
+                            certificateFormData.tenFileLuu || certificateFormData.file_url?.split('/').pop() || 'File'
+                          );
+                        }}
+                        className="px-3 py-1.5 text-xs font-semibold text-blue-600 hover:bg-blue-50 rounded-md transition-colors"
+                      >
+                        Xem file đã tải lên
+                      </button>
+                    )}
+                  </div>
+                )}
               </div>
 
               {/* Ảnh upload */}
@@ -2142,6 +2205,16 @@ export function AddEmployee() {
         }}
         fileUrl={previewDependentFileUrl}
         fileName={previewDependentFileName}
+      />
+
+      <FileViewerModal
+        isOpen={!!previewCertificateFileUrl}
+        onClose={() => {
+          setPreviewCertificateFileUrl('');
+          setPreviewCertificateFileName('');
+        }}
+        fileUrl={previewCertificateFileUrl}
+        fileName={previewCertificateFileName}
       />
     </div>
   );
