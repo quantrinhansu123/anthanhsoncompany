@@ -26,6 +26,7 @@ import { useNavigate, useParams } from 'react-router-dom';
 import { employeeService } from '../../lib/services/employeeService';
 import { dependentService } from '../../lib/services/dependentService';
 import { certificateService } from '../../lib/services/certificateService';
+import { FileViewerModal } from '../../components/FileViewerModal';
 
 interface Dependent {
   id: string;
@@ -34,6 +35,10 @@ interface Dependent {
   soCCCDNPT: string;
   mstNPT: string;
   quanHe: string;
+  file?: File | null;
+  file_url?: string;
+  file_name?: string;
+  file_type?: string;
 }
 
 interface ProfessionalCertificate {
@@ -90,7 +95,11 @@ export function AddEmployee() {
     ngaySinhNPT: '',
     soCCCDNPT: '',
     mstNPT: '',
-    quanHe: ''
+    quanHe: '',
+    file: null,
+    file_url: '',
+    file_name: '',
+    file_type: ''
   });
   const [certificateFormData, setCertificateFormData] = useState<ProfessionalCertificate>({
     id: '',
@@ -115,6 +124,8 @@ export function AddEmployee() {
   const [newPhongBanValue, setNewPhongBanValue] = useState('');
   const [newChucVuValue, setNewChucVuValue] = useState('');
   const [loadingOrgOptions, setLoadingOrgOptions] = useState(false);
+  const [previewDependentFileUrl, setPreviewDependentFileUrl] = useState('');
+  const [previewDependentFileName, setPreviewDependentFileName] = useState('');
 
   // Load employee data nếu là edit mode
   useEffect(() => {
@@ -474,20 +485,20 @@ export function AddEmployee() {
       }
 
       for (const dependent of dependents) {
+        const attachment = await uploadDependentAttachment(dependent, finalEmployeeId);
+        const dependentPayload = {
+          ...dependent,
+          ...attachment,
+          ngaySinhNPT: sanitizeDate(dependent.ngaySinhNPT),
+          employee_id: finalEmployeeId
+        };
+
         if (dependent.id && isEditMode) {
           // Update existing dependent
-          await dependentService.update(dependent.id, {
-            ...dependent,
-            ngaySinhNPT: sanitizeDate(dependent.ngaySinhNPT),
-            employee_id: finalEmployeeId
-          });
+          await dependentService.update(dependent.id, dependentPayload);
         } else {
           // Create new dependent
-          await dependentService.create({
-            ...dependent,
-            ngaySinhNPT: sanitizeDate(dependent.ngaySinhNPT),
-            employee_id: finalEmployeeId
-          });
+          await dependentService.create(dependentPayload);
         }
       }
 
@@ -615,7 +626,11 @@ export function AddEmployee() {
         ngaySinhNPT: '',
         soCCCDNPT: '',
         mstNPT: '',
-        quanHe: ''
+        quanHe: '',
+        file: null,
+        file_url: '',
+        file_name: '',
+        file_type: ''
       });
     }
     setShowDependentModal(true);
@@ -630,12 +645,36 @@ export function AddEmployee() {
       ngaySinhNPT: '',
       soCCCDNPT: '',
       mstNPT: '',
-      quanHe: ''
+      quanHe: '',
+      file: null,
+      file_url: '',
+      file_name: '',
+      file_type: ''
     });
   };
 
   const handleDependentInputChange = (field: keyof Dependent, value: string) => {
     setDependentFormData(prev => ({ ...prev, [field]: value }));
+  };
+
+  const handleDependentFileChange = (file: File | null) => {
+    setDependentFormData(prev => ({
+      ...prev,
+      file,
+      file_url: '',
+      file_name: file ? file.name : '',
+      file_type: file ? file.type : ''
+    }));
+  };
+
+  const clearDependentFile = () => {
+    setDependentFormData(prev => ({
+      ...prev,
+      file: null,
+      file_url: '',
+      file_name: '',
+      file_type: ''
+    }));
   };
 
   const validateDependentForm = (): boolean => {
@@ -673,6 +712,26 @@ export function AddEmployee() {
 
   const editDependent = (dependent: Dependent) => {
     openDependentModal(dependent);
+  };
+
+  const uploadDependentAttachment = async (dependent: Dependent, employeeId: string) => {
+    if (!dependent.file || !(dependent.file instanceof File)) {
+      return {
+        file_url: dependent.file_url || '',
+        file_name: dependent.file_name || '',
+        file_type: dependent.file_type || ''
+      };
+    }
+
+    const safeName = dependent.file.name.replace(/[^a-zA-Z0-9._-]/g, '_');
+    const filePath = `dependents/${employeeId}/${Date.now()}_${safeName}`;
+    const fileUrl = await certificateService.uploadFile('hop_dong', filePath, dependent.file);
+
+    return {
+      file_url: fileUrl,
+      file_name: dependent.file_name || dependent.file.name,
+      file_type: dependent.file_type || dependent.file.type || ''
+    };
   };
 
   // Certificate handlers
@@ -1355,6 +1414,7 @@ export function AddEmployee() {
                         <th className="px-4 py-3 text-left font-semibold text-slate-700">Số CCCD</th>
                         <th className="px-4 py-3 text-left font-semibold text-slate-700">MST</th>
                         <th className="px-4 py-3 text-left font-semibold text-slate-700">Quan hệ</th>
+                        <th className="px-4 py-3 text-left font-semibold text-slate-700">Tệp đính kèm</th>
                         <th className="px-4 py-3 text-center font-semibold text-slate-700">Thao tác</th>
                       </tr>
                     </thead>
@@ -1377,6 +1437,27 @@ export function AddEmployee() {
                             <td className="px-4 py-3 text-slate-600">{dependent.soCCCDNPT || '(Trống)'}</td>
                             <td className="px-4 py-3 text-slate-600">{dependent.mstNPT || '(Trống)'}</td>
                             <td className="px-4 py-3 text-slate-600">{dependent.quanHe || '(Trống)'}</td>
+                            <td className="px-4 py-3 text-slate-600">
+                              {dependent.file_url ? (
+                                <div className="flex flex-col gap-1">
+                                  <span className="text-slate-700 font-medium break-all">
+                                    {dependent.file_name || dependent.file_url.split('/').pop() || '(File)'}
+                                  </span>
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      setPreviewDependentFileUrl(dependent.file_url || '');
+                                      setPreviewDependentFileName(dependent.file_name || dependent.file_url.split('/').pop() || 'File');
+                                    }}
+                                    className="text-blue-600 hover:text-blue-700 text-xs font-medium text-left"
+                                  >
+                                    Xem file
+                                  </button>
+                                </div>
+                              ) : (
+                                <span className="text-slate-400">(Trống)</span>
+                              )}
+                            </td>
                             <td className="px-4 py-3">
                               <div className="flex items-center justify-center gap-2">
                                 <button
@@ -1648,6 +1729,46 @@ export function AddEmployee() {
                   className="w-full px-3 py-2 border border-slate-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all"
                   placeholder="Nhập quan hệ (VD: Con, Vợ, Chồng...)"
                 />
+              </div>
+
+              {/* File đính kèm */}
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-1.5">
+                  File đính kèm
+                </label>
+                <div className="space-y-2">
+                  <input
+                    id="dependent-file-input"
+                    type="file"
+                    accept="image/*,.pdf,.doc,.docx"
+                    onChange={(e) => handleDependentFileChange(e.target.files?.[0] || null)}
+                    className="w-full px-3 py-2 border border-slate-300 rounded-md bg-white focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-all"
+                  />
+                  <p className="text-[10px] text-slate-500">
+                    Hỗ trợ ảnh, PDF, Word (.doc, .docx)
+                  </p>
+                  {(dependentFormData.file || dependentFormData.file_url) && (
+                    <div className="flex items-center justify-between gap-3 rounded-md border border-slate-200 bg-slate-50 px-3 py-2">
+                      <div className="min-w-0">
+                        <p className="text-sm font-medium text-slate-700 break-all">
+                          {dependentFormData.file?.name || dependentFormData.file_name || 'File đã đính kèm'}
+                        </p>
+                        {dependentFormData.file_url && !dependentFormData.file && (
+                          <p className="text-xs text-slate-500 break-all">
+                            Đã lưu: {dependentFormData.file_type || 'unknown'}
+                          </p>
+                        )}
+                      </div>
+                      <button
+                        type="button"
+                        onClick={clearDependentFile}
+                        className="px-3 py-1.5 text-xs font-semibold text-red-600 hover:bg-red-50 rounded-md transition-colors"
+                      >
+                        Xóa
+                      </button>
+                    </div>
+                  )}
+                </div>
               </div>
             </div>
           </div>
@@ -1943,6 +2064,16 @@ export function AddEmployee() {
           </div>
         </div>
       )}
+
+      <FileViewerModal
+        isOpen={!!previewDependentFileUrl}
+        onClose={() => {
+          setPreviewDependentFileUrl('');
+          setPreviewDependentFileName('');
+        }}
+        fileUrl={previewDependentFileUrl}
+        fileName={previewDependentFileName}
+      />
     </div>
   );
 }

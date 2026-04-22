@@ -8,6 +8,9 @@ export interface Dependent {
   soCCCDNPT: string;
   mstNPT: string;
   quanHe: string;
+  file_url?: string;
+  file_name?: string;
+  file_type?: string;
   created_at?: string;
   updated_at?: string;
 }
@@ -66,6 +69,9 @@ export const dependentService = {
         soCCCDNPT: dep.so_cccd_npt || dep.soCCCDNPT || dep.so_cccd || '',
         mstNPT: dep.mst_npt || dep.mstNPT || dep.mst || '',
         quanHe: dep.quan_he || dep.quanHe || dep.quan_he_npt || dep.quan_he_nhan_vien || '',
+        file_url: dep.file_url || dep.fileUrl || '',
+        file_name: dep.file_name || dep.fileName || '',
+        file_type: dep.file_type || dep.fileType || '',
         created_at: dep.created_at,
         updated_at: dep.updated_at
       }));
@@ -77,14 +83,17 @@ export const dependentService = {
   },
 
   // Tạo người phụ thuộc mới trong bảng nguoi_phu_thuoc
-  async create(dependent: Partial<Dependent>) {
+  async create(dependent: Partial<Dependent> & Record<string, any>) {
     // Base data với các cột snake_case
     const baseData: any = {
       ho_ten_npt: dependent.hoTenNPT || dependent.ho_ten_npt || '',
       ngay_sinh_npt: dependent.ngaySinhNPT || dependent.ngay_sinh_npt || null,
       so_cccd_npt: dependent.soCCCDNPT || dependent.so_cccd_npt || '',
       mst_npt: dependent.mstNPT || dependent.mst_npt || '',
-      quan_he: dependent.quanHe || dependent.quan_he || ''
+      quan_he: dependent.quanHe || dependent.quan_he || '',
+      file_url: dependent.file_url || dependent.fileUrl || '',
+      file_name: dependent.file_name || dependent.fileName || '',
+      file_type: dependent.file_type || dependent.fileType || ''
     };
     
     // Thử insert với từng cột foreign key một
@@ -148,20 +157,26 @@ export const dependentService = {
       soCCCDNPT: data.so_cccd_npt || data.soCCCDNPT || data.so_cccd || '',
       mstNPT: data.mst_npt || data.mstNPT || data.mst || '',
       quanHe: data.quan_he || data.quanHe || data.quan_he_npt || '',
+      file_url: data.file_url || data.fileUrl || '',
+      file_name: data.file_name || data.fileName || '',
+      file_type: data.file_type || data.fileType || '',
       created_at: data.created_at,
       updated_at: data.updated_at
     };
   },
 
   // Cập nhật người phụ thuộc trong bảng nguoi_phu_thuoc
-  async update(id: string, dependent: Partial<Dependent>) {
+  async update(id: string, dependent: Partial<Dependent> & Record<string, any>) {
     // Base data với các cột snake_case
     const baseData: any = {
       ho_ten_npt: dependent.hoTenNPT || dependent.ho_ten_npt || '',
       ngay_sinh_npt: dependent.ngaySinhNPT || dependent.ngay_sinh_npt || null,
       so_cccd_npt: dependent.soCCCDNPT || dependent.so_cccd_npt || '',
       mst_npt: dependent.mstNPT || dependent.mst_npt || '',
-      quan_he: dependent.quanHe || dependent.quan_he || ''
+      quan_he: dependent.quanHe || dependent.quan_he || '',
+      file_url: dependent.file_url || dependent.fileUrl || '',
+      file_name: dependent.file_name || dependent.fileName || '',
+      file_type: dependent.file_type || dependent.fileType || ''
     };
     
     // Thử update với từng cột foreign key một
@@ -229,6 +244,9 @@ export const dependentService = {
       soCCCDNPT: data.so_cccd_npt || data.soCCCDNPT || data.so_cccd || '',
       mstNPT: data.mst_npt || data.mstNPT || data.mst || '',
       quanHe: data.quan_he || data.quanHe || data.quan_he_npt || '',
+      file_url: data.file_url || data.fileUrl || '',
+      file_name: data.file_name || data.fileName || '',
+      file_type: data.file_type || data.fileType || '',
       created_at: data.created_at,
       updated_at: data.updated_at
     };
