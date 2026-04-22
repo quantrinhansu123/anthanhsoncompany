@@ -631,8 +631,9 @@ export function AddEmployee() {
 
   const openDependentModal = (dependent?: Dependent) => {
     if (dependent) {
-      setEditingDependent(dependent);
-      setDependentFormData(dependent);
+      const normalized = normalizeDependentForForm(dependent);
+      setEditingDependent(normalized);
+      setDependentFormData(normalized);
     } else {
       setEditingDependent(null);
       setDependentFormData({
@@ -758,6 +759,19 @@ export function AddEmployee() {
     }
     closeDependentModal();
   };
+
+  const normalizeDependentForForm = (dependent: Partial<Dependent> & Record<string, any>): Dependent => ({
+    id: String(dependent.id || ''),
+    hoTenNPT: dependent.hoTenNPT || dependent.ho_ten_npt || dependent.ho_ten || dependent.ten || '',
+    ngaySinhNPT: dependent.ngaySinhNPT || dependent.ngay_sinh_npt || dependent.ngay_sinh || '',
+    soCCCDNPT: dependent.soCCCDNPT || dependent.so_cccd_npt || dependent.so_cccd || '',
+    mstNPT: dependent.mstNPT || dependent.mst_npt || dependent.mst || '',
+    quanHe: dependent.quanHe || dependent.quan_he || dependent.quan_he_npt || dependent.quan_he_nhan_vien || '',
+    file: null,
+    file_url: dependent.file_url || dependent.fileUrl || '',
+    file_name: dependent.file_name || dependent.fileName || '',
+    file_type: dependent.file_type || dependent.fileType || ''
+  });
 
   const removeDependent = (id: string) => {
     if (window.confirm('Bạn có chắc chắn muốn xóa người phụ thuộc này?')) {
