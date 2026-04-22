@@ -326,9 +326,11 @@ export function AddEmployee() {
   };
 
   // Helper to ensure empty date strings are sent as null to database
-  const sanitizeDate = (val: string | null | undefined): string | null => {
-    if (!val || String(val).trim() === '') return null;
-    return val;
+  const sanitizeDate = (val: any): string | null => {
+    if (val === null || val === undefined) return null;
+    const s = String(val).trim();
+    if (s === '' || s.toLowerCase() === 'null' || s.toLowerCase() === 'undefined') return null;
+    return s;
   };
 
   const parseExpiryDate = (value: string): Date | null => {
@@ -557,7 +559,7 @@ export function AddEmployee() {
               ghiChu: cert.ghiChu,
               cchn: cert.cchn,
               hangCCHN: cert.hangCCHN,
-              ngayHetHanCC: sanitizeDate(String(cert.ngayHetHanCC)),
+              ngayHetHanCC: sanitizeDate(cert.ngayHetHanCC),
               employee_id: finalEmployeeId // Sẽ được map sang id_nhan_su trong service
             });
           } catch (err: any) {
@@ -571,7 +573,7 @@ export function AddEmployee() {
               ghiChu: cert.ghiChu,
               cchn: cert.cchn,
               hangCCHN: cert.hangCCHN,
-              ngayHetHanCC: sanitizeDate(String(cert.ngayHetHanCC)),
+              ngayHetHanCC: sanitizeDate(cert.ngayHetHanCC),
               employee_id: finalEmployeeId
             });
           }
@@ -585,7 +587,7 @@ export function AddEmployee() {
             ghiChu: cert.ghiChu,
             cchn: cert.cchn,
             hangCCHN: cert.hangCCHN,
-            ngayHetHanCC: sanitizeDate(String(cert.ngayHetHanCC)),
+            ngayHetHanCC: sanitizeDate(cert.ngayHetHanCC),
             employee_id: finalEmployeeId // Sẽ được map sang id_nhan_su trong service
           });
         }

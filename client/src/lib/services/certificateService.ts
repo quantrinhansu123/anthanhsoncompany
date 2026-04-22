@@ -229,7 +229,7 @@ export const certificateService = {
         ghi_chu: certificate.ghiChu || '',
         cchn: certificate.cchn || '',
         hang_cchn: certificate.hangCCHN || '',
-        ngay_het_han_cc: certificate.ngayHetHanCC || ''
+        ngay_het_han_cc: certificate.ngayHetHanCC || null
       }])
       .select()
       .single();
@@ -278,7 +278,7 @@ export const certificateService = {
     if (certificate.ghiChu !== undefined) updateData.ghi_chu = certificate.ghiChu || '';
     if (certificate.cchn !== undefined) updateData.cchn = certificate.cchn || '';
     if (certificate.hangCCHN !== undefined) updateData.hang_cchn = certificate.hangCCHN || '';
-    if (certificate.ngayHetHanCC !== undefined) updateData.ngay_het_han_cc = certificate.ngayHetHanCC || '';
+    if (certificate.ngayHetHanCC !== undefined) updateData.ngay_het_han_cc = certificate.ngayHetHanCC || null;
     
     const { data, error } = await supabase
       .from('nhan_su_chi_tiet')

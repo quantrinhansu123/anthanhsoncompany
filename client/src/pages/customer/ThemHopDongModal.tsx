@@ -100,8 +100,21 @@ const FILE_TYPES = [
     'File_BBNT',
     'File_PL3A',
     'File_BBTL',
-    'File_PLHD'
+    'File_PLHD',
+    'File_QD',
+    'File_Khac'
 ] as const;
+
+const FILE_TYPE_LABELS: Record<string, string> = {
+    'File_BBTT': 'Biên bản thỏa thuận',
+    'File_HD': 'Hợp đồng',
+    'File_BBNT': 'Biên bản nghiệm thu',
+    'File_PL3A': 'Phụ lục 3A',
+    'File_BBTL': 'Biên bản thanh lý',
+    'File_PLHD': 'Phụ lục hợp đồng',
+    'File_QD': 'Quyết định',
+    'File_Khac': 'Tài liệu khác'
+};
 
 export function ThemHopDongModal({ isOpen, onClose, editData, contractCreatePrefill = null, onSuccess }: ThemHopDongModalProps) {
     const [projects, setProjects] = useState<Array<{ id: string; ten_du_an: string; customer_id?: string | null }>>([]);
@@ -125,6 +138,7 @@ export function ThemHopDongModal({ isOpen, onClose, editData, contractCreatePref
     const [projectSearch, setProjectSearch] = useState('');
     const [customerSearch, setCustomerSearch] = useState('');
     const [customerPickerOpen, setCustomerPickerOpen] = useState(false);
+    const [customFileTypeName, setCustomFileTypeName] = useState('');
     const [projectPickerOpen, setProjectPickerOpen] = useState(false);
     const [isQuickAddingCustomer, setIsQuickAddingCustomer] = useState(false);
     const [isQuickAddingProject, setIsQuickAddingProject] = useState(false);
@@ -570,8 +584,9 @@ export function ThemHopDongModal({ isOpen, onClose, editData, contractCreatePref
 
     const calculateFileStatus = (files: ContractFile[]): string => {
         const uploadedTypes = new Set(files.filter(f => f.file_url && f.file_url.trim() !== '').map(f => f.file_type));
-        const missingFiles = FILE_TYPES.filter(type => !uploadedTypes.has(type));
-        return missingFiles.length === 0 ? 'Đầy đủ file' : `Thiếu: ${missingFiles.join(', ')}`;
+        const mandatoryTypes = FILE_TYPES.filter(t => t !== 'File_QD' && t !== 'File_Khac');
+        const missingFiles = mandatoryTypes.filter(type => !uploadedTypes.has(type));
+        return missingFiles.length === 0 ? 'Đầy đủ file' : `Thiếu: ${missingFiles.map(t => FILE_TYPE_LABELS[t] || t).join(', ')}`;
     };
 
     const addLoaiDichVuOption = () => {
@@ -591,14 +606,19 @@ export function ThemHopDongModal({ isOpen, onClose, editData, contractCreatePref
         if (!fileLink.trim() || isAddingLink) return;
         setIsAddingLink(true);
         try {
+            const fileTypeToUse = (selectedFileType === 'File_Khac' && customFileTypeName.trim()) 
+                ? customFileTypeName.trim() 
+                : (FILE_TYPE_LABELS[selectedFileType as any] || selectedFileType);
+
             const newFile: ContractFile = {
-                file_type: selectedFileType,
+                file_type: fileTypeToUse,
                 file_name: fileLink.trim(),
                 file_url: fileLink.trim(),
                 uploaded_at: new Date().toISOString()
             };
             setContractFiles(prev => [...prev, newFile]);
             setFileLink('');
+            setCustomFileTypeName('');
         } catch (error) {
             console.error('Error adding link:', error);
         } finally {
@@ -614,6 +634,10 @@ export function ThemHopDongModal({ isOpen, onClose, editData, contractCreatePref
         if (!files || files.length === 0 || isUploadingFile) return;
         setIsUploadingFile(true);
         try {
+            const fileTypeToUse = (selectedFileType === 'File_Khac' && customFileTypeName.trim())
+                ? customFileTypeName.trim()
+                : (FILE_TYPE_LABELS[selectedFileType as any] || selectedFileType);
+
             const newFiles: ContractFile[] = [];
             for (let i = 0; i < files.length; i++) {
                 const file = files[i];
@@ -628,13 +652,14 @@ export function ThemHopDongModal({ isOpen, onClose, editData, contractCreatePref
                     uploadedUrl = await thuChiService.uploadFile('thu-chi-files', filePath, file);
                 }
                 newFiles.push({
-                    file_type: selectedFileType,
+                    file_type: fileTypeToUse,
                     file_name: file.name,
                     file_url: uploadedUrl,
                     uploaded_at: new Date().toISOString(),
                 });
             }
             setContractFiles((prev) => [...prev, ...newFiles]);
+            setCustomFileTypeName('');
         } catch (error) {
             console.error('Error uploading contract file:', error);
             alert('Upload tài liệu thất bại. Vui lòng kiểm tra bucket "hop_dong" (hoặc fallback "thu-chi-files") và thử lại.');
@@ -1347,9 +1372,21 @@ export function ThemHopDongModal({ isOpen, onClose, editData, contractCreatePref
                                         className="w-full px-2 py-1.5 border border-slate-200 rounded text-xs bg-white focus:outline-none focus:ring-1 focus:ring-orange-500"
                                     >
                                         {FILE_TYPES.map(type => (
-                                            <option key={type} value={type}>{type}</option>
+                                            <option key={type} value={type}>{FILE_TYPE_LABELS[type] || type}</option>
                                         ))}
                                     </select>
+                                    {selectedFileType === 'File_Khac' && (
+                                        <div className="mt-1.5 animate-in slide-in-from-top-1 duration-200">
+                                            <input 
+                                                type="text"
+                                                value={customFileTypeName}
+                                                onChange={(e) => setCustomFileTypeName(e.target.value)}
+                                                placeholder="Nhập tên tài liệu..."
+                                                className="w-full px-2 py-1.5 border border-orange-200 rounded text-[10px] focus:outline-none focus:ring-1 focus:ring-orange-500 bg-white placeholder:text-slate-400 font-medium"
+                                                autoFocus
+                                            />
+                                        </div>
+                                    )}
                                 </div>
                                 <div className="col-span-5">
                                     <label className="block text-[10px] font-semibold text-slate-600 mb-1">Link hoặc tải file</label>
@@ -1400,7 +1437,7 @@ export function ThemHopDongModal({ isOpen, onClose, editData, contractCreatePref
                                         <div className="flex items-center gap-2 overflow-hidden min-w-0">
                                             <FileText size={14} className="text-orange-400 shrink-0" />
                                             <div className="min-w-0 flex-1">
-                                                <div className="text-[11px] font-bold text-slate-800">{file.file_type}</div>
+                                                <div className="text-[11px] font-bold text-slate-800">{FILE_TYPE_LABELS[file.file_type] || file.file_type}</div>
                                                 <div className="text-[10px] text-slate-500 truncate">{file.file_name || file.file_url}</div>
                                             </div>
                                         </div>

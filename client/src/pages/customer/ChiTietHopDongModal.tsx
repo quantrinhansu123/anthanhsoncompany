@@ -50,8 +50,21 @@ const FILE_TYPES = [
     'File_BBNT',
     'File_PL3A',
     'File_BBTL',
-    'File_PLHD'
+    'File_PLHD',
+    'File_QD',
+    'File_Khac'
 ] as const;
+
+const FILE_TYPE_LABELS: Record<string, string> = {
+    'File_BBTT': 'Biên bản thỏa thuận',
+    'File_HD': 'Hợp đồng',
+    'File_BBNT': 'Biên bản nghiệm thu',
+    'File_PL3A': 'Phụ lục 3A',
+    'File_BBTL': 'Biên bản thanh lý',
+    'File_PLHD': 'Phụ lục hợp đồng',
+    'File_QD': 'Quyết định',
+    'File_Khac': 'Tài liệu khác'
+};
 
 export function ChiTietHopDongModal({ isOpen, onClose, contract }: ChiTietHopDongModalProps) {
     const { 
@@ -441,7 +454,7 @@ export function ChiTietHopDongModal({ isOpen, onClose, contract }: ChiTietHopDon
                                                 <div className="flex items-center gap-3 flex-1 min-w-0">
                                                     <FileText size={18} className="text-slate-400 flex-shrink-0" />
                                                     <div className="flex-1 min-w-0">
-                                                        <div className="text-sm font-medium text-slate-800">{file.file_type}</div>
+                                                        <div className="text-sm font-medium text-slate-800">{FILE_TYPE_LABELS[file.file_type] || file.file_type}</div>
                                                         <div className="text-xs text-slate-500 truncate">{file.file_name}</div>
                                                         <button
                                                             type="button"
@@ -477,12 +490,13 @@ export function ChiTietHopDongModal({ isOpen, onClose, contract }: ChiTietHopDon
                                             .filter(f => f.file_url && f.file_url.trim() !== '')
                                             .map(f => f.file_type)
                                     );
-                                    const missingFiles = FILE_TYPES.filter(type => !uploadedTypes.has(type));
+                                    const mandatoryTypes = FILE_TYPES.filter(t => t !== 'File_QD' && t !== 'File_Khac');
+                                    const missingFiles = mandatoryTypes.filter(type => !uploadedTypes.has(type));
                                     if (missingFiles.length > 0) {
                                         return (
                                             <div className="px-4 py-3 bg-amber-50 border-t border-amber-200">
                                                 <div className="text-xs font-semibold text-amber-800 mb-1">Các file còn thiếu:</div>
-                                                <div className="text-xs text-amber-700">{missingFiles.join(', ')}</div>
+                                                <div className="text-xs text-amber-700">{missingFiles.map(t => FILE_TYPE_LABELS[t] || t).join(', ')}</div>
                                             </div>
                                         );
                                     }

@@ -10,7 +10,7 @@ interface ThemTaiLieuHopDongModalProps {
 
 export function ThemTaiLieuHopDongModal({ isOpen, onClose, onSuccess }: ThemTaiLieuHopDongModalProps) {
     const { contractData: selectedContract } = useHopDongModal();
-    const [form, setForm] = useState({ name: '', type: '', file: null as File | null });
+    const [form, setForm] = useState({ name: '', type: '', file: null as File | null, customType: '' });
     const [isSaving, setIsSaving] = useState(false);
 
     if (!isOpen) return null;
@@ -23,7 +23,10 @@ export function ThemTaiLieuHopDongModal({ isOpen, onClose, onSuccess }: ThemTaiL
         }
         setIsSaving(true);
         try {
-            await onSuccess({ name: form.name, type: form.type, file: form.file || undefined });
+            const typeToUse = (form.type === 'Tài liệu khác' && form.customType.trim())
+                ? form.customType.trim()
+                : form.type;
+            await onSuccess({ name: form.name, type: typeToUse, file: form.file || undefined });
             onClose();
         } catch (error) {
             console.error('Error adding document:', error);
@@ -79,8 +82,21 @@ export function ThemTaiLieuHopDongModal({ isOpen, onClose, onSuccess }: ThemTaiL
                                 <option value="Biên bản bàn giao">Biên bản bàn giao</option>
                                 <option value="Hồ sơ thiết kế">Hồ sơ thiết kế</option>
                                 <option value="Chứng từ thanh toán">Chứng từ thanh toán</option>
-                                <option value="Khác">Khác</option>
+                                <option value="Quyết định">Quyết định</option>
+                                <option value="Tài liệu khác">Tài liệu khác</option>
                             </select>
+                            {form.type === 'Tài liệu khác' && (
+                                <div className="mt-3 animate-in slide-in-from-top-2 duration-300">
+                                    <input 
+                                        type="text"
+                                        value={form.customType}
+                                        onChange={e => setForm({ ...form, customType: e.target.value })}
+                                        placeholder="Ví dụ: Giấy ủy quyền, QĐ bổ nhiệm..."
+                                        className="w-full bg-white border border-blue-200 rounded-xl px-4 py-3 text-sm focus:outline-none focus:ring-4 focus:ring-blue-500/5 focus:border-blue-500 transition-all font-medium placeholder:text-slate-400"
+                                        autoFocus
+                                    />
+                                </div>
+                            )}
                         </div>
 
                         <div>

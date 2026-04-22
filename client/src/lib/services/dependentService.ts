@@ -81,7 +81,7 @@ export const dependentService = {
     // Base data với các cột snake_case
     const baseData: any = {
       ho_ten_npt: dependent.hoTenNPT || dependent.ho_ten_npt || '',
-      ngay_sinh_npt: dependent.ngaySinhNPT || dependent.ngay_sinh_npt || '',
+      ngay_sinh_npt: dependent.ngaySinhNPT || dependent.ngay_sinh_npt || null,
       so_cccd_npt: dependent.soCCCDNPT || dependent.so_cccd_npt || '',
       mst_npt: dependent.mstNPT || dependent.mst_npt || '',
       quan_he: dependent.quanHe || dependent.quan_he || ''
@@ -158,7 +158,7 @@ export const dependentService = {
     // Base data với các cột snake_case
     const baseData: any = {
       ho_ten_npt: dependent.hoTenNPT || dependent.ho_ten_npt || '',
-      ngay_sinh_npt: dependent.ngaySinhNPT || dependent.ngay_sinh_npt || '',
+      ngay_sinh_npt: dependent.ngaySinhNPT || dependent.ngay_sinh_npt || null,
       so_cccd_npt: dependent.soCCCDNPT || dependent.so_cccd_npt || '',
       mst_npt: dependent.mstNPT || dependent.mst_npt || '',
       quan_he: dependent.quanHe || dependent.quan_he || ''
