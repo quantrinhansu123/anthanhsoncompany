@@ -477,27 +477,42 @@ export function AddEmployee() {
 
       // 2. Save dependents
       if (isEditMode) {
-        // Khi edit: xóa tất cả dependents cũ và tạo lại
+        // Đồng bộ theo chênh lệch để không mất dữ liệu đã lưu trước đó
         const existingDeps = await dependentService.getByEmployeeId(finalEmployeeId);
-        for (const dep of existingDeps) {
-          await dependentService.delete(dep.id);
+        const currentDependentIds = new Set(dependents.map(dep => dep.id).filter(Boolean));
+
+        for (const dependent of dependents) {
+          const attachment = await uploadDependentAttachment(dependent, finalEmployeeId);
+          const dependentPayload = {
+            ...dependent,
+            ...attachment,
+            ngaySinhNPT: sanitizeDate(dependent.ngaySinhNPT),
+            employee_id: finalEmployeeId
+          };
+
+          const exists = existingDeps.some(dep => String(dep.id) === String(dependent.id));
+          if (exists) {
+            await dependentService.update(dependent.id, dependentPayload);
+          } else {
+            await dependentService.create(dependentPayload);
+          }
         }
-      }
 
-      for (const dependent of dependents) {
-        const attachment = await uploadDependentAttachment(dependent, finalEmployeeId);
-        const dependentPayload = {
-          ...dependent,
-          ...attachment,
-          ngaySinhNPT: sanitizeDate(dependent.ngaySinhNPT),
-          employee_id: finalEmployeeId
-        };
+        for (const dep of existingDeps) {
+          if (!currentDependentIds.has(String(dep.id))) {
+            await dependentService.delete(dep.id);
+          }
+        }
+      } else {
+        for (const dependent of dependents) {
+          const attachment = await uploadDependentAttachment(dependent, finalEmployeeId);
+          const dependentPayload = {
+            ...dependent,
+            ...attachment,
+            ngaySinhNPT: sanitizeDate(dependent.ngaySinhNPT),
+            employee_id: finalEmployeeId
+          };
 
-        if (dependent.id && isEditMode) {
-          // Update existing dependent
-          await dependentService.update(dependent.id, dependentPayload);
-        } else {
-          // Create new dependent
           await dependentService.create(dependentPayload);
         }
       }
@@ -689,17 +704,57 @@ export function AddEmployee() {
     return true;
   };
 
-  const saveDependent = () => {
+  const saveDependent = async () => {
     if (!validateDependentForm()) return;
+
+    const normalizedDependent = {
+      ...dependentFormData,
+      id: dependentFormData.id || (globalThis.crypto as any)?.randomUUID?.() || `${Date.now()}-${Math.random()}`,
+    };
+
+    // Khi đang sửa nhân sự đã tồn tại, lưu thẳng xuống DB để refresh là thấy ngay.
+    if (isEditMode && id) {
+      const attachment = await uploadDependentAttachment(normalizedDependent, String(id));
+      const dependentPayload = {
+        ...normalizedDependent,
+        ...attachment,
+        ngaySinhNPT: sanitizeDate(normalizedDependent.ngaySinhNPT),
+        employee_id: String(id)
+      };
+
+      const saved = editingDependent?.id
+        ? await dependentService.update(editingDependent.id, dependentPayload)
+        : await dependentService.create(dependentPayload);
+
+      const persistedDependent: Dependent = {
+        ...normalizedDependent,
+        ...saved,
+        file: null,
+        file_url: saved.file_url || attachment.file_url || '',
+        file_name: saved.file_name || attachment.file_name || '',
+        file_type: saved.file_type || attachment.file_type || ''
+      };
+
+      if (editingDependent) {
+        setDependents(prev =>
+          prev.map(dep => (dep.id === editingDependent.id ? persistedDependent : dep))
+        );
+      } else {
+        setDependents(prev => [...prev, persistedDependent]);
+      }
+
+      closeDependentModal();
+      return;
+    }
 
     if (editingDependent) {
       // Update existing
       setDependents(prev =>
-        prev.map(dep => dep.id === editingDependent.id ? dependentFormData : dep)
+        prev.map(dep => dep.id === editingDependent.id ? normalizedDependent : dep)
       );
     } else {
       // Add new
-      setDependents(prev => [...prev, dependentFormData]);
+      setDependents(prev => [...prev, normalizedDependent]);
     }
     closeDependentModal();
   };
