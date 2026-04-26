@@ -87,6 +87,14 @@ function tinhTrangThuCdtLabel(display: string): string {
     return display;
 }
 
+/** Map cột Excel «Hạng mục chi» → giá trị lưu DB (giống ThuChiNhanSu). */
+function parseHangMucChiFromExcel(raw: string): 'chi_du_an' | 'chi_nhan_su' {
+    const h = cleanString(raw).toLowerCase();
+    if (!h) return 'chi_du_an';
+    if (h.includes('nhân') || h.includes('nhan')) return 'chi_nhan_su';
+    return 'chi_du_an';
+}
+
 /** Đặt `true` để hiện nút xóa toàn bộ phiếu thu chi (mặc định ẩn). */
 const SHOW_DELETE_ALL_THU_CHI_BUTTON = false;
 
@@ -140,41 +148,75 @@ export function ThuChi() {
     const itemsPerPage = 10;
     const [toast, setToast] = useState<{ message: string, type: 'success' | 'error' | 'info' } | null>(null);
 
+    /** Cột mẫu thu/chi thường — khớp form Thêm phiếu; * trên file = bắt buộc (xem mẫu tải về). */
     const thuChiExcelColumns: ExcelColumnDef[] = [
-        { key: 'loai_phieu', header: 'Loại phiếu', example: 'Phiếu thu hoặc Phiếu chi' },
-        { key: 'so_tien', header: 'Số tiền', example: '5000000' },
-        { key: 'ngay', header: 'Ngày', example: '2025-03-01' },
-        { key: 'ten_du_an', header: 'Tên dự án', example: 'Khớp tên dự án' },
-        { key: 'noi_dung', header: 'Nội dung', example: 'Ghi chú' },
-        { key: 'hang_muc_chi', header: 'Hạng mục chi', example: 'Chi dự án / Chi nhân sự (phiếu chi)' },
-        { key: 'ten_nhan_su', header: 'Tên nhân sự', example: 'Bắt buộc nếu Phiếu chi' },
-        { key: 'tinh_trang', header: 'Tình trạng phiếu', example: 'Tạm ứng' },
-        { key: 'ten_goi_thau', header: 'Tên gói thầu', example: 'Tùy chọn' },
+        { key: 'loai_phieu', header: 'Loại phiếu', example: 'Phiếu thu', required: true },
+        { key: 'so_tien', header: 'Số tiền', example: '15000000', required: true },
+        { key: 'ngay', header: 'Ngày', example: '2025-03-01', required: true },
+        {
+            key: 'ten_du_an',
+            header: 'Tên dự án',
+            example: 'Khớp đúng tên dự án trong hệ thống',
+            required: true,
+        },
+        {
+            key: 'so_hop_dong',
+            header: 'Số hợp đồng',
+            hint: 'Tùy chọn — khớp số HĐ thuộc dự án (bắt buộc nếu Chi nhân sự)',
+        },
+        { key: 'noi_dung', header: 'Nội dung', hint: 'Ghi chú / diễn giải (tùy chọn)' },
+        {
+            key: 'hang_muc_chi',
+            header: 'Hạng mục chi',
+            example: 'Chi dự án',
+            hint: 'Chỉ phiếu chi: Chi dự án hoặc Chi nhân sự',
+        },
+        {
+            key: 'ten_nhan_su',
+            header: 'Tên nhân sự',
+            example: 'Nguyễn Văn A',
+            hint: 'Bắt buộc với Phiếu chi (khớp họ tên trong NS)',
+        },
+        { key: 'tinh_trang', header: 'Tình trạng phiếu', example: 'Tạm ứng / Thanh toán' },
+        { key: 'ten_goi_thau', header: 'Tên gói thầu', hint: 'Tùy chọn' },
     ];
 
+    /** Mẫu bảng CĐT — nhánh import riêng; Tên DA *; ít nhất một cột tiền CĐT. */
     const customCdtExcelColumns: ExcelColumnDef[] = [
-        { key: 'tt', header: 'TT' },
-        { key: 'so_hd_plhd', header: 'Số HĐ & PLHĐ' },
-        { key: 'ngay_ky_hd', header: 'Ngày ký HĐ' },
-        { key: 'nam_ky_hd', header: 'Năm ký HĐ' },
-        { key: 'ten_da', header: 'Tên DA' },
-        { key: 'ten_goi_thau', header: 'Tên gói thầu' },
-        { key: 'loai_dv', header: 'Loại DV' },
-        { key: 'gia_hd_plhd', header: 'Giá HĐ/PLHĐ' },
-        { key: 'gia_xuat_hd', header: 'Giá xuất HĐ' },
-        { key: 'cdt_thanh_toan', header: 'CĐT thanh toán' },
-        { key: 'cdt_no', header: 'CĐT nợ' },
-        { key: 'cdt_tam_ung', header: 'CĐT tạm ứng' },
-        { key: 'noi_dung_xuat_hd', header: 'Nội dung xuất hóa đơn' },
-        { key: 'thong_tin_kh', header: 'Thông tin KH' },
-        { key: 'mst_kh', header: 'MST KH' },
-        { key: 'so_hd', header: 'Số HĐ' },
-        { key: 'ngay_xuat_hd', header: 'Ngày xuất Hóa đơn' },
-        { key: 'nam_xuat_hd', header: 'Năm xuất Hóa đơn' },
-        { key: 'ghi_chu_co', header: 'Ghi chú/Có' },
-        { key: 'ghi_chu_chua_co', header: 'Ghi chú/Chưa có' },
-        { key: 'ngay_tien_ve', header: 'Ngày tiền về' },
-        { key: 'ngay_kiem_tra_hs', header: 'Ngày kiểm tra HS' },
+        { key: 'tt', header: 'TT', hint: 'STT (tùy chọn)' },
+        {
+            key: 'so_hd_plhd',
+            header: 'Số HĐ & PLHĐ',
+            hint: 'Nên có để gắn / tạo HĐ',
+        },
+        { key: 'ngay_ky_hd', header: 'Ngày ký HĐ', example: '01/03/2025' },
+        { key: 'nam_ky_hd', header: 'Năm ký HĐ', example: '2025' },
+        { key: 'ten_da', header: 'Tên DA', example: 'Khớp tên dự án', required: true },
+        { key: 'ten_goi_thau_cdt', header: 'Tên gói thầu (CĐT)', hint: 'Theo bảng CĐT' },
+        { key: 'loai_dv', header: 'Loại DV', hint: 'Tùy chọn' },
+        { key: 'gia_hd_plhd', header: 'Giá HĐ/PLHĐ', example: '0' },
+        { key: 'gia_xuat_hd', header: 'Giá xuất HĐ', example: '0' },
+        {
+            key: 'cdt_thanh_toan',
+            header: 'CĐT thanh toán',
+            hint: 'Số tiền (một trong các cột CĐT)',
+        },
+        { key: 'cdt_no', header: 'CĐT nợ', hint: 'Số tiền (tùy chọn)' },
+        { key: 'cdt_tam_ung', header: 'CĐT tạm ứng', hint: 'Số tiền (tùy chọn)' },
+        { key: 'noi_dung_xuat_hd', header: 'Nội dung xuất hóa đơn', hint: 'Tùy chọn' },
+        { key: 'thong_tin_kh', header: 'Thông tin KH', hint: 'Khi tạo HĐ mới từ file' },
+        { key: 'mst_kh', header: 'MST KH', hint: 'Tùy chọn' },
+        { key: 'so_hd', header: 'Số HĐ (xuất)', hint: 'Số hóa đơn (tùy chọn)' },
+        { key: 'ngay_xuat_hd', header: 'Ngày xuất Hóa đơn', example: '01/03/2025' },
+        { key: 'nam_xuat_hd', header: 'Năm xuất Hóa đơn', example: '2025' },
+        { key: 'ghi_chu_co', header: 'Ghi chú/Có', hint: 'Tùy chọn' },
+        { key: 'ghi_chu_chua_co', header: 'Ghi chú/Chưa có', hint: 'Tùy chọn' },
+        {
+            key: 'ngay_tien_ve',
+            header: 'Ngày tiền về',
+            hint: 'Ưu tiên làm ngày chứng từ CĐT',
+        },
+        { key: 'ngay_kiem_tra_hs', header: 'Ngày kiểm tra HS', hint: 'Tùy chọn' },
     ];
 
     const { openChiTietThuChi, openDelete, openThemThuChi } = useThuChiModal();
@@ -856,12 +898,13 @@ export function ThuChi() {
                                     parseExcelDate(r.ngay_ky_hd, (r.nam_ky_hd || '').trim()) || null,
                                 thong_tin_kh: cleanString(r.thong_tin_kh) || null,
                                 mst_kh: cleanString(r.mst_kh) || null,
-                                ten_goi_thau: cleanString(r.ten_goi_thau) || null,
+                                ten_goi_thau:
+                                    cleanString(r.ten_goi_thau_cdt || r.ten_goi_thau || '') || null,
                             });
                         }
                     }
                     const soHdKey = soHdLienKet.toLowerCase();
-                    const tenGoiThauRow = String(r.ten_goi_thau ?? '').trim();
+                    const tenGoiThauRow = cleanString(r.ten_goi_thau_cdt || r.ten_goi_thau || '');
                     const tenGoiKey = tenGoiThauRow.toLowerCase();
 
                     const tt =
@@ -1061,6 +1104,7 @@ export function ThuChi() {
                 for (let i = 0; i < rows.length; i++) {
                     const r = rows[i];
                     onProgress(i + 1, totalRows);
+                    const rowLabel = r.__rowNumber || String(i + 2);
                     const loai = String(r.loai_phieu || '').trim();
                     const soTien =
                         parseMoneyVi(r.so_tien) || Number(String(r.so_tien || '').replace(/[, ]/g, ''));
@@ -1074,15 +1118,58 @@ export function ThuChi() {
                     const isPhieuChi =
                         loaiL.includes('chi') && (loaiL.includes('phiếu') || loaiL.includes('phieu'));
                     if (!(isPhieuThu || isPhieuChi) || !project || !(soTien > 0)) {
-                        errors.push(`Dòng ${i + 2}: dữ liệu không hợp lệ (loại phiếu / dự án / số tiền)`);
+                        errors.push(
+                            `Dòng ${rowLabel}: dữ liệu không hợp lệ (loại phiếu / dự án / số tiền)`,
+                        );
                         continue;
                     }
                     const loaiPhieu = isPhieuThu ? 'Phiếu thu' : 'Phiếu chi';
+                    let hangMucChi: 'chi_du_an' | 'chi_nhan_su' | null = null;
+                    let nhanSuId: string | null = null;
+                    if (loaiPhieu === 'Phiếu chi') {
+                        const tn = String(r.ten_nhan_su || '').trim();
+                        if (!tn) {
+                            errors.push(`Dòng ${rowLabel}: Phiếu chi cần Tên nhân sự`);
+                            continue;
+                        }
+                        const emp = employees.find(
+                            (e) => (e.full_name || '').trim().toLowerCase() === tn.toLowerCase(),
+                        );
+                        if (!emp) {
+                            errors.push(`Dòng ${rowLabel}: không tìm thấy nhân sự «${tn}»`);
+                            continue;
+                        }
+                        nhanSuId = emp.id;
+                        hangMucChi = parseHangMucChiFromExcel(r.hang_muc_chi || '');
+                    }
+
+                    const soHdRaw = String(r.so_hop_dong || r.so_hd_plhd || r.so_hd || '').trim();
+                    let hopDongId: string | null = null;
+                    if (soHdRaw) {
+                        const c = contracts.find(
+                            (x) =>
+                                (x.so_hop_dong || '').trim().toLowerCase() === soHdRaw.toLowerCase() &&
+                                (!x.du_an_id || String(x.du_an_id) === String(project.id)),
+                        );
+                        if (!c) {
+                            errors.push(
+                                `Dòng ${rowLabel}: không tìm thấy hợp đồng «${soHdRaw}» thuộc dự án`,
+                            );
+                            continue;
+                        }
+                        hopDongId = hopDongRef(c);
+                    }
+                    if (loaiPhieu === 'Phiếu chi' && hangMucChi === 'chi_nhan_su' && !hopDongId) {
+                        errors.push(`Dòng ${rowLabel}: Chi nhân sự cần Số hợp đồng (hoặc Số HĐ & PLHĐ)`);
+                        continue;
+                    }
+
                     const tinhTrangRaw = String(r.tinh_trang || r.tinh_trang_phieu || '').trim();
-                    const tinhTrangPhieu =
+                    let tinhTrangPhieu: string | null =
                         tinhTrangRaw.toLowerCase() === 'thanh_toan'
                             ? 'Thanh toán'
                             : tinhTrangRaw || null;
+                    if (!tinhTrangPhieu) tinhTrangPhieu = 'Tạm ứng';
                     try {
                         await thuChiService.create({
                             loai_phieu: loaiPhieu,
@@ -1090,19 +1177,22 @@ export function ThuChi() {
                             ngay:
                                 parseExcelDate(r.ngay) || new Date().toISOString().split('T')[0],
                             du_an_id: project.id,
+                            hop_dong_id: hopDongId,
                             noi_dung: String(r.noi_dung || '').trim() || null,
                             tinh_trang_phieu: tinhTrangPhieu,
                             ten_goi_thau: String(r.ten_goi_thau || '').trim() || null,
+                            hang_muc_chi: hangMucChi,
+                            nhan_su_id: nhanSuId,
                         });
                         ok++;
                     } catch (e: any) {
-                        errors.push(`Dòng ${i + 2}: ${e?.message || 'Lỗi tạo phiếu'}`);
+                        errors.push(`Dòng ${rowLabel}: ${e?.message || 'Lỗi tạo phiếu'}`);
                     }
                 }
             }
             return { ok, errors };
         },
-        [projects, contracts, customers],
+        [projects, contracts, customers, employees],
     );
 
     return (

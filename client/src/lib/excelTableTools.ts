@@ -3,11 +3,27 @@ import * as XLSX from 'xlsx';
 export type ExcelColumnDef = {
     /** Khóa nội bộ sau khi parse */
     key: string;
-    /** Tiêu đề cột dòng 1 file mẫu (khớp khi nhập) */
+    /** Tiêu đề cột dòng 1 file mẫu — dùng để khớp khi nhập (không gắn dấu *) */
     header: string;
     /** Gợi ý dòng 2 trong mẫu */
     example?: string;
+    /** Nếu true, file mẫu gắn " *" sau tiêu đề; ô ví dụ mặc định "Bắt buộc" khi không có example/hint */
+    required?: boolean;
+    /** Chú thích ô ví dụ khi không khai báo example */
+    hint?: string;
 };
+
+/** Tiêu đề hiển thị trên file tải về (có dấu * nếu bắt buộc). */
+export function templateColumnHeader(c: ExcelColumnDef): string {
+    return c.required ? `${c.header} *` : c.header;
+}
+
+function templateExampleCell(c: ExcelColumnDef): string {
+    if (c.example !== undefined && String(c.example).length > 0) return c.example;
+    if (c.hint) return c.hint;
+    if (c.required) return 'Bắt buộc';
+    return '';
+}
 
 function normalizeHeader(s: string): string {
     return String(s ?? '')
@@ -18,6 +34,14 @@ function normalizeHeader(s: string): string {
         .toLowerCase()
         .normalize('NFD')
         .replace(/[\u0300-\u036f]/g, '');
+}
+
+/** Chuẩn hóa tiêu đề cột trên file Excel để khớp với `header` trong code (bỏ dấu * / (bắt buộc) ở mẫu tải về). */
+export function normalizeHeaderForMatch(s: string): string {
+    let n = normalizeHeader(s);
+    n = n.replace(/\s*\*+$/g, '').trim();
+    n = n.replace(/\s*\(\s*bat\s*buoc\)\s*$/g, '').trim();
+    return n;
 }
 
 /** Làm sạch chuỗi để LƯU TRỮ: NFC, cắt khoảng trắng, gộp khoảng trắng thừa. Giữ nguyên hoa thường. */
@@ -33,14 +57,14 @@ export function normalizeKey(s: any): string {
     return cleanString(s).toLowerCase();
 }
 
-/** Tải file .xlsx mẫu: hàng 1 = tiêu đề, hàng 2 = ví dụ (có thể để trống). */
+/** Tải file .xlsx mẫu: hàng 1 = tiêu đề (cột bắt buộc có *), hàng 2 = ví dụ / chú thích. */
 export function downloadExcelTemplate(
     columns: ExcelColumnDef[],
     filename: string,
     sheetName = 'Mau nhap',
 ): void {
-    const headerRow = columns.map((c) => c.header);
-    const exampleRow = columns.map((c) => c.example ?? '');
+    const headerRow = columns.map((c) => templateColumnHeader(c));
+    const exampleRow = columns.map((c) => templateExampleCell(c));
     const ws = XLSX.utils.aoa_to_sheet([headerRow, exampleRow]);
     const wb = XLSX.utils.book_new();
     const safeSheet = sheetName.slice(0, 31).replace(/[:\\/?*[\]]/g, '_');
@@ -56,7 +80,7 @@ export function downloadExcelData(
     filename: string,
     sheetName = 'Du lieu',
 ): void {
-    const headerRow = columns.map((c) => c.header);
+    const headerRow = columns.map((c) => templateColumnHeader(c));
     const dataRows = data.map((row) => {
         return columns.map((col) => {
             const val = row[col.key];
@@ -88,7 +112,7 @@ export async function parseExcelToRows(
     let globalRows: any[][] = [];
     let bestSheet = '';
 
-    const normalizedDefs = columns.map(c => ({ ...c, norm: normalizeHeader(c.header) }));
+    const normalizedDefs = columns.map((c) => ({ ...c, norm: normalizeHeaderForMatch(c.header) }));
 
     // Duyệt qua TẤT CẢ các sheet để tìm ra sheet nào chứa nhiều cột hợp lệ nhất
     for (const sheetName of wb.SheetNames) {
@@ -111,7 +135,7 @@ export async function parseExcelToRows(
             const headerCells = (rows[r] || []).map((h) => String(h ?? '').trim());
             let matches = 0;
             const keyByIndex: (string | null)[] = headerCells.map((h) => {
-                const nh = normalizeHeader(h);
+                const nh = normalizeHeaderForMatch(h);
                 const col = normalizedDefs.find((c) => c.norm === nh);
                 if (col) matches++;
                 return col?.key ?? null;
