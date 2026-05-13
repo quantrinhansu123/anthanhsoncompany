@@ -116,13 +116,22 @@ export function ChiTietThuChiModal({ isOpen, onClose, item }: Props) {
                                                     )}
                                                 </div>
 
-                                                {item.type === 'Phiếu chi' && (
+                                                {item.type === 'Phiếu chi' ? (
                                                     <>
                                                         <div className="flex items-center gap-2 text-slate-500">
-                                                            Hạng mục chi:
+                                                            Hạng mục:
                                                         </div>
                                                         <div className="text-slate-800 font-semibold text-right">
                                                             {item.hang_muc_display ?? (item.hang_muc_chi === 'chi_du_an' ? 'Chi dự án' : item.hang_muc_chi === 'chi_nhan_su' ? 'Chi nhân sự' : '—')}
+                                                        </div>
+                                                    </>
+                                                ) : (
+                                                    <>
+                                                        <div className="flex items-center gap-2 text-slate-500">
+                                                            Hạng mục thu:
+                                                        </div>
+                                                        <div className="text-slate-800 font-semibold text-right">
+                                                            {String(item.hang_muc_thu || '').trim() || '—'}
                                                         </div>
                                                     </>
                                                 )}

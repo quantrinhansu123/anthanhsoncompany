@@ -75,6 +75,10 @@ function mapThuChiRowForDetail(tc: ThuChiRow) {
                       ? 'Chi nhân sự'
                       : '—'
                 : '—',
+        hang_muc_thu_display:
+            tc.loai_phieu === 'Phiếu thu'
+                ? String(tc.hang_muc_thu || '').trim() || '—'
+                : '—',
         ten_du_an: tc.ten_du_an || '(Chưa có dự án)',
         nhan_su_display: nhanSuDisplay,
     };

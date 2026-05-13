@@ -19,6 +19,8 @@ export interface ThuChiRow {
   hang_muc_chi?: string | null;
   /** Tên gói thầu ghi trên phiếu (một DA nhiều gói) */
   ten_goi_thau?: string | null;
+  /** Hạng mục thu — dùng khi Phiếu thu */
+  hang_muc_thu?: string | null;
   created_at?: string;
   updated_at?: string;
   // Joined data
@@ -46,6 +48,7 @@ const THU_CHI_LIST_SELECT = `
   ghi_chu,
   hang_muc_chi,
   ten_goi_thau,
+  hang_muc_thu,
   created_at,
   updated_at,
   du_an:du_an_id(id, ten_du_an, customer_id, ten_khach_hang),
@@ -89,6 +92,7 @@ function mapThuChiJoinedRow(row: any): ThuChiRow {
       const b = String(hopDong?.ten_goi_thau ?? '').trim();
       return b || null;
     })(),
+    hang_muc_thu: row.hang_muc_thu,
     created_at: row.created_at,
     updated_at: row.updated_at,
     ten_du_an: effectiveDuAn?.ten_du_an ?? null,

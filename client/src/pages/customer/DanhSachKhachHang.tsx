@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import {
     Search,
     Plus,
@@ -24,6 +24,8 @@ import { thuChiService, type ThuChiRow } from '../../lib/services/thuChiService'
 import { ExcelImportExportBar } from '../../components/ExcelImportExportBar';
 import type { ExcelColumnDef } from '../../lib/excelTableTools';
 import { normalizeKey } from '../../lib/excelTableTools';
+import { cn } from '../../lib/utils';
+import { PAGE_SIZE_OPTIONS, buildVisiblePages } from '../../lib/tablePagination';
 
 /** Đặt `true` để hiện nút xóa toàn bộ khách hàng (mặc định ẩn). */
 const SHOW_DELETE_ALL_KHACH_HANG_BUTTON = false;
@@ -54,7 +56,7 @@ export function DanhSachKhachHang() {
     const [items, setItems] = useState<any[]>([]);
     const [searchTerm, setSearchTerm] = useState('');
     const [currentPage, setCurrentPage] = useState(1);
-    const [itemsPerPage, setItemsPerPage] = useState(10);
+    const [itemsPerPage, setItemsPerPage] = useState<number>(PAGE_SIZE_OPTIONS[0]);
     const [toast, setToast] = useState<{ message: string; type: 'success' | 'info' | 'warning' } | null>(null);
     const [reloadKey, setReloadKey] = useState(0);
     const [deletingAllKhach, setDeletingAllKhach] = useState(false);
@@ -245,9 +247,21 @@ export function DanhSachKhachHang() {
     }, [items, searchTerm]);
 
     // Pagination
-    const totalPages = Math.ceil(filteredItems.length / itemsPerPage);
+    const totalPages = Math.max(1, Math.ceil(filteredItems.length / itemsPerPage) || 1);
     const startIndex = (currentPage - 1) * itemsPerPage;
     const currentItems = filteredItems.slice(startIndex, startIndex + itemsPerPage);
+    const visiblePages = useMemo(
+        () => buildVisiblePages(currentPage, totalPages),
+        [currentPage, totalPages],
+    );
+
+    useEffect(() => {
+        setCurrentPage((page) => Math.min(page, totalPages));
+    }, [totalPages]);
+
+    useEffect(() => {
+        setCurrentPage(1);
+    }, [itemsPerPage, searchTerm]);
 
     const formatCurrency = (amount: number) => {
         return amount.toLocaleString('vi-VN');
@@ -478,15 +492,91 @@ export function DanhSachKhachHang() {
                             ))}
                         </tbody>
                     </table>
-                    <div className="px-6 py-4 bg-[#f2f3ff] border-t border-slate-200 flex justify-between items-center">
-                        <p className="text-xs text-slate-600">Hiển thị {currentItems.length} trên tổng số {filteredItems.length} khách hàng</p>
-                        <div className="flex gap-2">
-                            <button className="p-2 border border-slate-300 rounded-lg text-slate-600 hover:bg-white disabled:opacity-30" disabled={currentPage === 1} onClick={() => setCurrentPage(p => Math.max(1, p - 1))}>
+                    <div className="px-6 py-4 bg-[#f2f3ff] border-t border-slate-200 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+                        <div className="flex flex-wrap items-center gap-3 text-xs text-slate-600">
+                            <p>
+                                Hiển thị{' '}
+                                <span className="font-bold text-slate-800">
+                                    {currentItems.length ? startIndex + 1 : 0} –{' '}
+                                    {Math.min(startIndex + itemsPerPage, filteredItems.length)}
+                                </span>{' '}
+                                của <span className="font-bold text-slate-800">{filteredItems.length}</span> khách hàng
+                            </p>
+                            <label className="flex items-center gap-2 text-slate-600">
+                                <span className="whitespace-nowrap">Số dòng / trang</span>
+                                <select
+                                    value={itemsPerPage}
+                                    onChange={(event) => setItemsPerPage(Number(event.target.value))}
+                                    className="rounded-lg border border-slate-300 bg-white px-2.5 py-1.5 text-sm font-medium text-slate-700 shadow-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
+                                >
+                                    {PAGE_SIZE_OPTIONS.map((size) => (
+                                        <option key={size} value={size}>
+                                            {size}
+                                        </option>
+                                    ))}
+                                </select>
+                            </label>
+                        </div>
+                        <div className="flex max-w-full flex-nowrap items-center gap-1 overflow-x-auto">
+                            <button
+                                type="button"
+                                onClick={() => setCurrentPage(1)}
+                                disabled={currentPage === 1}
+                                className="rounded border border-slate-300 p-1.5 text-slate-600 hover:bg-white disabled:opacity-30"
+                                title="Trang đầu"
+                            >
+                                <ChevronsLeft size={14} />
+                            </button>
+                            <button
+                                type="button"
+                                onClick={() => setCurrentPage((page) => Math.max(1, page - 1))}
+                                disabled={currentPage === 1}
+                                className="rounded border border-slate-300 p-1.5 text-slate-600 hover:bg-white disabled:opacity-30"
+                                title="Trang trước"
+                            >
                                 <ChevronLeft size={14} />
                             </button>
-                            <button className="w-8 h-8 flex items-center justify-center bg-[#004bcb] text-white rounded-lg text-xs font-bold shadow-sm">{currentPage}</button>
-                            <button className="p-2 border border-slate-300 rounded-lg text-slate-600 hover:bg-white" disabled={currentPage >= totalPages} onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}>
+                            {visiblePages.map((page, index) =>
+                                page === 'ellipsis' ? (
+                                    <span
+                                        key={`ellipsis-${index}`}
+                                        className="px-1 text-xs font-semibold text-slate-400"
+                                    >
+                                        ...
+                                    </span>
+                                ) : (
+                                    <button
+                                        key={page}
+                                        type="button"
+                                        onClick={() => setCurrentPage(page)}
+                                        className={cn(
+                                            'h-8 min-w-8 rounded-lg px-2 text-xs font-bold transition-colors',
+                                            currentPage === page
+                                                ? 'bg-[#004bcb] text-white shadow-sm'
+                                                : 'border border-slate-300 bg-white text-slate-600 hover:bg-white',
+                                        )}
+                                    >
+                                        {page}
+                                    </button>
+                                ),
+                            )}
+                            <button
+                                type="button"
+                                onClick={() => setCurrentPage((page) => Math.min(totalPages, page + 1))}
+                                disabled={currentPage >= totalPages}
+                                className="rounded border border-slate-300 p-1.5 text-slate-600 hover:bg-white disabled:opacity-30"
+                                title="Trang sau"
+                            >
                                 <ChevronRight size={14} />
+                            </button>
+                            <button
+                                type="button"
+                                onClick={() => setCurrentPage(totalPages)}
+                                disabled={currentPage >= totalPages}
+                                className="rounded border border-slate-300 p-1.5 text-slate-600 hover:bg-white disabled:opacity-30"
+                                title="Trang cuối"
+                            >
+                                <ChevronsRight size={14} />
                             </button>
                         </div>
                     </div>

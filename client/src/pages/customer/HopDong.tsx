@@ -1,12 +1,12 @@
 import React, { useEffect, useState, useMemo, useRef } from 'react';
 import { createPortal } from 'react-dom';
-import { Search, Plus, Eye, Edit, Trash2, X, ChevronDown, ChevronLeft, ChevronRight, FileText, FolderOpen, PlusCircle, User, CheckCircle, BarChart3, Briefcase, Calendar, Loader2, ArrowUp, ArrowDown, ArrowUpDown } from 'lucide-react';
+import { Search, Plus, Eye, Edit, Trash2, X, ChevronDown, ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, FileText, FolderOpen, PlusCircle, User, CheckCircle, BarChart3, Briefcase, Calendar, Loader2, ArrowUp, ArrowDown, ArrowUpDown } from 'lucide-react';
 import { useSearchParams } from 'react-router-dom';
 import { contractService, ContractRow, ContractFile } from '../../lib/services/contractService';
 import { projectService } from '../../lib/services/projectService';
 import { taskService, TaskRow } from '../../lib/services/taskService';
 import { employeeService } from '../../lib/services/employeeService';
-import { thuChiService } from '../../lib/services/thuChiService';
+import { thuChiService, type ThuChiRow } from '../../lib/services/thuChiService';
 import { customerService } from '../../lib/services/customerService';
 import { useHopDongModal } from '../../contexts/HopDongModalContext';
 import type { NguongChiNhanSuLoai } from '../../lib/nguongChiNhanSu';
@@ -21,6 +21,8 @@ import {
     cleanString,
     normalizeKey
 } from '../../lib/excelTableTools';
+import { cn } from '../../lib/utils';
+import { PAGE_SIZE_OPTIONS, buildVisiblePages } from '../../lib/tablePagination';
 
 interface Contract {
     id: number;
@@ -141,6 +143,39 @@ function hopDongGroupCustomerKey(
     return cn ? `name:${cn}` : 'empty:';
 }
 
+function normalizeHangMucThuLabel(value: string | null | undefined): string {
+    return String(value ?? '')
+        .trim()
+        .normalize('NFC')
+        .toLowerCase()
+        .replace(/\s+/g, ' ');
+}
+
+function isTamUngHangMucThu(value: string | null | undefined): boolean {
+    const normalized = normalizeHangMucThuLabel(value);
+    return normalized === 'tạm ứng' || normalized === 'tam ung';
+}
+
+function isThanhToanHangMucThu(value: string | null | undefined): boolean {
+    const normalized = normalizeHangMucThuLabel(value);
+    return normalized === 'thanh toán' || normalized === 'thanh toan';
+}
+
+function sumThuByHangMucThu(
+    rows: ThuChiRow[],
+    contractIds: Set<string>,
+    matchHangMucThu: (value: string | null | undefined) => boolean,
+): number {
+    if (contractIds.size === 0) return 0;
+    return rows.reduce((sum, tc) => {
+        if (tc.loai_phieu !== 'Phiếu thu') return sum;
+        if (!matchHangMucThu(tc.hang_muc_thu)) return sum;
+        const hopDongId = String(tc.hop_dong_id || '').trim();
+        if (!hopDongId || !contractIds.has(hopDongId)) return sum;
+        return sum + (Number(tc.so_tien) || 0);
+    }, 0);
+}
+
 function Toast({ message, type, onClose, action }: {
     message: string;
     type: 'success' | 'info' | 'warning';
@@ -209,12 +244,13 @@ export function HopDong() {
 
     // Pagination states
     const [page, setPage] = useState(1);
-    const [pageSize] = useState(50);
+    const [pageSize, setPageSize] = useState<number>(PAGE_SIZE_OPTIONS[0]);
     const [totalContracts, setTotalContracts] = useState(0);
     const [isLoading, setIsLoading] = useState(false);
     const [totalGiaTriQT, setTotalGiaTriQT] = useState(0);
     const [totalDaThu, setTotalDaThu] = useState(0);
     const [deletingAllContracts, setDeletingAllContracts] = useState(false);
+    const [allThuChi, setAllThuChi] = useState<ThuChiRow[]>([]);
 
     /** Bộ lọc checkbox: khách + dự án (client-side trên trang hiện tại) */
     const [filterHopDongKhachKeys, setFilterHopDongKhachKeys] = useState<string[]>([]);
@@ -276,10 +312,20 @@ export function HopDong() {
         () => Math.max(1, Math.ceil((totalContracts || 0) / pageSize)),
         [totalContracts, pageSize]
     );
+    const visiblePages = useMemo(
+        () => buildVisiblePages(page, totalPages),
+        [page, totalPages],
+    );
+    const pageStart = totalContracts === 0 ? 0 : (page - 1) * pageSize + 1;
+    const pageEnd = Math.min(page * pageSize, totalContracts);
 
     useEffect(() => {
         if (page > totalPages) setPage(totalPages);
     }, [page, totalPages]);
+
+    useEffect(() => {
+        setPage(1);
+    }, [pageSize]);
 
     const hopDongCustomerOptions = useMemo(() => {
         const map = new Map<string, string>();
@@ -433,14 +479,15 @@ export function HopDong() {
         (async () => {
             try {
                 setIsLoading(true);
-                const [response, allThuChi] = await Promise.all([
-                    contractService.getAll({ 
-                        page, 
-                        pageSize, 
-                        search: debouncedSearch 
+                const [response, thuChiRows] = await Promise.all([
+                    contractService.getAll({
+                        page,
+                        pageSize,
+                        search: debouncedSearch,
                     }),
-                    thuChiService.getAll()
+                    thuChiService.getAll(),
                 ]);
+                setAllThuChi(thuChiRows);
 
                 const contractRows = response.data || [];
                 const total = response.total || 0;
@@ -448,7 +495,7 @@ export function HopDong() {
 
                 // Calculate "Đã thu" map
                 const thuChiMap = new Map<string, number>();
-                allThuChi.forEach((tc) => {
+                thuChiRows.forEach((tc) => {
                     if (tc.loai_phieu !== 'Phiếu thu') return;
                     const hid = tc.hop_dong_id != null ? String(tc.hop_dong_id).trim() : '';
                     if (!hid) return;
@@ -533,7 +580,7 @@ export function HopDong() {
                 setIsLoading(false);
             }
         })();
-    }, [page, debouncedSearch, reloadKey]);
+    }, [page, pageSize, debouncedSearch, reloadKey]);
 
     useEffect(() => {
         const onAccess = (ev: Event) => {
@@ -620,6 +667,27 @@ export function HopDong() {
             .map((project) => ({ ...project, contracts: project.contracts }))
             .filter((project) => project.contracts.length > 0);
     }, [items, filterFromUrl, filterHopDongKhachKeys, filterHopDongDuAnIds, projectsMeta]);
+
+    const filteredContractIds = useMemo(() => {
+        const ids = new Set<string>();
+        for (const group of filteredItems) {
+            for (const contract of group.contracts) {
+                const id = String(contract.uuid || '').trim();
+                if (id) ids.add(id);
+            }
+        }
+        return ids;
+    }, [filteredItems]);
+
+    const totalTamUng = useMemo(
+        () => sumThuByHangMucThu(allThuChi, filteredContractIds, isTamUngHangMucThu),
+        [allThuChi, filteredContractIds],
+    );
+
+    const totalDaThanhToan = useMemo(
+        () => sumThuByHangMucThu(allThuChi, filteredContractIds, isThanhToanHangMucThu),
+        [allThuChi, filteredContractIds],
+    );
 
     useEffect(() => {
         if (viewMode === 'folder' && filteredItems.length > 0) {
@@ -827,7 +895,7 @@ export function HopDong() {
                 </button>
             </div>
 
-            <section className="grid grid-cols-1 md:grid-cols-3 gap-6">
+            <section className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-5 gap-6">
                 <div className="bg-[#283044] text-white p-6 rounded-xl shadow-sm">
                     <p className="text-xs uppercase tracking-widest text-white/70 mb-1">Tổng hợp đồng</p>
                     <h3 className="text-3xl font-extrabold">{totalContracts}</h3>
@@ -839,6 +907,16 @@ export function HopDong() {
                 <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200">
                     <p className="text-xs uppercase tracking-widest text-slate-500 mb-1 font-semibold">Đã thu hồi</p>
                     <h3 className="text-3xl font-extrabold text-emerald-700">{formatCurrency(totalDaThu)} đ</h3>
+                </div>
+                <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200">
+                    <p className="text-xs uppercase tracking-widest text-slate-500 mb-1 font-semibold">Tiền tạm ứng</p>
+                    <h3 className="text-3xl font-extrabold text-amber-700">{formatCurrency(totalTamUng)} đ</h3>
+                    <p className="text-[11px] text-slate-500 mt-2">Phiếu thu có Hạng mục thu = Tạm ứng theo bộ lọc hiện tại</p>
+                </div>
+                <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200">
+                    <p className="text-xs uppercase tracking-widest text-slate-500 mb-1 font-semibold">Đã thanh toán</p>
+                    <h3 className="text-3xl font-extrabold text-sky-700">{formatCurrency(totalDaThanhToan)} đ</h3>
+                    <p className="text-[11px] text-slate-500 mt-2">Phiếu thu có Hạng mục thu = Thanh toán theo bộ lọc hiện tại</p>
                 </div>
             </section>
 
@@ -1394,26 +1472,92 @@ export function HopDong() {
                 </table>
                 </div>
 
-                <div className="px-6 py-4 bg-slate-50 flex justify-between items-center border-t border-slate-100">
-                    <p className="text-sm text-slate-500">
-                        Hiển thị <b>{page}</b> / <b>{totalPages}</b> ({totalContracts} hợp đồng)
-                    </p>
-                    <div className="flex items-center gap-2">
+                <div className="px-6 py-4 bg-slate-50 flex flex-col gap-4 border-t border-slate-100 sm:flex-row sm:items-center sm:justify-between">
+                    <div className="flex flex-wrap items-center gap-3 text-sm text-slate-500">
+                        <p>
+                            Hiển thị{' '}
+                            <span className="font-bold text-slate-800">
+                                {pageStart} – {pageEnd}
+                            </span>{' '}
+                            của <span className="font-bold text-slate-800">{totalContracts}</span> hợp đồng
+                        </p>
+                        <label className="flex items-center gap-2 text-slate-600">
+                            <span className="whitespace-nowrap">Số dòng / trang</span>
+                            <select
+                                value={pageSize}
+                                onChange={(event) => setPageSize(Number(event.target.value))}
+                                disabled={isLoading}
+                                className="rounded-lg border border-slate-300 bg-white px-2.5 py-1.5 text-sm font-medium text-slate-700 shadow-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20 disabled:opacity-50"
+                            >
+                                {PAGE_SIZE_OPTIONS.map((size) => (
+                                    <option key={size} value={size}>
+                                        {size}
+                                    </option>
+                                ))}
+                            </select>
+                        </label>
+                    </div>
+                    <div className="flex max-w-full flex-nowrap items-center gap-1 overflow-x-auto">
+                        <button
+                            type="button"
+                            disabled={page <= 1 || isLoading}
+                            onClick={() => setPage(1)}
+                            className="rounded border border-slate-300 p-1.5 text-slate-400 hover:bg-white disabled:opacity-50"
+                            title="Trang đầu"
+                        >
+                            <ChevronsLeft size={16} />
+                        </button>
                         <button
                             type="button"
                             disabled={page <= 1 || isLoading}
                             onClick={() => setPage((p) => Math.max(1, p - 1))}
-                            className="p-1 rounded border border-slate-300 text-slate-400 hover:bg-white disabled:opacity-50"
+                            className="rounded border border-slate-300 p-1.5 text-slate-400 hover:bg-white disabled:opacity-50"
+                            title="Trang trước"
                         >
                             <ChevronLeft size={16} />
                         </button>
+                        {visiblePages.map((pageNumber, index) =>
+                            pageNumber === 'ellipsis' ? (
+                                <span
+                                    key={`ellipsis-${index}`}
+                                    className="px-1 text-sm font-semibold text-slate-400"
+                                >
+                                    ...
+                                </span>
+                            ) : (
+                                <button
+                                    key={pageNumber}
+                                    type="button"
+                                    disabled={isLoading}
+                                    onClick={() => setPage(pageNumber)}
+                                    className={cn(
+                                        'h-8 min-w-8 rounded-lg px-2 text-sm font-bold transition-colors disabled:opacity-50',
+                                        page === pageNumber
+                                            ? 'bg-[#004bcb] text-white shadow-sm'
+                                            : 'border border-slate-300 bg-white text-slate-600 hover:bg-white',
+                                    )}
+                                >
+                                    {pageNumber}
+                                </button>
+                            ),
+                        )}
                         <button
                             type="button"
                             disabled={page >= totalPages || isLoading}
                             onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
-                            className="p-1 rounded border border-slate-300 text-slate-400 hover:bg-white disabled:opacity-50"
+                            className="rounded border border-slate-300 p-1.5 text-slate-400 hover:bg-white disabled:opacity-50"
+                            title="Trang sau"
                         >
                             <ChevronRight size={16} />
+                        </button>
+                        <button
+                            type="button"
+                            disabled={page >= totalPages || isLoading}
+                            onClick={() => setPage(totalPages)}
+                            className="rounded border border-slate-300 p-1.5 text-slate-400 hover:bg-white disabled:opacity-50"
+                            title="Trang cuối"
+                        >
+                            <ChevronsRight size={16} />
                         </button>
                     </div>
                 </div>

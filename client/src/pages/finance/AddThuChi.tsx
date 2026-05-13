@@ -108,6 +108,7 @@ export function AddThuChi() {
         noiDung: '',
         hangMucChi: 'chi_du_an' as HangMucChi,
         tenGoiThau: '',
+        hangMucThu: '',
         file: null as File | null,
         imageUrl: '' as string | null // URL ảnh chứng từ (link)
     });
@@ -342,6 +343,7 @@ export function AddThuChi() {
                     tenGoiThau:
                         String(item.ten_goi_thau ?? '').trim() ||
                         String(ct?.ten_goi_thau ?? '').trim(),
+                    hangMucThu: String(item.hang_muc_thu || '').trim(),
                     file: null,
                     imageUrl: item.anh_url || null,
                 });
@@ -418,6 +420,10 @@ export function AddThuChi() {
                 nguoi_nhan: null,
                 hang_muc_chi: formData.loaiPhieu === 'Phiếu chi' ? formData.hangMucChi : null,
                 ten_goi_thau: String(formData.tenGoiThau || '').trim() || null,
+                hang_muc_thu:
+                    formData.loaiPhieu === 'Phiếu thu'
+                        ? String(formData.hangMucThu || '').trim() || null
+                        : null,
                 file_url: fileUrl || null,
                 anh_url: imageUrl || null
             };
@@ -515,7 +521,6 @@ export function AddThuChi() {
                                         ...formData,
                                         loaiPhieu: newLoaiPhieu,
                                         nhanSuId: newLoaiPhieu === 'Phiếu thu' ? '' : formData.nhanSuId,
-                                        hangMucChi: newLoaiPhieu === 'Phiếu chi' ? formData.hangMucChi : 'chi_du_an',
                                     });
                                 }}
                                 className={`w-full px-4 py-2.5 bg-white border border-slate-300 rounded-md appearance-none focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 font-semibold ${
@@ -975,11 +980,10 @@ export function AddThuChi() {
                         </div>
                     </div>
 
-                    {/* Loại chi (hạng mục) — Phiếu chi */}
                     {formData.loaiPhieu === 'Phiếu chi' && (
                         <div className="flex flex-col md:flex-row md:items-start gap-4 md:gap-8">
                             <div className="md:w-1/3 md:text-right md:pt-2">
-                                <label className="text-sm font-medium text-slate-500">Loại chi</label>
+                                <label className="text-sm font-medium text-slate-500">Hạng mục</label>
                             </div>
                             <div className="md:w-2/3 flex-1 space-y-2">
                                 <div className="grid grid-cols-2 gap-2">
@@ -1007,8 +1011,25 @@ export function AddThuChi() {
                                     </button>
                                 </div>
                                 <p className="text-[11px] text-slate-500">
-                                    Chi nhân sự mới so sánh với ngưỡng trên hợp đồng (nếu có).
+                                    Chi nhân sự so sánh với ngưỡng trên hợp đồng (nếu có).
                                 </p>
+                            </div>
+                        </div>
+                    )}
+
+                    {formData.loaiPhieu === 'Phiếu thu' && (
+                        <div className="flex flex-col md:flex-row md:items-start gap-4 md:gap-8">
+                            <div className="md:w-1/3 md:text-right md:pt-2">
+                                <label className="text-sm font-medium text-slate-500">Hạng mục thu</label>
+                            </div>
+                            <div className="md:w-2/3 flex-1">
+                                <input
+                                    type="text"
+                                    value={formData.hangMucThu}
+                                    onChange={(e) => setFormData({ ...formData, hangMucThu: e.target.value })}
+                                    placeholder="Nhập hạng mục thu..."
+                                    className="w-full px-4 py-2.5 bg-white border border-slate-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 text-sm"
+                                />
                             </div>
                         </div>
                     )}

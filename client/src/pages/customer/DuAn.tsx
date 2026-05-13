@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { Search, Plus, Eye, Edit, Trash2, X, Maximize2, CheckCircle, PlusCircle, User, DollarSign, ChevronDown } from 'lucide-react';
+import { Search, Plus, Eye, Edit, Trash2, X, Maximize2, CheckCircle, PlusCircle, User, DollarSign, ChevronDown, ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight } from 'lucide-react';
 import { useLocation, useNavigate, useSearchParams } from 'react-router-dom';
 import { thuChiPath } from '../../lib/customerModuleLinks';
 import { useDuAnModal } from '../../contexts/DuAnModalContext';
@@ -12,6 +12,8 @@ import { taskService } from '../../lib/services/taskService';
 import { ExcelImportExportBar } from '../../components/ExcelImportExportBar';
 import type { ExcelColumnDef } from '../../lib/excelTableTools';
 import { customerService } from '../../lib/services/customerService';
+import { cn } from '../../lib/utils';
+import { PAGE_SIZE_OPTIONS, buildVisiblePages } from '../../lib/tablePagination';
 
 // Toast component
 function Toast({ message, type, onClose }: { message: string; type: 'success' | 'info' | 'warning'; onClose: () => void }) {
@@ -66,6 +68,8 @@ export function DuAn() {
         { key: 'tien_do', header: 'Tiến độ %', example: '0' },
     ];
     const [searchTerm, setSearchTerm] = useState('');
+    const [currentPage, setCurrentPage] = useState(1);
+    const [itemsPerPage, setItemsPerPage] = useState<number>(PAGE_SIZE_OPTIONS[0]);
     /** Bộ lọc checkbox: khóa từ getDuAnItemCustomerKey; rỗng = tất cả */
     const [filterDuAnKhachKeys, setFilterDuAnKhachKeys] = useState<string[]>([]);
     const [filterDuAnProjectIds, setFilterDuAnProjectIds] = useState<string[]>([]);
@@ -269,6 +273,22 @@ export function DuAn() {
         filterDuAnKhachKeys,
         filterDuAnProjectIds,
     ]);
+
+    const totalPages = Math.max(1, Math.ceil(filteredItems.length / itemsPerPage) || 1);
+    const startIndex = (currentPage - 1) * itemsPerPage;
+    const currentItems = filteredItems.slice(startIndex, startIndex + itemsPerPage);
+    const visiblePages = useMemo(
+        () => buildVisiblePages(currentPage, totalPages),
+        [currentPage, totalPages],
+    );
+
+    useEffect(() => {
+        setCurrentPage((page) => Math.min(page, totalPages));
+    }, [totalPages]);
+
+    useEffect(() => {
+        setCurrentPage(1);
+    }, [itemsPerPage, searchTerm, filterDuAnKhachKeys, filterDuAnProjectIds, urlCustomerId, urlDuAnId]);
 
     // Load danh sách nhân sự
     useEffect(() => {
@@ -1120,7 +1140,7 @@ export function DuAn() {
                                     </td>
                                 </tr>
                             ) : (
-                                filteredItems.map((item) => (
+                                currentItems.map((item) => (
                                     <tr key={item.id} className="hover:bg-slate-50/60 transition-colors">
                                         <td className="px-6 py-4 text-sm text-slate-900">{item.customer_name || '—'}</td>
                                         <td className="px-6 py-4">
@@ -1170,6 +1190,94 @@ export function DuAn() {
                             )}
                         </tbody>
                     </table>
+                </div>
+                <div className="px-6 py-4 flex flex-col gap-4 border-t border-slate-200 bg-slate-50/80 sm:flex-row sm:items-center sm:justify-between">
+                    <div className="flex flex-wrap items-center gap-3 text-xs text-slate-600">
+                        <p>
+                            Hiển thị{' '}
+                            <span className="font-bold text-slate-800">
+                                {currentItems.length ? startIndex + 1 : 0} –{' '}
+                                {Math.min(startIndex + itemsPerPage, filteredItems.length)}
+                            </span>{' '}
+                            của <span className="font-bold text-slate-800">{filteredItems.length}</span> dự án
+                        </p>
+                        <label className="flex items-center gap-2 text-slate-600">
+                            <span className="whitespace-nowrap">Số dòng / trang</span>
+                            <select
+                                value={itemsPerPage}
+                                onChange={(event) => setItemsPerPage(Number(event.target.value))}
+                                className="rounded-lg border border-slate-300 bg-white px-2.5 py-1.5 text-sm font-medium text-slate-700 shadow-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
+                            >
+                                {PAGE_SIZE_OPTIONS.map((size) => (
+                                    <option key={size} value={size}>
+                                        {size}
+                                    </option>
+                                ))}
+                            </select>
+                        </label>
+                    </div>
+                    <div className="flex max-w-full flex-nowrap items-center gap-1 overflow-x-auto">
+                        <button
+                            type="button"
+                            onClick={() => setCurrentPage(1)}
+                            disabled={currentPage === 1}
+                            className="rounded border border-slate-300 p-1.5 text-slate-600 hover:bg-white disabled:opacity-30"
+                            title="Trang đầu"
+                        >
+                            <ChevronsLeft size={14} />
+                        </button>
+                        <button
+                            type="button"
+                            onClick={() => setCurrentPage((page) => Math.max(1, page - 1))}
+                            disabled={currentPage === 1}
+                            className="rounded border border-slate-300 p-1.5 text-slate-600 hover:bg-white disabled:opacity-30"
+                            title="Trang trước"
+                        >
+                            <ChevronLeft size={14} />
+                        </button>
+                        {visiblePages.map((page, index) =>
+                            page === 'ellipsis' ? (
+                                <span
+                                    key={`ellipsis-${index}`}
+                                    className="px-1 text-xs font-semibold text-slate-400"
+                                >
+                                    ...
+                                </span>
+                            ) : (
+                                <button
+                                    key={page}
+                                    type="button"
+                                    onClick={() => setCurrentPage(page)}
+                                    className={cn(
+                                        'h-8 min-w-8 rounded-lg px-2 text-xs font-bold transition-colors',
+                                        currentPage === page
+                                            ? 'bg-[#004bcb] text-white shadow-sm'
+                                            : 'border border-slate-300 bg-white text-slate-600 hover:bg-white',
+                                    )}
+                                >
+                                    {page}
+                                </button>
+                            ),
+                        )}
+                        <button
+                            type="button"
+                            onClick={() => setCurrentPage((page) => Math.min(totalPages, page + 1))}
+                            disabled={currentPage >= totalPages}
+                            className="rounded border border-slate-300 p-1.5 text-slate-600 hover:bg-white disabled:opacity-30"
+                            title="Trang sau"
+                        >
+                            <ChevronRight size={14} />
+                        </button>
+                        <button
+                            type="button"
+                            onClick={() => setCurrentPage(totalPages)}
+                            disabled={currentPage >= totalPages}
+                            className="rounded border border-slate-300 p-1.5 text-slate-600 hover:bg-white disabled:opacity-30"
+                            title="Trang cuối"
+                        >
+                            <ChevronsRight size={14} />
+                        </button>
+                    </div>
                 </div>
             </section>
         </div>

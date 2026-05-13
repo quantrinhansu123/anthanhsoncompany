@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useLayoutEffect, useMemo } from 'react';
 import {
     X,
     Save,
@@ -25,6 +25,81 @@ import type { ThuChiCreatePrefill } from '../../contexts/ThuChiModalContext';
 import { cn } from '../../lib/utils';
 
 type HangMucChi = 'chi_du_an' | 'chi_nhan_su';
+type LoaiPhieu = 'Phiếu thu' | 'Phiếu chi';
+
+function resolveLoaiPhieu(data: Record<string, unknown> | null | undefined): LoaiPhieu {
+    const raw = String(data?.type ?? data?.loai_phieu ?? '')
+        .trim()
+        .normalize('NFC')
+        .toLowerCase();
+    if (!raw) return 'Phiếu thu';
+    if (raw === 'phiếu chi' || raw === 'phieu chi' || raw.endsWith(' chi')) return 'Phiếu chi';
+    if (raw === 'phiếu thu' || raw === 'phieu thu' || raw.endsWith(' thu')) return 'Phiếu thu';
+    if (raw.includes('chi')) return 'Phiếu chi';
+    if (raw.includes('thu')) return 'Phiếu thu';
+    return 'Phiếu thu';
+}
+
+function resolveHangMucChi(data: Record<string, unknown> | null | undefined): HangMucChi {
+    const raw = String(data?.hang_muc_chi ?? '')
+        .trim()
+        .toLowerCase();
+    if (raw === 'chi_nhan_su' || raw.includes('nhan_su')) return 'chi_nhan_su';
+    const display = String(data?.hang_muc_display ?? '')
+        .trim()
+        .toLowerCase();
+    if (display.includes('nhân sự') || display.includes('nhan su')) return 'chi_nhan_su';
+    return 'chi_du_an';
+}
+
+function resolveNgayTienVe(data: Record<string, unknown> | null | undefined): string {
+    const iso = String(data?.ngay ?? '').trim();
+    if (/^\d{4}-\d{2}-\d{2}/.test(iso)) return iso.slice(0, 10);
+    const display = String(data?.date ?? '').trim();
+    if (/^\d{4}-\d{2}-\d{2}/.test(display)) return display.slice(0, 10);
+    return new Date().toISOString().split('T')[0];
+}
+
+function coalesceEditSource(
+    initialData: Record<string, unknown>,
+    full: Record<string, unknown> | null,
+): Record<string, unknown> {
+    if (!full) return initialData;
+    return {
+        ...initialData,
+        ...full,
+        type: initialData.type ?? full.loai_phieu,
+        loai_phieu: full.loai_phieu ?? initialData.loai_phieu ?? initialData.type,
+        hang_muc_chi: full.hang_muc_chi ?? initialData.hang_muc_chi,
+        hang_muc_thu: full.hang_muc_thu ?? initialData.hang_muc_thu,
+        hang_muc_display: initialData.hang_muc_display ?? full.hang_muc_display,
+        so_tien: full.so_tien ?? initialData.so_tien,
+        ngay: full.ngay ?? initialData.ngay,
+        noi_dung: full.noi_dung ?? initialData.noi_dung,
+        nhan_su_id: full.nhan_su_id ?? initialData.nhan_su_id,
+    };
+}
+
+function resolveSoTien(data: Record<string, unknown> | null | undefined): number {
+    if (typeof data?.so_tien === 'number' && !Number.isNaN(data.so_tien)) return data.so_tien;
+    if (typeof data?.amount === 'number' && !Number.isNaN(data.amount)) return data.amount;
+    const amountStr = String(data?.amount ?? data?.so_tien ?? '0');
+    return Number(amountStr.replace(/\./g, '').replace(/[^\d]/g, '')) || 0;
+}
+
+function buildEditSeed(source: Record<string, unknown>) {
+    const loaiPhieu = resolveLoaiPhieu(source);
+    return {
+        loaiPhieu,
+        hangMucChi: resolveHangMucChi(source),
+        hangMucThu: String(source.hang_muc_thu ?? '').trim(),
+        soTien: resolveSoTien(source),
+        noiDung: String(source.description || source.noi_dung || ''),
+        ngayTienVe: resolveNgayTienVe(source),
+        nhanSuId:
+            loaiPhieu === 'Phiếu chi' ? String(source.nhan_su_id || '').trim() : '',
+    };
+}
 
 function normCustomerKey(s: string | null | undefined): string {
     return String(s || '')
@@ -116,6 +191,7 @@ export function ThemThuChiModal({
         hangMucChi: 'chi_du_an' as HangMucChi,
         tinhTrangPhieu: 'Tạm ứng',
         tenGoiThau: '',
+        hangMucThu: '',
     });
 
     const effectiveCustomerId = (customerScope?.customer_id || formData.customerId || '').trim();
@@ -250,6 +326,19 @@ export function ThemThuChiModal({
         };
     }, [formData.loaiPhieu, formData.hopDongId, mode, initialData?.id]);
 
+    useLayoutEffect(() => {
+        if (!isOpen || mode !== 'edit' || !initialData) return;
+        setFormData((prev) => ({ ...prev, ...buildEditSeed(initialData) }));
+    }, [
+        isOpen,
+        mode,
+        initialData?.id,
+        initialData?.type,
+        initialData?.loai_phieu,
+        initialData?.hang_muc_chi,
+        initialData?.hang_muc_display,
+    ]);
+
     useEffect(() => {
         if (!isOpen) {
             setCustomerPickerOpen(false);
@@ -263,8 +352,14 @@ export function ThemThuChiModal({
                 const { projects: loadedProjects, contracts: loadedContracts, custList } = await loadData();
                 if (cancelled) return;
                 if (initialData) {
-                    let duAnId = initialData.du_an_id || '';
-                    let hopDongId = initialData.hop_dong_id || '';
+                    let source: Record<string, unknown> = initialData;
+                    if (mode === 'edit' && initialData.id) {
+                        const full = await thuChiService.getById(String(initialData.id));
+                        if (cancelled) return;
+                        source = coalesceEditSource(initialData, full);
+                    }
+                    let duAnId = String(source.du_an_id || '').trim();
+                    let hopDongId = String(source.hop_dong_id || '').trim();
                     let ctHd: ContractRow | undefined;
                     if (!duAnId && hopDongId) {
                         const ct = loadedContracts.find(
@@ -325,6 +420,7 @@ export function ThemThuChiModal({
                         tenGoiThau:
                             String(initialData.ten_goi_thau ?? initialData.tenGoiThau ?? '').trim() ||
                             String(ctHd?.ten_goi_thau ?? '').trim(),
+                        hangMucThu: String(initialData.hang_muc_thu ?? '').trim(),
                     });
                     const labelInit =
                         customerIdInit && custList.length
@@ -353,9 +449,11 @@ export function ThemThuChiModal({
                         ngayTienVe: new Date().toISOString().split('T')[0],
                         soTien: 0,
                         noiDung: '',
+                        nhanSuId: '',
                         hangMucChi: 'chi_du_an',
                         tinhTrangPhieu: 'Tạm ứng',
                         tenGoiThau: '',
+                        hangMucThu: '',
                     });
                     setCustomerSearch('');
                     setDuAnSearch('');
@@ -368,7 +466,7 @@ export function ThemThuChiModal({
         return () => {
             cancelled = true;
         };
-    }, [isOpen, initialData, defaultType, customerScope?.customer_id]);
+    }, [isOpen, mode, initialData, defaultType, customerScope?.customer_id]);
 
     /** Thêm phiếu từ KH: gỡ dự án sai, tự chọn nếu chỉ 1 dự án; hợp đồng theo dự án. */
     useEffect(() => {
@@ -667,6 +765,10 @@ export function ThemThuChiModal({
                 hang_muc_chi: formData.loaiPhieu === 'Phiếu chi' ? formData.hangMucChi : null,
                 tinh_trang_phieu: String(formData.tinhTrangPhieu || '').trim() || null,
                 ten_goi_thau: String(formData.tenGoiThau || '').trim() || null,
+                hang_muc_thu:
+                    formData.loaiPhieu === 'Phiếu thu'
+                        ? String(formData.hangMucThu || '').trim() || null
+                        : null,
             };
 
             if (mode === 'edit' && initialData) {
@@ -687,12 +789,15 @@ export function ThemThuChiModal({
 
     const formatCurrency = (n: number) => (n === 0 ? '0' : n.toLocaleString('vi-VN'));
     const amountNum = Number(formData.soTien) || 0;
+    const isPhieuChi =
+        formData.loaiPhieu === 'Phiếu chi' ||
+        (mode === 'edit' && initialData && resolveLoaiPhieu(initialData) === 'Phiếu chi');
     const projectedNhanSuChi =
-        formData.loaiPhieu === 'Phiếu chi' && formData.hangMucChi === 'chi_nhan_su'
+        isPhieuChi && formData.hangMucChi === 'chi_nhan_su'
             ? existingNhanSuChiTotal + amountNum
             : existingNhanSuChiTotal;
     const showNhanSuNguong =
-        formData.loaiPhieu === 'Phiếu chi' && !!formData.hopDongId && formData.hangMucChi === 'chi_nhan_su';
+        isPhieuChi && !!formData.hopDongId && formData.hangMucChi === 'chi_nhan_su';
     const overThreshold = showNhanSuNguong && nguongTien > 0 && projectedNhanSuChi > nguongTien;
     const nearThreshold =
         showNhanSuNguong &&
@@ -747,7 +852,6 @@ export function ThemThuChiModal({
                                         setFormData((prev) => ({
                                             ...prev,
                                             loaiPhieu: v,
-                                            hangMucChi: v === 'Phiếu chi' ? prev.hangMucChi : 'chi_du_an',
                                             nhanSuId: v === 'Phiếu thu' ? '' : prev.nhanSuId,
                                         }));
                                     }}
@@ -772,6 +876,54 @@ export function ThemThuChiModal({
                                     />
                                 </div>
                             </div>
+
+                            {isPhieuChi && (
+                                <div className="space-y-1.5 md:col-span-2">
+                                    <label className="text-[11px] font-bold text-slate-500 uppercase tracking-wider ml-1">
+                                        Hạng mục
+                                    </label>
+                                    <div className="grid grid-cols-2 gap-2">
+                                        <button
+                                            type="button"
+                                            onClick={() => setFormData((f) => ({ ...f, hangMucChi: 'chi_du_an' }))}
+                                            className={`py-2.5 rounded-xl text-xs font-bold border-2 transition-all ${
+                                                formData.hangMucChi === 'chi_du_an'
+                                                    ? 'border-blue-600 bg-blue-50 text-blue-900'
+                                                    : 'border-slate-200 bg-slate-50 text-slate-600'
+                                            }`}
+                                        >
+                                            Chi dự án
+                                        </button>
+                                        <button
+                                            type="button"
+                                            onClick={() => setFormData((f) => ({ ...f, hangMucChi: 'chi_nhan_su' }))}
+                                            className={`py-2.5 rounded-xl text-xs font-bold border-2 transition-all ${
+                                                formData.hangMucChi === 'chi_nhan_su'
+                                                    ? 'border-violet-600 bg-violet-50 text-violet-900'
+                                                    : 'border-slate-200 bg-slate-50 text-slate-600'
+                                            }`}
+                                        >
+                                            Chi nhân sự
+                                        </button>
+                                    </div>
+                                </div>
+                            )}
+
+                            {formData.loaiPhieu === 'Phiếu thu' && (
+                                <div className="space-y-1.5 md:col-span-2">
+                                    <label className="text-[11px] font-bold text-slate-500 uppercase tracking-wider ml-1">
+                                        Hạng mục thu
+                                    </label>
+                                    <input
+                                        type="text"
+                                        name="hangMucThu"
+                                        value={formData.hangMucThu}
+                                        onChange={handleChange}
+                                        placeholder="Nhập hạng mục thu..."
+                                        className="w-full px-4 py-3 bg-white border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500/10 focus:border-indigo-500 text-sm text-slate-800 transition-all hover:border-slate-300 shadow-sm"
+                                    />
+                                </div>
+                            )}
 
                             <div className="space-y-1.5 md:col-span-2">
                                 <label className="text-[11px] font-bold text-slate-500 uppercase tracking-wider ml-1">
@@ -1346,38 +1498,6 @@ export function ThemThuChiModal({
                                 </p>
                             </div>
 
-                            {formData.loaiPhieu === 'Phiếu chi' && (
-                                <div className="space-y-1.5 md:col-span-2">
-                                    <label className="text-[11px] font-bold text-slate-500 uppercase tracking-wider ml-1">
-                                        Loại chi (hạng mục)
-                                    </label>
-                                    <div className="grid grid-cols-2 gap-2">
-                                        <button
-                                            type="button"
-                                            onClick={() => setFormData((f) => ({ ...f, hangMucChi: 'chi_du_an' }))}
-                                            className={`py-2.5 rounded-xl text-xs font-bold border-2 transition-all ${
-                                                formData.hangMucChi === 'chi_du_an'
-                                                    ? 'border-blue-600 bg-blue-50 text-blue-900'
-                                                    : 'border-slate-200 bg-slate-50 text-slate-600'
-                                            }`}
-                                        >
-                                            Chi dự án
-                                        </button>
-                                        <button
-                                            type="button"
-                                            onClick={() => setFormData((f) => ({ ...f, hangMucChi: 'chi_nhan_su' }))}
-                                            className={`py-2.5 rounded-xl text-xs font-bold border-2 transition-all ${
-                                                formData.hangMucChi === 'chi_nhan_su'
-                                                    ? 'border-violet-600 bg-violet-50 text-violet-900'
-                                                    : 'border-slate-200 bg-slate-50 text-slate-600'
-                                            }`}
-                                        >
-                                            Chi nhân sự
-                                        </button>
-                                    </div>
-                                </div>
-                            )}
-
                             {formData.loaiPhieu === 'Phiếu chi' && formData.hopDongId && selectedContract && (
                                 <div className="md:col-span-2">
                                     <div className="rounded-xl border border-violet-200 bg-white overflow-hidden shadow-sm">
@@ -1481,7 +1601,7 @@ export function ThemThuChiModal({
                                 </div>
                             )}
 
-                            {formData.loaiPhieu === 'Phiếu chi' && (
+                            {isPhieuChi && (
                                 <div className="space-y-1.5 md:col-span-2">
                                     <label className="text-[11px] font-bold text-slate-500 uppercase tracking-wider ml-1">
                                         Nhân sự <span className="text-red-500">*</span>

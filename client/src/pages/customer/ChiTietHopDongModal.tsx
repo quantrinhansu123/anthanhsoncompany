@@ -8,6 +8,7 @@ import { contractService, ContractFile } from '../../lib/services/contractServic
 import { taskService, TaskRow } from '../../lib/services/taskService';
 import { taskDetailService } from '../../lib/services/taskDetailService';
 import { useHopDongModal } from '../../contexts/HopDongModalContext';
+import { useThuChiModal } from '../../contexts/ThuChiModalContext';
 import { useNavigate } from 'react-router-dom';
 import { PreviewLinkModal } from '../../components/PreviewLinkModal';
 import { thuChiService, ThuChiRow } from '../../lib/services/thuChiService';
@@ -74,6 +75,7 @@ export function ChiTietHopDongModal({ isOpen, onClose, contract }: ChiTietHopDon
         openNghiemThu,
         openThemHopDong
     } = useHopDongModal();
+    const { openThemThuChi, openDelete } = useThuChiModal();
     const navigate = useNavigate();
     
     const [activeTab, setActiveTab] = useState('info');
@@ -528,15 +530,17 @@ export function ChiTietHopDongModal({ isOpen, onClose, contract }: ChiTietHopDon
                                         <tr>
                                             <th className="px-4 py-3">Loại phiếu</th>
                                             <th className="px-4 py-3 whitespace-nowrap">Hạng mục</th>
+                                            <th className="px-4 py-3 whitespace-nowrap">Hạng mục thu</th>
                                             <th className="px-4 py-3">Ngày</th>
                                             <th className="px-4 py-3 text-right">Số tiền</th>
                                             <th className="px-4 py-3 min-w-[8rem]">Nội dung</th>
+                                            <th className="px-4 py-3 text-center w-24">Thao tác</th>
                                         </tr>
                                     </thead>
                                     <tbody className="divide-y divide-slate-100 text-sm">
                                         {thuChiRows.length === 0 ? (
                                             <tr>
-                                                <td colSpan={5} className="px-4 py-8 text-center text-slate-400 italic">
+                                                <td colSpan={7} className="px-4 py-8 text-center text-slate-400 italic">
                                                     Chưa có phiếu thu/chi nào
                                                 </td>
                                             </tr>
@@ -552,7 +556,14 @@ export function ChiTietHopDongModal({ isOpen, onClose, contract }: ChiTietHopDon
                                                         {row.loai_phieu === 'Phiếu chi'
                                                             ? row.hang_muc_chi === 'chi_nhan_su'
                                                                 ? 'Chi nhân sự'
-                                                                : 'Chi dự án'
+                                                                : row.hang_muc_chi === 'chi_du_an'
+                                                                  ? 'Chi dự án'
+                                                                  : '—'
+                                                            : '—'}
+                                                    </td>
+                                                    <td className="px-4 py-3 text-xs text-slate-600">
+                                                        {row.loai_phieu === 'Phiếu thu'
+                                                            ? String(row.hang_muc_thu || '').trim() || '—'
                                                             : '—'}
                                                     </td>
                                                     <td className="px-4 py-3 text-slate-600 whitespace-nowrap">
@@ -563,6 +574,34 @@ export function ChiTietHopDongModal({ isOpen, onClose, contract }: ChiTietHopDon
                                                     </td>
                                                     <td className="px-4 py-3 text-slate-600 text-xs max-w-[14rem]">
                                                         {row.noi_dung || '—'}
+                                                    </td>
+                                                    <td className="px-4 py-3">
+                                                        <div className="flex items-center justify-center gap-1">
+                                                            <button
+                                                                type="button"
+                                                                onClick={() =>
+                                                                    openThemThuChi(
+                                                                        'edit',
+                                                                        row,
+                                                                        row.loai_phieu === 'Phiếu chi'
+                                                                            ? 'Phiếu chi'
+                                                                            : 'Phiếu thu',
+                                                                    )
+                                                                }
+                                                                className="p-1.5 text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded transition-colors"
+                                                                title="Sửa"
+                                                            >
+                                                                <Edit size={15} />
+                                                            </button>
+                                                            <button
+                                                                type="button"
+                                                                onClick={() => openDelete({ id: row.id })}
+                                                                className="p-1.5 text-slate-400 hover:text-red-600 hover:bg-red-50 rounded transition-colors"
+                                                                title="Xóa"
+                                                            >
+                                                                <Trash2 size={15} />
+                                                            </button>
+                                                        </div>
                                                     </td>
                                                 </tr>
                                             ))

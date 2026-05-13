@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import {
     Plus,
     Edit,
@@ -6,6 +6,8 @@ import {
     Eye,
     ChevronLeft,
     ChevronRight,
+    ChevronsLeft,
+    ChevronsRight,
     Loader2,
     ArrowLeft,
     CheckCircle2,
@@ -27,6 +29,7 @@ import { ExcelImportExportBar } from '../../components/ExcelImportExportBar';
 import type { ExcelColumnDef } from '../../lib/excelTableTools';
 import { parseMoneyVi } from '../../lib/excelTableTools';
 import { cn } from '../../lib/utils';
+import { PAGE_SIZE_OPTIONS, buildVisiblePages } from '../../lib/tablePagination';
 
 interface ToastProps {
     message: string;
@@ -69,6 +72,7 @@ export function ThuChiNhanSu() {
     const [searchCustomerTerm, setSearchCustomerTerm] = useState('');
     const [searchContractTerm, setSearchContractTerm] = useState('');
     const [currentPage, setCurrentPage] = useState(1);
+    const [itemsPerPage, setItemsPerPage] = useState<number>(PAGE_SIZE_OPTIONS[0]);
     const [employees, setEmployees] = useState<Array<{ id: string; full_name: string; code: string }>>([]);
     const [projects, setProjects] = useState<
         Array<{ id: string; ten_du_an: string; customer_name?: string | null; ten_khach_hang?: string | null }>
@@ -87,7 +91,6 @@ export function ThuChiNhanSu() {
     const [statusFilter, setStatusFilter] = useState<string>('');
     const [filterPanelOpen, setFilterPanelOpen] = useState(true);
 
-    const itemsPerPage = 10;
     const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' | 'info' } | null>(null);
 
     const { openChiTietThuChi, openDelete } = useThuChiModal();
@@ -335,9 +338,21 @@ export function ThuChiNhanSu() {
     const totalAmount = filteredItems.reduce((sum, item) => sum + (item.so_tien || 0), 0);
     const formattedTotalNumber = new Intl.NumberFormat('vi-VN').format(totalAmount);
 
-    const totalPages = Math.ceil(filteredItems.length / itemsPerPage) || 1;
+    const totalPages = Math.max(1, Math.ceil(filteredItems.length / itemsPerPage) || 1);
     const startIndex = (currentPage - 1) * itemsPerPage;
     const currentItems = filteredItems.slice(startIndex, startIndex + itemsPerPage);
+    const visiblePages = useMemo(
+        () => buildVisiblePages(currentPage, totalPages),
+        [currentPage, totalPages],
+    );
+
+    useEffect(() => {
+        setCurrentPage((page) => Math.min(page, totalPages));
+    }, [totalPages]);
+
+    useEffect(() => {
+        setCurrentPage(1);
+    }, [itemsPerPage]);
 
     useEffect(() => {
         setCurrentPage(1);
@@ -961,36 +976,91 @@ export function ThuChiNhanSu() {
 
                 {/* Pagination */}
                 {!loading && !error && (
-                    <div className="mt-6 flex flex-col sm:flex-row justify-between items-center gap-4 px-2">
-                        <div className="text-slate-500 text-[13px] font-medium text-center sm:text-left">
-                            Hiển thị{' '}
-                            <span className="text-slate-800 font-bold">
-                                {filteredItems.length === 0 ? 0 : startIndex + 1}-
-                                {Math.min(startIndex + itemsPerPage, filteredItems.length)}
-                            </span>{' '}
-                            trên <span className="text-slate-800 font-bold">{filteredItems.length}</span> bản ghi
+                    <div className="mt-6 flex flex-col gap-4 px-2 sm:flex-row sm:items-center sm:justify-between">
+                        <div className="flex flex-wrap items-center gap-3 text-[13px] font-medium text-slate-500">
+                            <p className="text-center sm:text-left">
+                                Hiển thị{' '}
+                                <span className="font-bold text-slate-800">
+                                    {filteredItems.length === 0 ? 0 : startIndex + 1} –{' '}
+                                    {Math.min(startIndex + itemsPerPage, filteredItems.length)}
+                                </span>{' '}
+                                của <span className="font-bold text-slate-800">{filteredItems.length}</span> bản ghi
+                            </p>
+                            <label className="flex items-center gap-2 text-slate-600">
+                                <span className="whitespace-nowrap">Số dòng / trang</span>
+                                <select
+                                    value={itemsPerPage}
+                                    onChange={(event) => setItemsPerPage(Number(event.target.value))}
+                                    className="rounded-lg border border-slate-300 bg-white px-2.5 py-1.5 text-sm font-medium text-slate-700 shadow-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
+                                >
+                                    {PAGE_SIZE_OPTIONS.map((size) => (
+                                        <option key={size} value={size}>
+                                            {size}
+                                        </option>
+                                    ))}
+                                </select>
+                            </label>
                         </div>
-                        <div className="flex gap-2 items-center">
-                            <span className="text-xs text-slate-500 hidden sm:inline">
-                                {currentPage} / {totalPages}
-                            </span>
+                        <div className="flex max-w-full flex-nowrap items-center gap-1 overflow-x-auto">
                             <button
                                 type="button"
-                                onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
-                                disabled={currentPage <= 1}
-                                className="w-9 h-9 rounded-lg bg-white flex items-center justify-center text-slate-500 hover:text-blue-600 hover:border-blue-200 transition-all disabled:opacity-30 border border-slate-200 shadow-sm"
-                                aria-label="Trang trước"
+                                onClick={() => setCurrentPage(1)}
+                                disabled={currentPage === 1}
+                                className="rounded border border-slate-200 p-1.5 text-slate-400 hover:bg-white disabled:opacity-50"
+                                title="Trang đầu"
                             >
-                                <ChevronLeft className="w-5 h-5" />
+                                <ChevronsLeft size={16} />
                             </button>
                             <button
                                 type="button"
-                                onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
-                                disabled={currentPage >= totalPages}
-                                className="w-9 h-9 rounded-lg bg-white flex items-center justify-center text-slate-500 hover:text-blue-600 hover:border-blue-200 transition-all disabled:opacity-30 border border-slate-200 shadow-sm"
-                                aria-label="Trang sau"
+                                onClick={() => setCurrentPage((page) => Math.max(1, page - 1))}
+                                disabled={currentPage === 1}
+                                className="rounded border border-slate-200 p-1.5 text-slate-400 hover:bg-white disabled:opacity-50"
+                                title="Trang trước"
                             >
-                                <ChevronRight className="w-5 h-5" />
+                                <ChevronLeft size={16} />
+                            </button>
+                            {visiblePages.map((page, index) =>
+                                page === 'ellipsis' ? (
+                                    <span
+                                        key={`ellipsis-${index}`}
+                                        className="px-1 text-sm font-semibold text-slate-400"
+                                    >
+                                        ...
+                                    </span>
+                                ) : (
+                                    <button
+                                        key={page}
+                                        type="button"
+                                        onClick={() => setCurrentPage(page)}
+                                        className={cn(
+                                            'h-8 min-w-8 rounded-lg px-2 text-sm font-bold transition-colors',
+                                            currentPage === page
+                                                ? 'bg-blue-600 text-white shadow-sm'
+                                                : 'border border-slate-200 bg-white text-slate-600 hover:bg-slate-100',
+                                        )}
+                                    >
+                                        {page}
+                                    </button>
+                                ),
+                            )}
+                            <button
+                                type="button"
+                                onClick={() => setCurrentPage((page) => Math.min(totalPages, page + 1))}
+                                disabled={currentPage >= totalPages}
+                                className="rounded border border-slate-200 p-1.5 text-slate-400 hover:bg-white disabled:opacity-50"
+                                title="Trang sau"
+                            >
+                                <ChevronRight size={16} />
+                            </button>
+                            <button
+                                type="button"
+                                onClick={() => setCurrentPage(totalPages)}
+                                disabled={currentPage >= totalPages}
+                                className="rounded border border-slate-200 p-1.5 text-slate-400 hover:bg-white disabled:opacity-50"
+                                title="Trang cuối"
+                            >
+                                <ChevronsRight size={16} />
                             </button>
                         </div>
                     </div>
