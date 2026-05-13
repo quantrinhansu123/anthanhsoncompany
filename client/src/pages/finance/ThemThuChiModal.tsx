@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useLayoutEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import {
     X,
     Save,
@@ -326,7 +326,7 @@ export function ThemThuChiModal({
         };
     }, [formData.loaiPhieu, formData.hopDongId, mode, initialData?.id]);
 
-    useLayoutEffect(() => {
+    useEffect(() => {
         if (!isOpen || mode !== 'edit' || !initialData) return;
         setFormData((prev) => ({ ...prev, ...buildEditSeed(initialData) }));
     }, [
@@ -336,6 +336,7 @@ export function ThemThuChiModal({
         initialData?.type,
         initialData?.loai_phieu,
         initialData?.hang_muc_chi,
+        initialData?.hang_muc_thu,
         initialData?.hang_muc_display,
     ]);
 
@@ -351,9 +352,9 @@ export function ThemThuChiModal({
             try {
                 const { projects: loadedProjects, contracts: loadedContracts, custList } = await loadData();
                 if (cancelled) return;
-                if (initialData) {
+                if (mode === 'edit' && initialData) {
                     let source: Record<string, unknown> = initialData;
-                    if (mode === 'edit' && initialData.id) {
+                    if (initialData.id) {
                         const full = await thuChiService.getById(String(initialData.id));
                         if (cancelled) return;
                         source = coalesceEditSource(initialData, full);
@@ -394,33 +395,13 @@ export function ThemThuChiModal({
                         customerId: customerIdInit,
                         duAnId,
                         hopDongId,
-                        loaiPhieu: initialData.type || initialData.loai_phieu || 'Phiếu thu',
-                        ngayTienVe:
-                            initialData.date || initialData.ngay || new Date().toISOString().split('T')[0],
-                        soTien:
-                            typeof initialData.so_tien === 'number'
-                                ? Number(initialData.so_tien)
-                                : typeof initialData.amount === 'number'
-                                  ? initialData.amount
-                                  : Number(
-                                        String(initialData.amount || initialData.so_tien || '0')
-                                            .replace(/\./g, '')
-                                            .replace(/[^\d]/g, ''),
-                                    ),
-                        noiDung: initialData.description || initialData.noi_dung || '',
-                        nhanSuId:
-                            (initialData.type || initialData.loai_phieu) === 'Phiếu chi'
-                                ? String(initialData.nhan_su_id || '').trim()
-                                : '',
-                        hangMucChi:
-                            initialData.hang_muc_chi === 'chi_nhan_su' ? 'chi_nhan_su' : 'chi_du_an',
+                        ...buildEditSeed(source),
                         tinhTrangPhieu: tinhTrangPhieuFromInitial(
-                            initialData.tinh_trang_phieu ?? initialData.tinhTrangPhieu,
+                            source.tinh_trang_phieu ?? source.tinhTrangPhieu,
                         ),
                         tenGoiThau:
-                            String(initialData.ten_goi_thau ?? initialData.tenGoiThau ?? '').trim() ||
+                            String(source.ten_goi_thau ?? source.tenGoiThau ?? '').trim() ||
                             String(ctHd?.ten_goi_thau ?? '').trim(),
-                        hangMucThu: String(initialData.hang_muc_thu ?? '').trim(),
                     });
                     const labelInit =
                         customerIdInit && custList.length
@@ -431,7 +412,7 @@ export function ThemThuChiModal({
                             : '';
                     setCustomerSearch(
                         labelInit ||
-                            String(initialData.customer_name || initialData.ten_khach_hang || '').trim(),
+                            String(source.customer_name || source.ten_khach_hang || '').trim(),
                     );
                     setDuAnSearch(projRow?.ten_du_an || '');
                     if (ctHd) {
