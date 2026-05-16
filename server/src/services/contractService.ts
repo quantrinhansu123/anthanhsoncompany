@@ -37,8 +37,17 @@ function mapHopDongRows(data: any[] | null | undefined) {
 }
 
 export const contractService = {
-  async getAll(options: { page?: number; pageSize?: number; search?: string } = {}) {
-    const { page, pageSize, search } = options;
+  async getAll(
+    options: {
+      page?: number;
+      pageSize?: number;
+      search?: string;
+      dateFrom?: string;
+      dateTo?: string;
+      trangThai?: string;
+    } = {},
+  ) {
+    const { page, pageSize, search, dateFrom, dateTo, trangThai } = options;
     const supabase = getSupabase();
 
     const buildOrderedQuery = () => {
@@ -57,6 +66,20 @@ export const contractService = {
         query = query.or(
           `so_hop_dong.ilike.%${search}%,ten_goi_thau.ilike.%${search}%,project_name.ilike.%${search}%`
         );
+      }
+
+      const from = String(dateFrom ?? '').trim();
+      const to = String(dateTo ?? '').trim();
+      if (from) query = query.gte('ngay_ky_hd', from);
+      if (to) query = query.lte('ngay_ky_hd', to);
+
+      const status = String(trangThai ?? '').trim();
+      if (status === 'Đang thực hiện') {
+        query = query.or(
+          'trang_thai.eq.Đang thực hiện,trang_thai.eq.Đang làm,trang_thai.is.null',
+        );
+      } else if (status === 'Hoàn thành') {
+        query = query.eq('trang_thai', 'Hoàn thành');
       }
 
       return query.order('ngay_ky_hd', { ascending: false });

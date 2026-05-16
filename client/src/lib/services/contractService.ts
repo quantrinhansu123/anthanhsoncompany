@@ -53,11 +53,23 @@ export interface ContractRow {
 }
 
 export const contractService = {
-  async getAll(options: { page?: number; pageSize?: number; search?: string } = {}): Promise<any> {
+  async getAll(
+    options: {
+      page?: number;
+      pageSize?: number;
+      search?: string;
+      dateFrom?: string;
+      dateTo?: string;
+      trangThai?: string;
+    } = {},
+  ): Promise<any> {
     const params = new URLSearchParams();
     if (options.page) params.append('page', options.page.toString());
     if (options.pageSize) params.append('pageSize', options.pageSize.toString());
     if (options.search) params.append('search', options.search);
+    if (options.dateFrom) params.append('dateFrom', options.dateFrom);
+    if (options.dateTo) params.append('dateTo', options.dateTo);
+    if (options.trangThai) params.append('trangThai', options.trangThai);
     
     const queryString = params.toString();
     const res = await api.get(`/contracts${queryString ? `?${queryString}` : ''}`);

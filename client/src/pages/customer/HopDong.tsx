@@ -24,19 +24,26 @@ import {
 import { cn } from '../../lib/utils';
 import { PAGE_SIZE_OPTIONS, buildVisiblePages } from '../../lib/tablePagination';
 
-type HopDongTienDo = 'Đang làm' | 'Hoàn thành';
+type HopDongTienDo = 'Đang thực hiện' | 'Hoàn thành';
 
-const HOP_DONG_TIEN_DO_OPTIONS: HopDongTienDo[] = ['Đang làm', 'Hoàn thành'];
+const HOP_DONG_TIEN_DO_OPTIONS: HopDongTienDo[] = ['Đang thực hiện', 'Hoàn thành'];
 
 const HOP_DONG_MONTH_QUICK = Array.from({ length: 12 }, (_, i) => ({
     value: String(i + 1),
     label: `Tháng ${i + 1}`,
 }));
 
+function formatLocalDateIso(year: number, month1: number, day: number): string {
+    return `${year}-${String(month1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+}
+
+/** Tháng 1–12: ngày đầu tháng → ngày cuối tháng (theo giờ máy, tránh lệch UTC của toISOString). */
 function hopDongMonthRangeIso(month: number, year: number): { from: string; to: string } {
-    const from = new Date(year, month - 1, 1).toISOString().split('T')[0];
-    const to = new Date(year, month, 0).toISOString().split('T')[0];
-    return { from, to };
+    const lastDay = new Date(year, month, 0).getDate();
+    return {
+        from: formatLocalDateIso(year, month, 1),
+        to: formatLocalDateIso(year, month, lastDay),
+    };
 }
 
 function buildHopDongFilterYears(anchorYear: number, span = 8): number[] {
@@ -61,7 +68,7 @@ function normalizeHopDongTienDo(raw: string | null | undefined): HopDongTienDo {
     ) {
         return 'Hoàn thành';
     }
-    return 'Đang làm';
+    return 'Đang thực hiện';
 }
 
 function hopDongTienDoSelectClass(value: HopDongTienDo): string {
@@ -302,6 +309,7 @@ export function HopDong() {
     /** Bộ lọc checkbox: khách + dự án (client-side trên trang hiện tại) */
     const [filterHopDongKhachKeys, setFilterHopDongKhachKeys] = useState<string[]>([]);
     const [filterHopDongDuAnIds, setFilterHopDongDuAnIds] = useState<string[]>([]);
+    const [filterHopDongTrangThai, setFilterHopDongTrangThai] = useState<'' | HopDongTienDo>('');
     const [hdKhachFilterOpen, setHdKhachFilterOpen] = useState(false);
     const [hdKhachFilterSearch, setHdKhachFilterSearch] = useState('');
     const hdKhachFilterRef = useRef<HTMLDivElement>(null);
@@ -391,6 +399,10 @@ export function HopDong() {
     useEffect(() => {
         setPage(1);
     }, [dateFrom, dateTo]);
+
+    useEffect(() => {
+        setPage(1);
+    }, [filterHopDongTrangThai]);
 
     const applyHopDongMonthYearFilter = (month: string, year: number) => {
         const monthNum = Number(month);
@@ -586,6 +598,7 @@ export function HopDong() {
                         search: debouncedSearch,
                         dateFrom: dateFrom || undefined,
                         dateTo: dateTo || undefined,
+                        trangThai: filterHopDongTrangThai || undefined,
                     }),
                     thuChiService.getAll(),
                 ]);
@@ -683,7 +696,7 @@ export function HopDong() {
                 setIsLoading(false);
             }
         })();
-    }, [page, pageSize, debouncedSearch, dateFrom, dateTo, reloadKey]);
+    }, [page, pageSize, debouncedSearch, dateFrom, dateTo, filterHopDongTrangThai, reloadKey]);
 
     useEffect(() => {
         const onAccess = (ev: Event) => {
@@ -767,9 +780,14 @@ export function HopDong() {
                 }
                 return true;
             })
-            .map((project) => ({ ...project, contracts: project.contracts }))
+            .map((project) => ({
+                ...project,
+                contracts: project.contracts.filter(
+                    (c) => !filterHopDongTrangThai || c.trangThai === filterHopDongTrangThai,
+                ),
+            }))
             .filter((project) => project.contracts.length > 0);
-    }, [items, filterFromUrl, filterHopDongKhachKeys, filterHopDongDuAnIds, projectsMeta]);
+    }, [items, filterFromUrl, filterHopDongKhachKeys, filterHopDongDuAnIds, filterHopDongTrangThai, projectsMeta]);
 
     const filteredContractIds = useMemo(() => {
         const ids = new Set<string>();
@@ -1318,6 +1336,24 @@ export function HopDong() {
                             </div>
                         ) : null}
                     </div>
+                    <select
+                        value={filterHopDongTrangThai}
+                        onChange={(e) =>
+                            setFilterHopDongTrangThai(
+                                (e.target.value || '') as '' | HopDongTienDo,
+                            )
+                        }
+                        className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-900 shadow-sm hover:bg-slate-50 focus:outline-none focus:ring-2 focus:ring-[#004bcb]/30 min-w-[10.5rem] max-w-[14rem]"
+                        aria-label="Lọc theo trạng thái"
+                        title="Lọc theo trạng thái (tiến độ HĐ)"
+                    >
+                        <option value="">Tất cả trạng thái</option>
+                        {HOP_DONG_TIEN_DO_OPTIONS.map((opt) => (
+                            <option key={opt} value={opt}>
+                                {opt}
+                            </option>
+                        ))}
+                    </select>
                 </div>
                 <div className="flex flex-wrap items-center gap-2 shrink-0">
                     {SHOW_DELETE_ALL_HOP_DONG_BUTTON ? (

@@ -21,7 +21,8 @@ export default defineConfig(({mode}) => {
       'import.meta.env.VITE_SUPABASE_ANON_KEY': JSON.stringify(env.VITE_SUPABASE_ANON_KEY || env.SUPABASE_ANON_KEY),
     },
     server: {
-      port: Number(env.VITE_DEV_PORT) || 5173,
+      port: Number(env.VITE_DEV_PORT) || 5174,
+      strictPort: false,
       host: '0.0.0.0',
       // HMR is disabled in AI Studio via DISABLE_HMR env var.
       // Do not modifyâfile watching is disabled to prevent flickering during agent edits.

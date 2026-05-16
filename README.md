@@ -22,7 +22,7 @@ cd client
 npm install
 npm run dev
 ```
-Frontend mặc định chạy tại: `http://localhost:5173`. Đổi cổng bằng biến `VITE_DEV_PORT` trong `client/.env` (xem `client/.env.example`).
+Frontend mặc định chạy tại: `http://localhost:5174`. Đổi cổng bằng biến `VITE_DEV_PORT` trong `client/.env` (xem `client/.env.example`).
 
 ## Các logic đã chuyển sang Backend
 1. **Quản lý Nhân sự (Employees)**: CRUD và Tìm kiếm.

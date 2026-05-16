@@ -7,7 +7,10 @@ export const createGenericController = (service: any) => ({
       const options = {
         page: req.query.page ? Number(req.query.page) : undefined,
         pageSize: req.query.pageSize ? Number(req.query.pageSize) : undefined,
-        search: req.query.search as string | undefined
+        search: req.query.search as string | undefined,
+        dateFrom: req.query.dateFrom as string | undefined,
+        dateTo: req.query.dateTo as string | undefined,
+        trangThai: req.query.trangThai as string | undefined,
       };
       const result = await service.getAll(options);
       
