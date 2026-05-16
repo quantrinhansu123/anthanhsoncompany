@@ -24,6 +24,52 @@ import {
 import { cn } from '../../lib/utils';
 import { PAGE_SIZE_OPTIONS, buildVisiblePages } from '../../lib/tablePagination';
 
+type HopDongTienDo = 'Đang làm' | 'Hoàn thành';
+
+const HOP_DONG_TIEN_DO_OPTIONS: HopDongTienDo[] = ['Đang làm', 'Hoàn thành'];
+
+const HOP_DONG_MONTH_QUICK = Array.from({ length: 12 }, (_, i) => ({
+    value: String(i + 1),
+    label: `Tháng ${i + 1}`,
+}));
+
+function hopDongMonthRangeIso(month: number, year: number): { from: string; to: string } {
+    const from = new Date(year, month - 1, 1).toISOString().split('T')[0];
+    const to = new Date(year, month, 0).toISOString().split('T')[0];
+    return { from, to };
+}
+
+function buildHopDongFilterYears(anchorYear: number, span = 8): number[] {
+    const years: number[] = [];
+    for (let y = anchorYear - span; y <= anchorYear + 1; y += 1) {
+        years.push(y);
+    }
+    return years;
+}
+
+function normalizeHopDongTienDo(raw: string | null | undefined): HopDongTienDo {
+    const t = String(raw ?? '')
+        .trim()
+        .normalize('NFC')
+        .toLowerCase();
+    if (
+        t === 'hoàn thành' ||
+        t === 'hoan thanh' ||
+        t.includes('hoàn thành') ||
+        t === 'đã xong' ||
+        t === 'da xong'
+    ) {
+        return 'Hoàn thành';
+    }
+    return 'Đang làm';
+}
+
+function hopDongTienDoSelectClass(value: HopDongTienDo): string {
+    return value === 'Hoàn thành'
+        ? 'border-emerald-200 bg-emerald-50 text-emerald-800'
+        : 'border-blue-200 bg-blue-50 text-blue-800';
+}
+
 interface Contract {
     id: number;
     uuid?: string;
@@ -53,6 +99,7 @@ interface Contract {
     mst?: string | null;
     diaChiTaiThoiDiemKy?: string | null;
     customerId?: string | null;
+    trangThai: HopDongTienDo;
 }
 
 interface ProjectGroup {
@@ -268,9 +315,23 @@ export function HopDong() {
         type: 'success' | 'info' | 'warning';
         action?: { label: string; onClick: () => void }
     } | null>(null);
+    const [savingTienDoId, setSavingTienDoId] = useState<string | null>(null);
     const [reloadKey, setReloadKey] = useState(0);
     const [hopDongSortKey, setHopDongSortKey] = useState<HopDongSortKey | null>(null);
     const [hopDongSortDir, setHopDongSortDir] = useState<'asc' | 'desc'>('asc');
+
+    const [dateFrom, setDateFrom] = useState('');
+    const [dateTo, setDateTo] = useState('');
+    const [selectedMonth, setSelectedMonth] = useState('');
+    const [filterYear, setFilterYear] = useState(() => new Date().getFullYear());
+
+    const hopDongFilterYearOptions = useMemo(() => {
+        const base = buildHopDongFilterYears(new Date().getFullYear());
+        if (!base.includes(filterYear)) {
+            return [...base, filterYear].sort((a, b) => b - a);
+        }
+        return base;
+    }, [filterYear]);
 
     // Debounce search
     useEffect(() => {
@@ -326,6 +387,45 @@ export function HopDong() {
     useEffect(() => {
         setPage(1);
     }, [pageSize]);
+
+    useEffect(() => {
+        setPage(1);
+    }, [dateFrom, dateTo]);
+
+    const applyHopDongMonthYearFilter = (month: string, year: number) => {
+        const monthNum = Number(month);
+        if (!monthNum || monthNum < 1 || monthNum > 12) return;
+        const { from, to } = hopDongMonthRangeIso(monthNum, year);
+        setSelectedMonth(month);
+        setDateFrom(from);
+        setDateTo(to);
+    };
+
+    const handleHopDongMonthSelect = (month: string) => {
+        if (!month) {
+            setSelectedMonth('');
+            setDateFrom('');
+            setDateTo('');
+            return;
+        }
+        applyHopDongMonthYearFilter(month, filterYear);
+    };
+
+    const handleHopDongFilterYearChange = (yearStr: string) => {
+        const year = Number(yearStr);
+        if (!year || year < 1900 || year > 2100) return;
+        setFilterYear(year);
+        if (selectedMonth) {
+            applyHopDongMonthYearFilter(selectedMonth, year);
+        }
+    };
+
+    const clearHopDongDateFilters = () => {
+        setSelectedMonth('');
+        setDateFrom('');
+        setDateTo('');
+        setFilterYear(new Date().getFullYear());
+    };
 
     const hopDongCustomerOptions = useMemo(() => {
         const map = new Map<string, string>();
@@ -484,6 +584,8 @@ export function HopDong() {
                         page,
                         pageSize,
                         search: debouncedSearch,
+                        dateFrom: dateFrom || undefined,
+                        dateTo: dateTo || undefined,
                     }),
                     thuChiService.getAll(),
                 ]);
@@ -561,7 +663,8 @@ export function HopDong() {
                             mst: c.mst || null,
                             dia_chi_tai_thoi_diem_ky: c.dia_chi_tai_thoi_diem_ky || null,
                             customerId: c.customer_id || null,
-                        } as any;
+                            trangThai: normalizeHopDongTienDo(c.trang_thai),
+                        } as Contract;
                     }),
                 };
                 });
@@ -580,7 +683,7 @@ export function HopDong() {
                 setIsLoading(false);
             }
         })();
-    }, [page, pageSize, debouncedSearch, reloadKey]);
+    }, [page, pageSize, debouncedSearch, dateFrom, dateTo, reloadKey]);
 
     useEffect(() => {
         const onAccess = (ev: Event) => {
@@ -689,6 +792,21 @@ export function HopDong() {
         [allThuChi, filteredContractIds],
     );
 
+    const { totalCongNo, demHopDongCongNo, demHopDongHienThi } = useMemo(() => {
+        let sum = 0;
+        let count = 0;
+        let shown = 0;
+        for (const group of filteredItems) {
+            for (const c of group.contracts) {
+                shown += 1;
+                const no = Math.max(0, Number(c.conPhaiThu ?? 0));
+                sum += no;
+                if (no > 0) count += 1;
+            }
+        }
+        return { totalCongNo: sum, demHopDongCongNo: count, demHopDongHienThi: shown };
+    }, [filteredItems]);
+
     useEffect(() => {
         if (viewMode === 'folder' && filteredItems.length > 0) {
             const exists = selectedFolderProjectId !== null && filteredItems.some(p => p.id === selectedFolderProjectId);
@@ -701,6 +819,34 @@ export function HopDong() {
         if (tasks.length === 0) return 0;
         const completed = tasks.filter(t => t.tien_do === 100).length;
         return Math.round((completed / tasks.length) * 100);
+    };
+
+    const patchContractTienDoLocal = (contractUuid: string, trangThai: HopDongTienDo) => {
+        setItems((prev) =>
+            prev.map((g) => ({
+                ...g,
+                contracts: g.contracts.map((row) =>
+                    row.uuid === contractUuid ? { ...row, trangThai } : row,
+                ),
+            })),
+        );
+    };
+
+    const handleHopDongTienDoChange = async (contract: Contract, value: HopDongTienDo) => {
+        const id = String(contract.uuid || '').trim();
+        if (!id) return;
+        const prev = contract.trangThai;
+        patchContractTienDoLocal(id, value);
+        setSavingTienDoId(id);
+        try {
+            await contractService.update(id, { trang_thai: value });
+        } catch (error) {
+            console.error('[HopDong] update tien do:', error);
+            patchContractTienDoLocal(id, prev);
+            setToast({ message: 'Không lưu được tiến độ hợp đồng', type: 'warning' });
+        } finally {
+            setSavingTienDoId(null);
+        }
     };
 
     const hopDongFlatRows = useMemo(() => {
@@ -769,7 +915,7 @@ export function HopDong() {
                     cmp = parseViDateToTs(a.c.ngayUpdate) - parseViDateToTs(b.c.ngayUpdate);
                     break;
                 case 'tien_do':
-                    cmp = progress(a.c.uuid) - progress(b.c.uuid);
+                    cmp = a.c.trangThai.localeCompare(b.c.trangThai, 'vi');
                     break;
                 default:
                     return 0;
@@ -777,7 +923,7 @@ export function HopDong() {
             return mul * cmp;
         });
         return arr;
-    }, [hopDongFlatRows, hopDongSortKey, hopDongSortDir, tasksByContract]);
+    }, [hopDongFlatRows, hopDongSortKey, hopDongSortDir]);
 
     const toggleHopDongSort = (key: HopDongSortKey) => {
         setHopDongSortKey((prev) => {
@@ -895,32 +1041,81 @@ export function HopDong() {
                 </button>
             </div>
 
-            <section className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-5 gap-6">
-                <div className="bg-[#283044] text-white p-6 rounded-xl shadow-sm">
-                    <p className="text-xs uppercase tracking-widest text-white/70 mb-1">Tổng hợp đồng</p>
-                    <h3 className="text-3xl font-extrabold">{totalContracts}</h3>
+            <section className="grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-6 gap-2">
+                <div className="bg-[#283044] text-white p-3 rounded-lg shadow-sm min-w-0">
+                    <p className="text-[10px] uppercase tracking-wide text-white/70 mb-0.5 leading-tight">
+                        Tổng hợp đồng
+                    </p>
+                    <p className="text-xl font-extrabold tabular-nums leading-tight">{totalContracts}</p>
+                    {dateFrom || dateTo ? (
+                        <p className="text-[9px] text-white/60 mt-1 leading-snug">Lọc theo ngày ký HĐ</p>
+                    ) : null}
                 </div>
-                <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200">
-                    <p className="text-xs uppercase tracking-widest text-slate-500 mb-1 font-semibold">Tổng quyết toán</p>
-                    <h3 className="text-3xl font-extrabold text-slate-900">{formatCurrency(totalGiaTriQT)} đ</h3>
+                <div className="bg-white p-3 rounded-lg shadow-sm border border-slate-200 min-w-0">
+                    <p className="text-[10px] uppercase tracking-wide text-slate-500 mb-0.5 font-semibold leading-tight">
+                        Tổng quyết toán
+                    </p>
+                    <p
+                        className="text-lg font-extrabold text-slate-900 tabular-nums leading-tight truncate"
+                        title={`${formatCurrency(totalGiaTriQT)} đ`}
+                    >
+                        {formatCurrency(totalGiaTriQT)} đ
+                    </p>
                 </div>
-                <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200">
-                    <p className="text-xs uppercase tracking-widest text-slate-500 mb-1 font-semibold">Đã thu hồi</p>
-                    <h3 className="text-3xl font-extrabold text-emerald-700">{formatCurrency(totalDaThu)} đ</h3>
+                <div className="bg-white p-3 rounded-lg shadow-sm border border-slate-200 min-w-0">
+                    <p className="text-[10px] uppercase tracking-wide text-slate-500 mb-0.5 font-semibold leading-tight">
+                        Đã thu hồi
+                    </p>
+                    <p
+                        className="text-lg font-extrabold text-emerald-700 tabular-nums leading-tight truncate"
+                        title={`${formatCurrency(totalDaThu)} đ`}
+                    >
+                        {formatCurrency(totalDaThu)} đ
+                    </p>
                 </div>
-                <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200">
-                    <p className="text-xs uppercase tracking-widest text-slate-500 mb-1 font-semibold">Tiền tạm ứng</p>
-                    <h3 className="text-3xl font-extrabold text-amber-700">{formatCurrency(totalTamUng)} đ</h3>
-                    <p className="text-[11px] text-slate-500 mt-2">Phiếu thu có Hạng mục thu = Tạm ứng theo bộ lọc hiện tại</p>
+                <div className="bg-white p-3 rounded-lg shadow-sm border border-slate-200 min-w-0">
+                    <p className="text-[10px] uppercase tracking-wide text-slate-500 mb-0.5 font-semibold leading-tight">
+                        Tiền tạm ứng
+                    </p>
+                    <p
+                        className="text-lg font-extrabold text-amber-700 tabular-nums leading-tight truncate"
+                        title={`${formatCurrency(totalTamUng)} đ`}
+                    >
+                        {formatCurrency(totalTamUng)} đ
+                    </p>
+                    <p className="text-[9px] text-slate-500 mt-1 leading-snug line-clamp-2">Hạng mục thu = Tạm ứng</p>
                 </div>
-                <div className="bg-white p-6 rounded-xl shadow-sm border border-slate-200">
-                    <p className="text-xs uppercase tracking-widest text-slate-500 mb-1 font-semibold">Đã thanh toán</p>
-                    <h3 className="text-3xl font-extrabold text-sky-700">{formatCurrency(totalDaThanhToan)} đ</h3>
-                    <p className="text-[11px] text-slate-500 mt-2">Phiếu thu có Hạng mục thu = Thanh toán theo bộ lọc hiện tại</p>
+                <div className="bg-white p-3 rounded-lg shadow-sm border border-slate-200 min-w-0">
+                    <p className="text-[10px] uppercase tracking-wide text-slate-500 mb-0.5 font-semibold leading-tight">
+                        Đã thanh toán
+                    </p>
+                    <p
+                        className="text-lg font-extrabold text-sky-700 tabular-nums leading-tight truncate"
+                        title={`${formatCurrency(totalDaThanhToan)} đ`}
+                    >
+                        {formatCurrency(totalDaThanhToan)} đ
+                    </p>
+                    <p className="text-[9px] text-slate-500 mt-1 leading-snug line-clamp-2">Hạng mục thu = Thanh toán</p>
+                </div>
+                <div className="bg-white p-3 rounded-lg shadow-sm border border-rose-200 min-w-0">
+                    <p className="text-[10px] uppercase tracking-wide text-slate-500 mb-0.5 font-semibold leading-tight">
+                        Công nợ
+                    </p>
+                    <p
+                        className="text-lg font-extrabold text-rose-700 tabular-nums leading-tight truncate"
+                        title={`${formatCurrency(totalCongNo)} đ`}
+                    >
+                        {formatCurrency(totalCongNo)} đ
+                    </p>
+                    <p className="text-[9px] text-slate-500 mt-1 leading-snug line-clamp-2">
+                        {demHopDongCongNo} HĐ còn nợ
+                        {demHopDongHienThi > 0 ? ` / ${demHopDongHienThi} HĐ` : ''}
+                    </p>
                 </div>
             </section>
 
-            <section className="bg-[#f2f3ff] rounded-xl p-4 border border-slate-200 flex flex-wrap items-center gap-3 justify-between">
+            <section className="bg-[#f2f3ff] rounded-xl p-4 border border-slate-200 space-y-3">
+                <div className="flex flex-wrap items-center gap-3 justify-between">
                 <div className="flex flex-wrap items-center gap-2 flex-1 min-w-0">
                     <div className="relative w-full max-w-md min-w-[200px]">
                         <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
@@ -1252,6 +1447,80 @@ export function HopDong() {
                         }}
                     />
                 </div>
+                </div>
+
+                <div className="flex flex-wrap items-center gap-2 w-full">
+                        <span className="text-xs font-semibold text-slate-600 shrink-0 flex items-center gap-1">
+                            <Calendar size={14} className="text-slate-400" aria-hidden />
+                            Ngày ký HĐ:
+                        </span>
+                        <input
+                            type="date"
+                            value={dateFrom}
+                            onChange={(e) => {
+                                setDateFrom(e.target.value);
+                                setSelectedMonth('');
+                            }}
+                            className="bg-white border border-slate-200 rounded-lg text-sm py-1.5 px-2.5 min-w-[9.5rem] [color-scheme:light]"
+                            aria-label="Từ ngày"
+                        />
+                        <span className="text-slate-400 text-xs">→</span>
+                        <input
+                            type="date"
+                            value={dateTo}
+                            onChange={(e) => {
+                                setDateTo(e.target.value);
+                                setSelectedMonth('');
+                            }}
+                            className="bg-white border border-slate-200 rounded-lg text-sm py-1.5 px-2.5 min-w-[9.5rem] [color-scheme:light]"
+                            aria-label="Đến ngày"
+                        />
+                        <span className="text-xs font-semibold text-slate-600 shrink-0">Năm</span>
+                        <select
+                            value={String(filterYear)}
+                            onChange={(e) => handleHopDongFilterYearChange(e.target.value)}
+                            className="bg-white border border-slate-200 rounded-lg text-sm py-1.5 px-2.5 min-w-[5.5rem] [color-scheme:light]"
+                            aria-label="Chọn năm lọc"
+                        >
+                            {hopDongFilterYearOptions.map((y) => (
+                                <option key={y} value={y}>
+                                    {y}
+                                </option>
+                            ))}
+                        </select>
+                        <span className="text-xs font-semibold text-slate-600 shrink-0">Tháng</span>
+                        <select
+                            value={selectedMonth}
+                            onChange={(e) => {
+                                const monthValue = e.target.value;
+                                if (!monthValue) {
+                                    setSelectedMonth('');
+                                    setDateFrom('');
+                                    setDateTo('');
+                                    return;
+                                }
+                                handleHopDongMonthSelect(monthValue);
+                            }}
+                            className="bg-white border border-slate-200 rounded-lg text-sm py-1.5 px-2.5 min-w-[11rem] [color-scheme:light]"
+                            aria-label="Bộ lọc nhanh theo tháng"
+                        >
+                            <option value="">Chọn tháng</option>
+                            {HOP_DONG_MONTH_QUICK.map((m) => (
+                                <option key={m.value} value={m.value}>
+                                    {m.label}
+                                </option>
+                            ))}
+                        </select>
+                        {(dateFrom || dateTo) ? (
+                            <button
+                                type="button"
+                                onClick={clearHopDongDateFilters}
+                                className="text-xs font-semibold text-[#004bcb] hover:underline px-1"
+                            >
+                                Xóa ngày
+                            </button>
+                        ) : null}
+                </div>
             </section>
 
             <section className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
@@ -1371,7 +1640,8 @@ export function HopDong() {
                     </thead>
                     <tbody className="divide-y divide-slate-100">
                         {sortedHopDongRows.map(({ group, c, khachDisplay, duAnDisplay }) => {
-                            const progress = getContractProgress(c.uuid);
+                            const taskPct = getContractProgress(c.uuid);
+                            const savingTienDo = savingTienDoId === c.uuid;
                             return (
                                 <tr key={c.uuid} className="hover:bg-slate-50/60 transition-colors">
                                     <td className="px-4 py-3 text-sm text-slate-900 align-top border-r border-slate-50">
@@ -1441,13 +1711,30 @@ export function HopDong() {
                                             ? `Vào xem / sửa gần nhất: ${c.ngayUpdate}`
                                             : 'Chưa cập nhật'}
                                     </td>
-                                    <td className="px-4 py-4">
-                                        <div className="flex items-center gap-3">
-                                            <div className="flex-1 h-1.5 bg-slate-200 rounded-full overflow-hidden">
-                                                <div className={`h-full rounded-full ${progress === 100 ? 'bg-emerald-500' : 'bg-blue-600'}`} style={{ width: `${progress}%` }} />
-                                            </div>
-                                            <span className="text-[10px] font-bold text-blue-700">{progress}%</span>
-                                        </div>
+                                    <td className="px-4 py-4 min-w-[9.5rem]">
+                                        <select
+                                            value={c.trangThai}
+                                            disabled={savingTienDo || !c.uuid}
+                                            onChange={(e) =>
+                                                handleHopDongTienDoChange(
+                                                    c,
+                                                    e.target.value as HopDongTienDo,
+                                                )
+                                            }
+                                            className={`w-full min-w-[8.5rem] rounded-lg border px-2.5 py-1.5 text-xs font-bold shadow-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/20 disabled:opacity-60 ${hopDongTienDoSelectClass(c.trangThai)}`}
+                                            title="Tiến độ hợp đồng"
+                                        >
+                                            {HOP_DONG_TIEN_DO_OPTIONS.map((opt) => (
+                                                <option key={opt} value={opt}>
+                                                    {opt}
+                                                </option>
+                                            ))}
+                                        </select>
+                                        {taskPct > 0 ? (
+                                            <p className="text-[9px] text-slate-500 mt-1 tabular-nums">
+                                                Task: {taskPct}%
+                                            </p>
+                                        ) : null}
                                     </td>
                                     <td className="px-6 py-4 text-center">
                                         <div className="flex justify-center gap-1">
