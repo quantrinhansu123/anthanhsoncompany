@@ -16,6 +16,8 @@ const HOP_DONG_FETCH_CHUNK = 1000;
 
 function mapHopDongRows(data: any[] | null | undefined) {
   return (data || []).map((row: any) => {
+    /** PK bảng hop_dong (có thể là cột id hoặc contract_id tùy migration). */
+    const rowPk = row.id ?? row.contract_id;
     const contractId = row.contract_id || row.id;
     const nhanSu = row.nhan_su;
     const duAn = row.du_an;
@@ -27,7 +29,7 @@ function mapHopDongRows(data: any[] | null | undefined) {
       ...row,
       id: contractId,
       contract_id: contractId,
-      hop_dong_row_id: row.id,
+      hop_dong_row_id: rowPk,
       project_name: duAn?.ten_du_an || row.project_name || null,
       nhan_su_ten: nhanSuTen,
       nhan_su_code: nhanSuCode,
@@ -150,7 +152,7 @@ export const contractService = {
       ...row,
       id: contractId,
       contract_id: contractId,
-      hop_dong_row_id: row.id,
+      hop_dong_row_id: row.id ?? row.contract_id,
     };
   },
 
@@ -188,26 +190,40 @@ export const contractService = {
       ...row,
       id: contractId,
       contract_id: contractId,
-      hop_dong_row_id: row.id,
+      hop_dong_row_id: row.id ?? row.contract_id,
     };
   },
 
   async delete(id: string) {
-    let { error } = await getSupabase()
-      .from('hop_dong')
-      .delete()
-      .eq('id', id);
-    
-    if (error) {
-      const result = await getSupabase()
+    const sid = String(id ?? '').trim();
+    if (!sid) {
+      throw new Error('Thiếu mã hợp đồng để xóa');
+    }
+
+    const supabase = getSupabase();
+
+    const tryDelete = async (column: 'id' | 'contract_id') => {
+      const { data, error } = await supabase
         .from('hop_dong')
         .delete()
-        .eq('contract_id', id);
-      error = result.error;
+        .eq(column, sid)
+        .select(column);
+      if (error) return { ok: false as const, error };
+      if (data && data.length > 0) return { ok: true as const };
+      return { ok: false as const, error: null };
+    };
+
+    const byId = await tryDelete('id');
+    if (byId.ok) return true;
+    if (byId.error && !/column.*does not exist/i.test(String(byId.error.message ?? ''))) {
+      throw byId.error;
     }
-    
-    if (error) throw error;
-    return true;
+
+    const byContractId = await tryDelete('contract_id');
+    if (byContractId.ok) return true;
+    if (byContractId.error) throw byContractId.error;
+
+    throw new Error('Không tìm thấy hợp đồng để xóa');
   },
 
   /** Xóa mọi bản ghi `hop_dong` (theo PK `id`, từng lô). Công việc gắn HĐ: CASCADE; thu_chi: SET NULL theo FK. */
@@ -298,6 +314,11 @@ export const contractService = {
           ngay_ky_hd: row.ngay_ky_hd || null,
           gia_tri_hd: row.gia_tri_hd !== undefined && row.gia_tri_hd !== null ? Number(row.gia_tri_hd) : null,
           gia_tri_qt: row.gia_tri_qt !== undefined && row.gia_tri_qt !== null ? Number(row.gia_tri_qt) : null,
+          da_thu: row.da_thu !== undefined && row.da_thu !== null ? Number(row.da_thu) : null,
+          con_phai_thu:
+            row.con_phai_thu !== undefined && row.con_phai_thu !== null
+              ? Number(row.con_phai_thu)
+              : null,
           ten_day_du_chu_dau_tu: row.ten_day_du_chu_dau_tu || null,
           dai_dien_ben_a: row.dai_dien_ben_a || null,
           chuc_vu_dai_dien_a: row.chuc_vu_dai_dien_a || null,

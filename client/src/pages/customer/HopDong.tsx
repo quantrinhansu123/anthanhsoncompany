@@ -77,6 +77,10 @@ function hopDongTienDoSelectClass(value: HopDongTienDo): string {
         : 'border-blue-200 bg-blue-50 text-blue-800';
 }
 
+function hopDongRowSelectId(c: { uuid?: string; hopDongRowId?: string }): string {
+    return String(c.hopDongRowId ?? c.uuid ?? '').trim();
+}
+
 interface Contract {
     id: number;
     uuid?: string;
@@ -107,6 +111,8 @@ interface Contract {
     diaChiTaiThoiDiemKy?: string | null;
     customerId?: string | null;
     trangThai: HopDongTienDo;
+    /** PK bảng hop_dong — dùng khi xóa (khác id logic / thu_chi). */
+    hopDongRowId?: string;
 }
 
 interface ProjectGroup {
@@ -163,6 +169,90 @@ function hopDongProjectCustomerKey(p: ProjectMetaRow): string {
         .toLowerCase()
         .replace(/\s+/g, ' ');
     return n ? `name:${n}` : 'empty:';
+}
+
+/** Còn nợ = Giá xuất HĐ − (CĐT thanh toán + CĐT tạm ứng). Mẫu Excel HĐ không có cột thu — mặc định 0; nhập thu qua module Thu chi. */
+function recalcHopDongThuTuExcel(row: {
+    gia_tri_qt?: number;
+    cdt_thanh_toan?: number;
+    cdt_tam_ung?: number;
+}) {
+    const giaQt = Number(row.gia_tri_qt) || 0;
+    const thanhToan = Number(row.cdt_thanh_toan) || 0;
+    const tamUng = Number(row.cdt_tam_ung) || 0;
+    row.cdt_thanh_toan = thanhToan;
+    row.cdt_tam_ung = tamUng;
+    const daThu = thanhToan + tamUng;
+    row.da_thu = daThu;
+    row.con_phai_thu = Math.max(0, giaQt - daThu);
+}
+
+function findContractRowForExcelImport(
+    cache: ContractRow[],
+    soHopDong: string,
+    duAnId: string | null | undefined,
+): ContractRow | undefined {
+    const normSo = soHopDong.trim().toLowerCase();
+    const du = duAnId != null && String(duAnId).trim() !== '' ? String(duAnId).trim() : '';
+    const hits = cache.filter((c) => (c.so_hop_dong || '').trim().toLowerCase() === normSo);
+    if (hits.length === 0) return undefined;
+    if (du) return hits.find((c) => String(c.du_an_id || '') === du) ?? hits[0];
+    return hits[0];
+}
+
+async function syncPhieuThuTuExcelHopDong(
+    row: {
+        so_hop_dong?: string;
+        du_an_id?: string | null;
+        project_name?: string | null;
+        ten_goi_thau?: string | null;
+        ngay_ky_hd?: string | null;
+        cdt_thanh_toan?: number;
+        cdt_tam_ung?: number;
+    },
+    cache: ContractRow[],
+): Promise<void> {
+    const soHd = (row.so_hop_dong || '').trim();
+    if (!soHd) return;
+    const contract = findContractRowForExcelImport(cache, soHd, row.du_an_id);
+    if (!contract) return;
+    const hopDongId = String(contract.hop_dong_row_id ?? contract.id ?? '').trim();
+    if (!hopDongId) return;
+    const ngay =
+        (row.ngay_ky_hd && String(row.ngay_ky_hd).slice(0, 10)) ||
+        new Date().toISOString().slice(0, 10);
+    const tenDa = String(row.project_name || contract.project_name || '').trim();
+    const tenGoi = String(row.ten_goi_thau || contract.ten_goi_thau || '').trim() || null;
+    const duAnId = row.du_an_id ?? contract.du_an_id ?? null;
+    const thanhToan = Number(row.cdt_thanh_toan) || 0;
+    const tamUng = Number(row.cdt_tam_ung) || 0;
+    const baseNoiDung = tenDa ? `Nhập Excel HĐ (${tenDa})` : 'Nhập Excel HĐ';
+    if (thanhToan > 0) {
+        await thuChiService.create({
+            loai_phieu: 'Phiếu thu',
+            so_tien: thanhToan,
+            ngay,
+            du_an_id: duAnId,
+            hop_dong_id: hopDongId,
+            noi_dung: `${baseNoiDung} — CĐT thanh toán`,
+            tinh_trang_phieu: 'Thanh toán',
+            hang_muc_thu: 'Thanh toán',
+            ten_goi_thau: tenGoi,
+        });
+    }
+    if (tamUng > 0) {
+        await thuChiService.create({
+            loai_phieu: 'Phiếu thu',
+            so_tien: tamUng,
+            ngay,
+            du_an_id: duAnId,
+            hop_dong_id: hopDongId,
+            noi_dung: `${baseNoiDung} — CĐT tạm ứng`,
+            tinh_trang_phieu: 'Tạm ứng',
+            hang_muc_thu: 'Tạm ứng',
+            ten_goi_thau: tenGoi,
+        });
+    }
 }
 
 /** Tổng Phiếu thu theo HĐ: `thu_chi.hop_dong_id` có thể trùng PK bảng `hop_dong` hoặc `contract_id` tùy dữ liệu. */
@@ -324,6 +414,8 @@ export function HopDong() {
         action?: { label: string; onClick: () => void }
     } | null>(null);
     const [savingTienDoId, setSavingTienDoId] = useState<string | null>(null);
+    const [selectedHopDongUuids, setSelectedHopDongUuids] = useState<string[]>([]);
+    const [deletingSelectedHopDong, setDeletingSelectedHopDong] = useState(false);
     const [reloadKey, setReloadKey] = useState(0);
     const [hopDongSortKey, setHopDongSortKey] = useState<HopDongSortKey | null>(null);
     const [hopDongSortDir, setHopDongSortDir] = useState<'asc' | 'desc'>('asc');
@@ -360,9 +452,6 @@ export function HopDong() {
         { key: 'loai_dv', header: 'Loại DV', example: 'Tư vấn' },
         { key: 'gia_hd_plhd', header: 'Giá HĐ/PLHĐ', example: '1000000000' },
         { key: 'gia_xuat_hd', header: 'Giá xuất HĐ', example: '1000000000' },
-        { key: 'cdt_thanh_toan', header: 'CĐT thanh toán', example: '500000000' },
-        { key: 'cdt_no', header: 'CĐT nợ', example: '500000000' },
-        { key: 'cdt_tam_ung', header: 'CĐT tạm ứng', example: '0' },
         { key: 'noi_dung_xuat_hoa_don', header: 'Nội dung xuất hóa đơn', example: 'Thanh toán đợt 1' },
         { key: 'thong_tin_kh', header: 'Thông tin KH', example: 'Công ty ABC' },
         { key: 'mst_kh', header: 'MST KH', example: '0123456789' },
@@ -403,6 +492,19 @@ export function HopDong() {
     useEffect(() => {
         setPage(1);
     }, [filterHopDongTrangThai]);
+
+    useEffect(() => {
+        setSelectedHopDongUuids([]);
+    }, [
+        page,
+        pageSize,
+        debouncedSearch,
+        dateFrom,
+        dateTo,
+        filterHopDongTrangThai,
+        filterHopDongKhachKeys,
+        filterHopDongDuAnIds,
+    ]);
 
     const applyHopDongMonthYearFilter = (month: string, year: number) => {
         const monthNum = Number(month);
@@ -480,6 +582,34 @@ export function HopDong() {
             (o) => o.label.toLowerCase().includes(q) || o.id.toLowerCase().includes(q),
         );
     }, [hopDongProjectOptions, hdDuAnFilterSearch]);
+
+    const selectAllVisibleHopDongKhach = () => {
+        const keys = hopDongKhachOptionsMatching.map((o) => o.key);
+        if (keys.length === 0) return;
+        setFilterHopDongKhachKeys((prev) =>
+            prev.length === 0 ? keys : Array.from(new Set([...prev, ...keys])),
+        );
+    };
+
+    const selectAllVisibleHopDongDuAn = () => {
+        const ids = hopDongProjectOptionsMatching.map((o) => o.id);
+        if (ids.length === 0) return;
+        setFilterHopDongDuAnIds((prev) =>
+            prev.length === 0 ? ids : Array.from(new Set([...prev, ...ids])),
+        );
+    };
+
+    const allVisibleKhachSelected =
+        hopDongKhachOptionsMatching.length > 0 &&
+        hopDongKhachOptionsMatching.every(
+            (o) => filterHopDongKhachKeys.length > 0 && filterHopDongKhachKeys.includes(o.key),
+        );
+
+    const allVisibleDuAnSelected =
+        hopDongProjectOptionsMatching.length > 0 &&
+        hopDongProjectOptionsMatching.every(
+            (o) => filterHopDongDuAnIds.length > 0 && filterHopDongDuAnIds.includes(o.id),
+        );
 
     useEffect(() => {
         if (!hdKhachFilterOpen) {
@@ -649,7 +779,8 @@ export function HopDong() {
                         const rawNguong = Number(c.nguong_chi_nhan_su ?? 0);
                         return {
                             id: idx + 1,
-                            uuid: c.id,
+                            uuid: String(c.hop_dong_row_id ?? c.id ?? '').trim() || undefined,
+                            hopDongRowId: String(c.hop_dong_row_id ?? c.id ?? '').trim() || undefined,
                             duAnId: c.du_an_id || null,
                             fileStatus: c.file_status || 'Chưa có file',
                             files: c.files || [],
@@ -941,7 +1072,83 @@ export function HopDong() {
             return mul * cmp;
         });
         return arr;
-    }, [hopDongFlatRows, hopDongSortKey, hopDongSortDir]);
+    }, [hopDongFlatRows, hopDongSortKey, hopDongSortDir, tasksByContract]);
+
+    const selectableHopDongRows = useMemo(
+        () => sortedHopDongRows.filter(({ c }) => hopDongRowSelectId(c)),
+        [sortedHopDongRows],
+    );
+
+    const selectedHopDongInView = useMemo(
+        () =>
+            selectableHopDongRows
+                .map(({ c }) => hopDongRowSelectId(c))
+                .filter((id) => selectedHopDongUuids.includes(id)),
+        [selectableHopDongRows, selectedHopDongUuids],
+    );
+
+    const isAllHopDongRowsSelected =
+        selectableHopDongRows.length > 0 &&
+        selectableHopDongRows.every(({ c }) =>
+            selectedHopDongUuids.includes(hopDongRowSelectId(c)),
+        );
+
+    const toggleSelectAllHopDongRows = () => {
+        const viewIds = selectableHopDongRows.map(({ c }) => hopDongRowSelectId(c));
+        if (isAllHopDongRowsSelected) {
+            setSelectedHopDongUuids((prev) => prev.filter((id) => !viewIds.includes(id)));
+        } else {
+            setSelectedHopDongUuids((prev) => Array.from(new Set([...prev, ...viewIds])));
+        }
+    };
+
+    const toggleHopDongRowSelected = (c: Contract) => {
+        const id = hopDongRowSelectId(c);
+        if (!id) return;
+        setSelectedHopDongUuids((prev) =>
+            prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id],
+        );
+    };
+
+    const handleDeleteSelectedHopDong = async () => {
+        const ids = [...selectedHopDongInView];
+        if (ids.length === 0) return;
+        if (
+            !window.confirm(
+                `Xóa ${ids.length} hợp đồng đã chọn trên trang hiện tại? Hành động không hoàn tác.`,
+            )
+        ) {
+            return;
+        }
+        setDeletingSelectedHopDong(true);
+        let failed = 0;
+        const errors: string[] = [];
+        for (const id of ids) {
+            try {
+                await contractService.delete(id);
+            } catch (err: unknown) {
+                failed += 1;
+                const msg = err instanceof Error ? err.message : 'Lỗi không xác định';
+                if (errors.length < 2) errors.push(msg);
+            }
+        }
+        setSelectedHopDongUuids((prev) => prev.filter((id) => !ids.includes(id)));
+        setDeletingSelectedHopDong(false);
+        setReloadKey((k) => k + 1);
+        if (failed > 0 && failed < ids.length) {
+            setToast({
+                type: 'warning',
+                message: `Đã xóa ${ids.length - failed}/${ids.length} hợp đồng. ${errors[0] ?? ''}`,
+            });
+        } else if (failed === ids.length) {
+            setToast({
+                type: 'warning',
+                message: errors[0] || 'Không xóa được hợp đồng đã chọn. Kiểm tra server đang chạy.',
+            });
+        } else {
+            setToast({ type: 'success', message: `Đã xóa ${ids.length} hợp đồng.` });
+        }
+    };
 
     const toggleHopDongSort = (key: HopDongSortKey) => {
         setHopDongSortKey((prev) => {
@@ -1082,7 +1289,7 @@ export function HopDong() {
                 </div>
                 <div className="bg-white p-3 rounded-lg shadow-sm border border-slate-200 min-w-0">
                     <p className="text-[10px] uppercase tracking-wide text-slate-500 mb-0.5 font-semibold leading-tight">
-                        Đã thu hồi
+                        Đã thu
                     </p>
                     <p
                         className="text-lg font-extrabold text-emerald-700 tabular-nums leading-tight truncate"
@@ -1093,7 +1300,7 @@ export function HopDong() {
                 </div>
                 <div className="bg-white p-3 rounded-lg shadow-sm border border-slate-200 min-w-0">
                     <p className="text-[10px] uppercase tracking-wide text-slate-500 mb-0.5 font-semibold leading-tight">
-                        Tiền tạm ứng
+                        Tạm ứng
                     </p>
                     <p
                         className="text-lg font-extrabold text-amber-700 tabular-nums leading-tight truncate"
@@ -1117,7 +1324,7 @@ export function HopDong() {
                 </div>
                 <div className="bg-white p-3 rounded-lg shadow-sm border border-rose-200 min-w-0">
                     <p className="text-[10px] uppercase tracking-wide text-slate-500 mb-0.5 font-semibold leading-tight">
-                        Công nợ
+                        Còn nợ
                     </p>
                     <p
                         className="text-lg font-extrabold text-rose-700 tabular-nums leading-tight truncate"
@@ -1188,6 +1395,31 @@ export function HopDong() {
                                             className="w-full rounded-md border border-slate-200 bg-white py-1.5 pl-8 pr-2 text-xs text-slate-900 placeholder:text-slate-400 focus:border-[#004bcb] focus:outline-none focus:ring-2 focus:ring-[#004bcb]/25"
                                         />
                                     </div>
+                                    {hdKhachFilterSearch.trim() &&
+                                    hopDongKhachOptionsMatching.length > 0 ? (
+                                        <button
+                                            type="button"
+                                            onClick={() => {
+                                                if (allVisibleKhachSelected) {
+                                                    const visible = new Set(
+                                                        hopDongKhachOptionsMatching.map(
+                                                            (o) => o.key,
+                                                        ),
+                                                    );
+                                                    setFilterHopDongKhachKeys((prev) =>
+                                                        prev.filter((k) => !visible.has(k)),
+                                                    );
+                                                } else {
+                                                    selectAllVisibleHopDongKhach();
+                                                }
+                                            }}
+                                            className="mt-2 w-full rounded-md border border-[#004bcb]/30 bg-[#004bcb]/5 px-2 py-1.5 text-[11px] font-bold text-[#004bcb] hover:bg-[#004bcb]/10"
+                                        >
+                                            {allVisibleKhachSelected
+                                                ? `Bỏ chọn ${hopDongKhachOptionsMatching.length} kết quả`
+                                                : `Chọn tất cả đang hiển thị (${hopDongKhachOptionsMatching.length})`}
+                                        </button>
+                                    ) : null}
                                 </div>
                                 <div className="max-h-[min(12rem,40vh)] min-h-0 flex-1 overflow-y-auto py-1 [scrollbar-gutter:stable]">
                                     <label className="flex cursor-pointer items-center gap-2 px-3 py-2 text-xs font-bold text-slate-900 hover:bg-slate-100">
@@ -1284,6 +1516,31 @@ export function HopDong() {
                                             className="w-full rounded-md border border-slate-200 bg-white py-1.5 pl-8 pr-2 text-xs text-slate-900 placeholder:text-slate-400 focus:border-[#004bcb] focus:outline-none focus:ring-2 focus:ring-[#004bcb]/25"
                                         />
                                     </div>
+                                    {hdDuAnFilterSearch.trim() &&
+                                    hopDongProjectOptionsMatching.length > 0 ? (
+                                        <button
+                                            type="button"
+                                            onClick={() => {
+                                                if (allVisibleDuAnSelected) {
+                                                    const visible = new Set(
+                                                        hopDongProjectOptionsMatching.map(
+                                                            (o) => o.id,
+                                                        ),
+                                                    );
+                                                    setFilterHopDongDuAnIds((prev) =>
+                                                        prev.filter((id) => !visible.has(id)),
+                                                    );
+                                                } else {
+                                                    selectAllVisibleHopDongDuAn();
+                                                }
+                                            }}
+                                            className="mt-2 w-full rounded-md border border-[#004bcb]/30 bg-[#004bcb]/5 px-2 py-1.5 text-[11px] font-bold text-[#004bcb] hover:bg-[#004bcb]/10"
+                                        >
+                                            {allVisibleDuAnSelected
+                                                ? `Bỏ chọn ${hopDongProjectOptionsMatching.length} kết quả`
+                                                : `Chọn tất cả đang hiển thị (${hopDongProjectOptionsMatching.length})`}
+                                        </button>
+                                    ) : null}
                                 </div>
                                 <div className="max-h-[min(12rem,40vh)] min-h-0 flex-1 overflow-y-auto py-1 [scrollbar-gutter:stable]">
                                     <label className="flex cursor-pointer items-center gap-2 px-3 py-2 text-xs font-bold text-slate-900 hover:bg-slate-100">
@@ -1385,6 +1642,13 @@ export function HopDong() {
                         sheetName="Hop dong"
                         onImport={async (rows) => {
                             try {
+                                let contractCache: ContractRow[] = [];
+                                try {
+                                    const allRes = await contractService.getAll({ page: 1, pageSize: 10000 });
+                                    contractCache = allRes?.data ?? [];
+                                } catch {
+                                    contractCache = [];
+                                }
                                 const customerMap = new Map<string, any>();
                                 const projectMap = new Map<string, any>();
                                 const getOrCreateCustomer = async (r: any) => {
@@ -1419,15 +1683,14 @@ export function HopDong() {
                                     for (const r of chunk) {
                                         const customerId = await getOrCreateCustomer(r);
                                         const duAnId = await getOrCreateProject(r, customerId);
-                                        processedChunk.push({
+                                        const giaTriQt = parseMoneyVi(r.gia_xuat_hd || '0');
+                                        const rowPayload: Record<string, unknown> = {
                                             ...r,
                                             __rowNumber: r.__rowNumber,
                                             du_an_id: duAnId,
                                             customer_id: customerId,
                                             gia_tri_hd: parseMoneyVi(r.gia_hd_plhd || '0'),
-                                            gia_tri_qt: parseMoneyVi(r.gia_xuat_hd || '0'),
-                                            da_thu: parseMoneyVi(r.cdt_thanh_toan || '0'),
-                                            con_phai_thu: parseMoneyVi(r.cdt_no || '0'),
+                                            gia_tri_qt: giaTriQt,
                                             so_hop_dong: (r.so_ho_plhd || '').trim(),
                                             project_name: cleanString(r.ten_da),
                                             ten_goi_thau: cleanString(r.ten_goi_thau),
@@ -1435,7 +1698,9 @@ export function HopDong() {
                                             ten_day_du_chu_dau_tu: cleanString(r.thong_tin_kh),
                                             mst: (r.mst_kh || '').trim(),
                                             ngay_ky_hd: parseExcelDate(r.ngay_ky_hd, r.nam_ky_hd),
-                                        });
+                                        };
+                                        recalcHopDongThuTuExcel(rowPayload);
+                                        processedChunk.push(rowPayload);
                                     }
                                     
                                     // Nhóm các dòng theo số hợp đồng và cộng dồn giá trị quyết toán
@@ -1453,23 +1718,71 @@ export function HopDong() {
                                         }
                                         
                                         if (contractGroups.has(groupKey)) {
-                                            // Đã có HĐ này, cộng dồn giá trị
                                             const existing = contractGroups.get(groupKey);
                                             existing.gia_tri_hd += row.gia_tri_hd || 0;
                                             existing.gia_tri_qt += row.gia_tri_qt || 0;
-                                            // Không cộng da_thu và con_phai_thu vì sẽ được tính lại từ phiếu thu
-                                            // Giữ nguyên thông tin khác từ dòng đầu tiên
+                                            existing.cdt_thanh_toan =
+                                                (existing.cdt_thanh_toan || 0) + (row.cdt_thanh_toan || 0);
+                                            existing.cdt_tam_ung =
+                                                (existing.cdt_tam_ung || 0) + (row.cdt_tam_ung || 0);
+                                            recalcHopDongThuTuExcel(existing);
                                         } else {
-                                            // HĐ mới, thêm vào map
-                                            contractGroups.set(groupKey, { ...row });
+                                            const copy = { ...row };
+                                            recalcHopDongThuTuExcel(copy);
+                                            contractGroups.set(groupKey, copy);
                                         }
                                     }
                                     
-                                    // Chuyển map thành array để import
                                     const mergedChunk = Array.from(contractGroups.values());
                                     const result = await contractService.bulkImport(mergedChunk);
                                     totalOk += result.created + result.updated;
                                     if (result.errors.length > 0) allErrors.push(...result.errors);
+                                    for (const merged of mergedChunk) {
+                                        if (
+                                            (Number(merged.cdt_thanh_toan) || 0) <= 0 &&
+                                            (Number(merged.cdt_tam_ung) || 0) <= 0
+                                        ) {
+                                            continue;
+                                        }
+                                        let found = findContractRowForExcelImport(
+                                            contractCache,
+                                            String(merged.so_hop_dong || ''),
+                                            merged.du_an_id,
+                                        );
+                                        if (!found) {
+                                            try {
+                                                const lookup = await contractService.getAll({
+                                                    page: 1,
+                                                    pageSize: 20,
+                                                    search: String(merged.so_hop_dong || '').trim(),
+                                                });
+                                                const fresh = (lookup?.data ?? []) as ContractRow[];
+                                                contractCache = [...contractCache, ...fresh];
+                                                found = findContractRowForExcelImport(
+                                                    contractCache,
+                                                    String(merged.so_hop_dong || ''),
+                                                    merged.du_an_id,
+                                                );
+                                            } catch {
+                                                found = undefined;
+                                            }
+                                        }
+                                        if (!found) {
+                                            allErrors.push(
+                                                `HĐ «${merged.so_hop_dong}»: không tìm thấy HĐ sau import để ghi phiếu thu.`,
+                                            );
+                                            continue;
+                                        }
+                                        try {
+                                            await syncPhieuThuTuExcelHopDong(merged, contractCache);
+                                        } catch (e: unknown) {
+                                            const msg =
+                                                e instanceof Error ? e.message : 'Lỗi tạo phiếu thu';
+                                            allErrors.push(
+                                                `HĐ «${merged.so_hop_dong}»: ${msg}`,
+                                            );
+                                        }
+                                    }
                                 }
                                 return { ok: totalOk, errors: allErrors };
                             } catch (e: any) {
@@ -1560,10 +1873,51 @@ export function HopDong() {
             </section>
 
             <section className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
+                <div className="flex flex-wrap items-center gap-2 px-4 py-2.5 border-b border-slate-200 bg-slate-50/90">
+                    <button
+                        type="button"
+                        disabled={
+                            selectedHopDongInView.length === 0 ||
+                            isLoading ||
+                            deletingSelectedHopDong
+                        }
+                        onClick={handleDeleteSelectedHopDong}
+                        className="inline-flex items-center gap-1.5 rounded-lg border border-red-200 bg-white px-3 py-1.5 text-xs font-bold text-red-700 shadow-sm hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-45"
+                    >
+                        {deletingSelectedHopDong ? (
+                            <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                        ) : (
+                            <Trash2 className="w-3.5 h-3.5" />
+                        )}
+                        Xóa đã chọn
+                        {selectedHopDongInView.length > 0
+                            ? ` (${selectedHopDongInView.length})`
+                            : ''}
+                    </button>
+                    {selectedHopDongInView.length > 0 ? (
+                        <button
+                            type="button"
+                            onClick={() => setSelectedHopDongUuids([])}
+                            className="text-xs font-semibold text-slate-600 hover:text-[#004bcb] hover:underline"
+                        >
+                            Bỏ chọn
+                        </button>
+                    ) : null}
+                </div>
                 <div className="overflow-x-auto">
-                <table className="w-full min-w-[1780px] text-left border-collapse">
+                <table className="w-full min-w-[1820px] text-left border-collapse">
                     <thead className="bg-[#283044] border-b border-[#1c2436]">
                         <tr>
+                            <th className="px-3 py-3 w-11 text-center">
+                                <input
+                                    type="checkbox"
+                                    checked={isAllHopDongRowsSelected}
+                                    disabled={selectableHopDongRows.length === 0 || isLoading}
+                                    onChange={toggleSelectAllHopDongRows}
+                                    className="h-4 w-4 rounded border-slate-400 bg-white text-[#004bcb] focus:ring-[#004bcb]/40 cursor-pointer disabled:opacity-40"
+                                    aria-label="Chọn tất cả hợp đồng trên trang"
+                                />
+                            </th>
                             <th className="px-4 py-3 text-xs min-w-[8rem]">
                                 <button
                                     type="button"
@@ -1678,8 +2032,23 @@ export function HopDong() {
                         {sortedHopDongRows.map(({ group, c, khachDisplay, duAnDisplay }) => {
                             const taskPct = getContractProgress(c.uuid);
                             const savingTienDo = savingTienDoId === c.uuid;
+                            const rowId = hopDongRowSelectId(c);
+                            const rowChecked = rowId ? selectedHopDongUuids.includes(rowId) : false;
                             return (
-                                <tr key={c.uuid} className="hover:bg-slate-50/60 transition-colors">
+                                <tr
+                                    key={c.uuid || `${group.id}-${c.id}`}
+                                    className={`hover:bg-slate-50/60 transition-colors ${rowChecked ? 'bg-blue-50/40' : ''}`}
+                                >
+                                    <td className="px-3 py-3 text-center align-top">
+                                        <input
+                                            type="checkbox"
+                                            checked={rowChecked}
+                                            disabled={!rowId || isLoading || deletingSelectedHopDong}
+                                            onChange={() => toggleHopDongRowSelected(c)}
+                                            className="h-4 w-4 rounded border-slate-300 text-[#004bcb] focus:ring-[#004bcb]/40 cursor-pointer disabled:opacity-40"
+                                            aria-label={`Chọn hợp đồng ${c.soHopDong || ''}`}
+                                        />
+                                    </td>
                                     <td className="px-4 py-3 text-sm text-slate-900 align-top border-r border-slate-50">
                                         <span className="line-clamp-2 leading-snug">{khachDisplay}</span>
                                     </td>
@@ -1783,7 +2152,17 @@ export function HopDong() {
                                             <button type="button" onClick={() => handleExportGoogleDocs(c, group.projectName)} className="p-1.5 rounded-md text-slate-500 hover:text-emerald-700 hover:bg-emerald-50">
                                                 <FileText size={14} />
                                             </button>
-                                            <button type="button" onClick={() => openDelete({ id: c.id, uuid: c.uuid, soHopDong: c.soHopDong })} className="p-1.5 rounded-md text-slate-500 hover:text-red-700 hover:bg-red-50">
+                                            <button
+                                                type="button"
+                                                onClick={() =>
+                                                    openDelete({
+                                                        id: c.id,
+                                                        uuid: hopDongRowSelectId(c) || c.uuid,
+                                                        soHopDong: c.soHopDong,
+                                                    })
+                                                }
+                                                className="p-1.5 rounded-md text-slate-500 hover:text-red-700 hover:bg-red-50"
+                                            >
                                                 <Trash2 size={14} />
                                             </button>
                                         </div>

@@ -85,7 +85,8 @@ export const contractService = {
   },
 
   async delete(id: string): Promise<boolean> {
-    return api.delete(`/contracts/${id}`);
+    const encoded = encodeURIComponent(String(id).trim());
+    return api.delete(`/contracts/${encoded}`);
   },
 
   /** Xóa toàn bộ hợp đồng (`hop_dong`) qua API — cần xác nhận rõ ràng ở UI. */
