@@ -3,6 +3,7 @@ import { createGenericController } from '../controllers/genericController';
 import { projectService } from '../services/projectService';
 import { taskService } from '../services/taskService';
 import { contractService } from '../services/contractService';
+import { thuChiService } from '../services/thuChiService';
 import { aiService } from '../services/aiService';
 import employeeRoutes from './employeeRoutes';
 import workScheduleRoutes from './workScheduleRoutes';
@@ -85,6 +86,38 @@ router.post('/contracts/bulk-import', async (req, res) => {
     res.json(result);
   } catch (err: any) {
     res.status(500).json({ error: err.message });
+  }
+});
+
+// Thu chi
+router.delete('/thu-chi/all', async (_req, res) => {
+  try {
+    const { deleted } = await thuChiService.deleteAll();
+    res.json({ deleted });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message || 'deleteAll failed' });
+  }
+});
+
+router.post('/thu-chi/bulk-delete', async (req, res) => {
+  try {
+    const { ids } = req.body;
+    if (!Array.isArray(ids)) {
+      return res.status(400).json({ error: 'ids must be an array' });
+    }
+    const result = await thuChiService.deleteMany(ids);
+    res.json(result);
+  } catch (err: any) {
+    res.status(500).json({ error: err.message || 'bulk-delete failed' });
+  }
+});
+
+router.delete('/thu-chi/:id', async (req, res) => {
+  try {
+    await thuChiService.delete(String(req.params.id ?? ''));
+    res.json({ ok: true });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message || 'delete failed' });
   }
 });
 

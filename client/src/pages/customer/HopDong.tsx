@@ -1,6 +1,6 @@
 import React, { useEffect, useState, useMemo, useRef } from 'react';
 import { createPortal } from 'react-dom';
-import { Search, Plus, Eye, Edit, Trash2, X, ChevronDown, ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, FileText, FolderOpen, PlusCircle, User, CheckCircle, BarChart3, Briefcase, Calendar, Loader2, ArrowUp, ArrowDown, ArrowUpDown } from 'lucide-react';
+import { Search, Plus, Eye, Edit, Trash2, X, ChevronDown, ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, FileText, FolderOpen, PlusCircle, User, CheckCircle, BarChart3, Briefcase, Calendar, Loader2, ArrowUp, ArrowDown, ArrowUpDown, RefreshCw } from 'lucide-react';
 import { useSearchParams } from 'react-router-dom';
 import { contractService, ContractRow, ContractFile } from '../../lib/services/contractService';
 import { projectService } from '../../lib/services/projectService';
@@ -171,11 +171,14 @@ function hopDongProjectCustomerKey(p: ProjectMetaRow): string {
     return n ? `name:${n}` : 'empty:';
 }
 
-/** Còn nợ = Giá xuất HĐ − (CĐT thanh toán + CĐT tạm ứng). Mẫu Excel HĐ không có cột thu — mặc định 0; nhập thu qua module Thu chi. */
+/** CĐT nợ = Giá xuất HĐ − (CĐT thanh toán + CĐT tạm ứng). Mẫu Excel HĐ không có cột thu — mặc định 0; nhập thu qua module Thu chi. */
 function recalcHopDongThuTuExcel(row: {
     gia_tri_qt?: number;
     cdt_thanh_toan?: number;
     cdt_tam_ung?: number;
+    cdt_no?: number;
+    da_thu?: number;
+    con_phai_thu?: number;
 }) {
     const giaQt = Number(row.gia_tri_qt) || 0;
     const thanhToan = Number(row.cdt_thanh_toan) || 0;
@@ -184,7 +187,37 @@ function recalcHopDongThuTuExcel(row: {
     row.cdt_tam_ung = tamUng;
     const daThu = thanhToan + tamUng;
     row.da_thu = daThu;
-    row.con_phai_thu = Math.max(0, giaQt - daThu);
+    const cdtNo = Math.max(0, giaQt - daThu);
+    row.cdt_no = cdtNo;
+    row.con_phai_thu = cdtNo;
+}
+
+/** Gộp mọi dòng Excel cùng Số HĐ + dự án trước khi ghi DB (tránh mất dòng khi import theo lô). */
+function mergeHopDongImportRows(rows: Record<string, unknown>[]): Record<string, unknown>[] {
+    const contractGroups = new Map<string, Record<string, unknown>>();
+    for (const row of rows) {
+        const soHd = String(row.so_hop_dong || '').trim().toLowerCase();
+        const duAnId = row.du_an_id != null ? String(row.du_an_id) : '';
+        const groupKey = soHd ? `${soHd}|${duAnId}` : `__row_${row.__rowNumber ?? contractGroups.size}`;
+
+        if (!contractGroups.has(groupKey)) {
+            const copy = { ...row };
+            recalcHopDongThuTuExcel(copy);
+            contractGroups.set(groupKey, copy);
+            continue;
+        }
+        const existing = contractGroups.get(groupKey)!;
+        existing.gia_tri_hd = (Number(existing.gia_tri_hd) || 0) + (Number(row.gia_tri_hd) || 0);
+        existing.gia_tri_qt = (Number(existing.gia_tri_qt) || 0) + (Number(row.gia_tri_qt) || 0);
+        existing.cdt_thanh_toan =
+            (Number(existing.cdt_thanh_toan) || 0) + (Number(row.cdt_thanh_toan) || 0);
+        existing.cdt_tam_ung = (Number(existing.cdt_tam_ung) || 0) + (Number(row.cdt_tam_ung) || 0);
+        if (!String(existing.ten_goi_thau || '').trim() && row.ten_goi_thau) {
+            existing.ten_goi_thau = row.ten_goi_thau;
+        }
+        recalcHopDongThuTuExcel(existing);
+    }
+    return Array.from(contractGroups.values());
 }
 
 function findContractRowForExcelImport(
@@ -255,12 +288,12 @@ async function syncPhieuThuTuExcelHopDong(
     }
 }
 
-/** Tổng Phiếu thu theo HĐ: `thu_chi.hop_dong_id` có thể trùng PK bảng `hop_dong` hoặc `contract_id` tùy dữ liệu. */
-function sumPhieuThuForHopDong(c: ContractRow, thuChiMap: Map<string, number>): number {
+/** Tổng tiền theo map Thu chi: `hop_dong_id` có thể là PK `hop_dong` hoặc `contract_id`. */
+function sumThuChiMapForHopDong(c: ContractRow, amountMap: Map<string, number>): number {
     const rowPk = c.hop_dong_row_id != null ? String(c.hop_dong_row_id).trim() : '';
     const logicalId = c.id != null ? String(c.id).trim() : '';
-    const v1 = rowPk ? thuChiMap.get(rowPk) : undefined;
-    const v2 = logicalId ? thuChiMap.get(logicalId) : undefined;
+    const v1 = rowPk ? amountMap.get(rowPk) : undefined;
+    const v2 = logicalId ? amountMap.get(logicalId) : undefined;
     if (v1 !== undefined) return v1;
     if (v2 !== undefined) return v2;
     return 0;
@@ -300,24 +333,42 @@ function isTamUngHangMucThu(value: string | null | undefined): boolean {
     return normalized === 'tạm ứng' || normalized === 'tam ung';
 }
 
+/** Phiếu thu tạm ứng — hạng mục thu hoặc tình trạng phiếu (dữ liệu Thu chi). */
+function isThuChiTamUngRow(tc: ThuChiRow): boolean {
+    if (tc.loai_phieu !== 'Phiếu thu') return false;
+    if (isTamUngHangMucThu(tc.hang_muc_thu)) return true;
+    const st = normalizeHangMucThuLabel(tc.tinh_trang_phieu);
+    return st === 'tạm ứng' || st === 'tam ung';
+}
+
+/** Phiếu thu CĐT thanh toán — hạng mục thu hoặc tình trạng phiếu. */
+function isThuChiThanhToanRow(tc: ThuChiRow): boolean {
+    if (tc.loai_phieu !== 'Phiếu thu') return false;
+    if (isThanhToanHangMucThu(tc.hang_muc_thu)) return true;
+    const st = normalizeHangMucThuLabel(tc.tinh_trang_phieu);
+    return st === 'thanh toán' || st === 'thanh toan';
+}
+
+function buildThuChiAmountMaps(rows: ThuChiRow[]) {
+    const thanhToan = new Map<string, number>();
+    const tamUng = new Map<string, number>();
+    for (const tc of rows) {
+        if (tc.loai_phieu !== 'Phiếu thu') continue;
+        const hid = tc.hop_dong_id != null ? String(tc.hop_dong_id).trim() : '';
+        if (!hid) continue;
+        const amount = Number(tc.so_tien) || 0;
+        if (isThuChiThanhToanRow(tc)) {
+            thanhToan.set(hid, (thanhToan.get(hid) || 0) + amount);
+        } else if (isThuChiTamUngRow(tc)) {
+            tamUng.set(hid, (tamUng.get(hid) || 0) + amount);
+        }
+    }
+    return { thanhToan, tamUng };
+}
+
 function isThanhToanHangMucThu(value: string | null | undefined): boolean {
     const normalized = normalizeHangMucThuLabel(value);
     return normalized === 'thanh toán' || normalized === 'thanh toan';
-}
-
-function sumThuByHangMucThu(
-    rows: ThuChiRow[],
-    contractIds: Set<string>,
-    matchHangMucThu: (value: string | null | undefined) => boolean,
-): number {
-    if (contractIds.size === 0) return 0;
-    return rows.reduce((sum, tc) => {
-        if (tc.loai_phieu !== 'Phiếu thu') return sum;
-        if (!matchHangMucThu(tc.hang_muc_thu)) return sum;
-        const hopDongId = String(tc.hop_dong_id || '').trim();
-        if (!hopDongId || !contractIds.has(hopDongId)) return sum;
-        return sum + (Number(tc.so_tien) || 0);
-    }, 0);
 }
 
 function Toast({ message, type, onClose, action }: {
@@ -395,6 +446,7 @@ export function HopDong() {
     const [totalDaThu, setTotalDaThu] = useState(0);
     const [deletingAllContracts, setDeletingAllContracts] = useState(false);
     const [allThuChi, setAllThuChi] = useState<ThuChiRow[]>([]);
+    const [dongBoTamUngOpen, setDongBoTamUngOpen] = useState(false);
 
     /** Bộ lọc checkbox: khách + dự án (client-side trên trang hiện tại) */
     const [filterHopDongKhachKeys, setFilterHopDongKhachKeys] = useState<string[]>([]);
@@ -463,6 +515,18 @@ export function HopDong() {
         { key: 'ngay_tien_ve', header: 'Ngày tiền về', example: '25/01/2025' },
         { key: 'ngay_kiem_tra_hs', header: 'Ngày kiểm tra HS', example: '10/01/2025' },
     ];
+    /** Cột chỉ dùng khi nhập file Excel thực tế (bảng CĐT), không đưa vào mẫu tải về */
+    const hopDongExcelImportColumns: ExcelColumnDef[] = useMemo(
+        () => [
+            ...hopDongExcelColumns,
+            { key: 'cdt_thanh_toan', header: 'CĐT thanh toán' },
+            { key: 'cdt_tam_ung', header: 'CĐT tạm ứng' },
+            { key: 'cdt_no', header: 'CĐT nợ' },
+        ],
+        // hopDongExcelColumns là hằng trong component — không cần deps động
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+        [],
+    );
     const [tasksByContract, setTasksByContract] = useState<Map<string, TaskRow[]>>(new Map());
     const [allContracts, setAllContracts] = useState<any[]>([]);
 
@@ -738,15 +802,8 @@ export function HopDong() {
                 const total = response.total || 0;
                 setTotalContracts(total);
 
-                // Calculate "Đã thu" map
-                const thuChiMap = new Map<string, number>();
-                thuChiRows.forEach((tc) => {
-                    if (tc.loai_phieu !== 'Phiếu thu') return;
-                    const hid = tc.hop_dong_id != null ? String(tc.hop_dong_id).trim() : '';
-                    if (!hid) return;
-                    const current = thuChiMap.get(hid) || 0;
-                    thuChiMap.set(hid, current + (tc.so_tien || 0));
-                });
+                const { thanhToan: thuChiThanhToanMap, tamUng: thuChiTamUngMap } =
+                    buildThuChiAmountMaps(thuChiRows);
 
                 // Grouping logic
                 const groups = new Map<string, ContractRow[]>();
@@ -773,7 +830,9 @@ export function HopDong() {
                     duAnId,
                     customerLabel,
                     contracts: contracts.map((c, idx) => {
-                        const daThu = sumPhieuThuForHopDong(c, thuChiMap);
+                        const cdtThanhToan = sumThuChiMapForHopDong(c, thuChiThanhToanMap);
+                        const cdtTamUng = sumThuChiMapForHopDong(c, thuChiTamUngMap);
+                        const daThu = cdtThanhToan + cdtTamUng;
                         const giaTriQT = Number(c.gia_tri_qt || 0);
                         const loaiNs = normalizeNguongLoai(c.nguong_chi_nhan_su_loai);
                         const rawNguong = Number(c.nguong_chi_nhan_su ?? 0);
@@ -794,7 +853,7 @@ export function HopDong() {
                             nguongChiNhanSuLoai: loaiNs,
                             nguongChiNhanSuTien: tienQuyDoiNguongChiNhanSu(loaiNs, giaTriQT, rawNguong),
                             daThu,
-                            // Đồng bộ với cột "Đã thu" (tổng Phiếu thu theo HĐ). Cột `con_phai_thu` trên DB dễ lệch vì không luôn được cập nhật khi có thu chi.
+                            /** CĐT nợ = Giá xuất HĐ − (CĐT thanh toán + CĐT tạm ứng) từ Thu chi */
                             conPhaiThu: Math.max(0, giaTriQT - daThu),
                             ngayUpdate: c.ngay_update ? new Date(c.ngay_update).toLocaleDateString('vi-VN') : '',
                             nhanSuId: c.nhan_su_id || null,
@@ -819,7 +878,13 @@ export function HopDong() {
 
                 // Tổng QT / đã thu chỉ cho các HĐ trên trang hiện tại (tránh nhầm với toàn hệ thống khi phân trang)
                 setTotalGiaTriQT(contractRows.reduce((s: number, c: any) => s + Number(c.gia_tri_qt || 0), 0));
-                setTotalDaThu(contractRows.reduce((s: number, c: ContractRow) => s + sumPhieuThuForHopDong(c, thuChiMap), 0));
+                setTotalDaThu(
+                    contractRows.reduce((s: number, c: ContractRow) => {
+                        const tt = sumThuChiMapForHopDong(c, thuChiThanhToanMap);
+                        const tu = sumThuChiMapForHopDong(c, thuChiTamUngMap);
+                        return s + tt + tu;
+                    }, 0),
+                );
 
             } catch (error) {
                 console.error("[HopDong] Error loading paged data:", error);
@@ -924,22 +989,85 @@ export function HopDong() {
         const ids = new Set<string>();
         for (const group of filteredItems) {
             for (const contract of group.contracts) {
-                const id = String(contract.uuid || '').trim();
+                const id = hopDongRowSelectId(contract);
                 if (id) ids.add(id);
             }
         }
         return ids;
     }, [filteredItems]);
 
-    const totalTamUng = useMemo(
-        () => sumThuByHangMucThu(allThuChi, filteredContractIds, isTamUngHangMucThu),
-        [allThuChi, filteredContractIds],
+    const contractInfoByHopId = useMemo(() => {
+        const m = new Map<string, { soHopDong: string; noiDung: string }>();
+        for (const group of filteredItems) {
+            for (const c of group.contracts) {
+                const hid = hopDongRowSelectId(c);
+                if (!hid) continue;
+                m.set(hid, {
+                    soHopDong: (c.soHopDong || '').trim() || '—',
+                    noiDung: (c.tenGoiThau || '').trim() || '—',
+                });
+            }
+        }
+        return m;
+    }, [filteredItems]);
+
+    /** Tổng tạm ứng theo Hợp đồng / Nội dung — từ phiếu thu (module Thu chi), HĐ đang lọc. */
+    const tamUngByHopDongNoiDung = useMemo(() => {
+        const map = new Map<
+            string,
+            { soHopDong: string; noiDung: string; total: number; count: number }
+        >();
+        for (const tc of allThuChi) {
+            if (!isThuChiTamUngRow(tc)) continue;
+            const hid = String(tc.hop_dong_id || '').trim();
+            if (!hid || !filteredContractIds.has(hid)) continue;
+            const info = contractInfoByHopId.get(hid);
+            const soHopDong =
+                info?.soHopDong ||
+                String(tc.so_hop_dong || '').trim() ||
+                '—';
+            const noiDung =
+                info?.noiDung ||
+                String(tc.ten_goi_thau || '').trim() ||
+                String(tc.noi_dung || '').trim() ||
+                '—';
+            const key = `${soHopDong}|||${noiDung}`;
+            const amount = Number(tc.so_tien) || 0;
+            const cur = map.get(key);
+            if (cur) {
+                cur.total += amount;
+                cur.count += 1;
+            } else {
+                map.set(key, { soHopDong, noiDung, total: amount, count: 1 });
+            }
+        }
+        return [...map.values()].sort((a, b) => b.total - a.total);
+    }, [allThuChi, filteredContractIds, contractInfoByHopId]);
+
+    const totalTamUngFromThuChi = useMemo(
+        () => tamUngByHopDongNoiDung.reduce((s, r) => s + r.total, 0),
+        [tamUngByHopDongNoiDung],
     );
 
-    const totalDaThanhToan = useMemo(
-        () => sumThuByHangMucThu(allThuChi, filteredContractIds, isThanhToanHangMucThu),
-        [allThuChi, filteredContractIds],
-    );
+    const totalTamUng = useMemo(() => {
+        if (filteredContractIds.size === 0) return 0;
+        return allThuChi.reduce((sum, tc) => {
+            if (!isThuChiTamUngRow(tc)) return sum;
+            const hid = String(tc.hop_dong_id || '').trim();
+            if (!hid || !filteredContractIds.has(hid)) return sum;
+            return sum + (Number(tc.so_tien) || 0);
+        }, 0);
+    }, [allThuChi, filteredContractIds]);
+
+    const totalDaThanhToan = useMemo(() => {
+        if (filteredContractIds.size === 0) return 0;
+        return allThuChi.reduce((sum, tc) => {
+            if (!isThuChiThanhToanRow(tc)) return sum;
+            const hid = String(tc.hop_dong_id || '').trim();
+            if (!hid || !filteredContractIds.has(hid)) return sum;
+            return sum + (Number(tc.so_tien) || 0);
+        }, 0);
+    }, [allThuChi, filteredContractIds]);
 
     const { totalCongNo, demHopDongCongNo, demHopDongHienThi } = useMemo(() => {
         let sum = 0;
@@ -1251,6 +1379,116 @@ export function HopDong() {
                 />
             )}
 
+            {dongBoTamUngOpen ? (
+                <div
+                    className="fixed inset-0 z-[90] flex items-center justify-center bg-black/40 p-4 backdrop-blur-sm"
+                    role="dialog"
+                    aria-modal="true"
+                    aria-labelledby="dong-bo-tam-ung-title"
+                    onClick={() => setDongBoTamUngOpen(false)}
+                >
+                    <div
+                        className="flex max-h-[min(90vh,720px)] w-full max-w-3xl flex-col overflow-hidden rounded-xl border border-slate-200 bg-white shadow-2xl"
+                        onClick={(e) => e.stopPropagation()}
+                    >
+                        <div className="flex shrink-0 items-start justify-between gap-3 border-b border-slate-200 bg-slate-50 px-5 py-4">
+                            <div>
+                                <h2
+                                    id="dong-bo-tam-ung-title"
+                                    className="text-lg font-bold text-slate-900"
+                                >
+                                    Đồng bộ data — Đã thu tạm ứng
+                                </h2>
+                                <p className="mt-1 text-xs text-slate-500">
+                                    Lấy từ module Thu chi (phiếu thu Tạm ứng), nhóm theo Hợp đồng /
+                                    Nội dung — {tamUngByHopDongNoiDung.length} nhóm trong bộ lọc HĐ
+                                    hiện tại
+                                </p>
+                            </div>
+                            <button
+                                type="button"
+                                onClick={() => setDongBoTamUngOpen(false)}
+                                className="rounded-lg p-2 text-slate-400 hover:bg-slate-200 hover:text-slate-700"
+                                aria-label="Đóng"
+                            >
+                                <X size={18} />
+                            </button>
+                        </div>
+                        <div className="min-h-0 flex-1 overflow-auto">
+                            {tamUngByHopDongNoiDung.length === 0 ? (
+                                <p className="px-5 py-10 text-center text-sm text-slate-500">
+                                    Không có phiếu thu tạm ứng cho hợp đồng đang lọc.
+                                </p>
+                            ) : (
+                                <table className="w-full border-collapse text-left">
+                                    <thead>
+                                        <tr className="bg-[#004bcb] text-[11px] uppercase tracking-wider text-white">
+                                            <th className="px-4 py-3 font-bold">
+                                                Hợp đồng / Nội dung
+                                            </th>
+                                            <th className="px-4 py-3 text-right font-bold whitespace-nowrap">
+                                                Đã thu tạm ứng
+                                            </th>
+                                            <th className="px-4 py-3 text-center font-bold w-20">
+                                                Số phiếu
+                                            </th>
+                                        </tr>
+                                    </thead>
+                                    <tbody className="divide-y divide-slate-100">
+                                        {tamUngByHopDongNoiDung.map((row) => (
+                                            <tr
+                                                key={`${row.soHopDong}|||${row.noiDung}`}
+                                                className="hover:bg-slate-50/80"
+                                            >
+                                                <td className="px-4 py-3 align-top">
+                                                    <span className="block text-sm font-bold text-slate-900">
+                                                        {row.soHopDong}
+                                                    </span>
+                                                    <span className="mt-1 block text-xs text-slate-500 line-clamp-2">
+                                                        {row.noiDung}
+                                                    </span>
+                                                </td>
+                                                <td className="px-4 py-3 text-right font-mono text-sm font-semibold text-amber-800 whitespace-nowrap align-top">
+                                                    {formatCurrency(row.total)} đ
+                                                </td>
+                                                <td className="px-4 py-3 text-center text-sm text-slate-600 tabular-nums align-top">
+                                                    {row.count}
+                                                </td>
+                                            </tr>
+                                        ))}
+                                    </tbody>
+                                    <tfoot>
+                                        <tr className="bg-amber-50 border-t-2 border-amber-200">
+                                            <td className="px-4 py-3 text-sm font-bold text-slate-900">
+                                                Tổng cộng
+                                            </td>
+                                            <td className="px-4 py-3 text-right font-mono text-base font-extrabold text-amber-900 whitespace-nowrap">
+                                                {formatCurrency(totalTamUngFromThuChi)} đ
+                                            </td>
+                                            <td className="px-4 py-3 text-center text-sm font-semibold text-slate-700 tabular-nums">
+                                                {tamUngByHopDongNoiDung.reduce(
+                                                    (s, r) => s + r.count,
+                                                    0,
+                                                )}
+                                            </td>
+                                        </tr>
+                                    </tfoot>
+                                </table>
+                            )}
+                        </div>
+                        <div className="shrink-0 border-t border-slate-200 bg-slate-50 px-5 py-3 flex justify-end">
+                            <button
+                                type="button"
+                                onClick={() => setDongBoTamUngOpen(false)}
+                                className="rounded-lg bg-[#004bcb] px-4 py-2 text-sm font-semibold text-white hover:opacity-90"
+                            >
+                                Đóng
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            ) : null}
+
             <div className="flex justify-between items-end">
                 <div>
                     <h2 className="text-3xl font-bold tracking-tight text-slate-900">QUẢN LÝ HỢP ĐỒNG</h2>
@@ -1297,6 +1535,9 @@ export function HopDong() {
                     >
                         {formatCurrency(totalDaThu)} đ
                     </p>
+                    <p className="text-[9px] text-slate-500 mt-1 leading-snug line-clamp-2">
+                        CĐT thanh toán + CĐT tạm ứng
+                    </p>
                 </div>
                 <div className="bg-white p-3 rounded-lg shadow-sm border border-slate-200 min-w-0">
                     <p className="text-[10px] uppercase tracking-wide text-slate-500 mb-0.5 font-semibold leading-tight">
@@ -1324,7 +1565,7 @@ export function HopDong() {
                 </div>
                 <div className="bg-white p-3 rounded-lg shadow-sm border border-rose-200 min-w-0">
                     <p className="text-[10px] uppercase tracking-wide text-slate-500 mb-0.5 font-semibold leading-tight">
-                        Còn nợ
+                        CĐT nợ
                     </p>
                     <p
                         className="text-lg font-extrabold text-rose-700 tabular-nums leading-tight truncate"
@@ -1333,6 +1574,9 @@ export function HopDong() {
                         {formatCurrency(totalCongNo)} đ
                     </p>
                     <p className="text-[9px] text-slate-500 mt-1 leading-snug line-clamp-2">
+                        Giá xuất HĐ − (TT + Tạm ứng)
+                    </p>
+                    <p className="text-[9px] text-slate-500 leading-snug line-clamp-2">
                         {demHopDongCongNo} HĐ còn nợ
                         {demHopDongHienThi > 0 ? ` / ${demHopDongHienThi} HĐ` : ''}
                     </p>
@@ -1630,8 +1874,22 @@ export function HopDong() {
                             {totalContracts > 0 ? ` (${totalContracts})` : ''}
                         </button>
                     ) : null}
+                    <button
+                        type="button"
+                        onClick={() => setDongBoTamUngOpen(true)}
+                        disabled={isLoading}
+                        title="Xem tổng tạm ứng từ Thu chi theo Hợp đồng / Nội dung (bộ lọc HĐ hiện tại)"
+                        className="inline-flex items-center gap-1.5 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-xs font-bold text-amber-900 shadow-sm hover:bg-amber-100 disabled:cursor-not-allowed disabled:opacity-45"
+                    >
+                        <RefreshCw className="w-3.5 h-3.5" />
+                        Đồng bộ data
+                        {totalTamUngFromThuChi > 0
+                            ? ` (${formatCurrency(totalTamUngFromThuChi)} đ)`
+                            : ''}
+                    </button>
                     <ExcelImportExportBar
                         columns={hopDongExcelColumns}
+                        importColumns={hopDongExcelImportColumns}
                         data={[...allContracts].sort((a, b) => {
                             const pA = a.project_name || '';
                             const pB = b.project_name || '';
@@ -1640,7 +1898,7 @@ export function HopDong() {
                         })}
                         templateFileName="mau-hop-dong"
                         sheetName="Hop dong"
-                        onImport={async (rows) => {
+                        onImport={async (rows, onProgress) => {
                             try {
                                 let contractCache: ContractRow[] = [];
                                 try {
@@ -1651,16 +1909,22 @@ export function HopDong() {
                                 }
                                 const customerMap = new Map<string, any>();
                                 const projectMap = new Map<string, any>();
-                                const getOrCreateCustomer = async (r: any) => {
+                                const getOrCreateCustomer = async (r: Record<string, string>) => {
                                     const customerName = cleanString(r.thong_tin_kh);
                                     if (!customerName) return null;
                                     const normName = normalizeKey(customerName);
                                     if (customerMap.has(normName)) return customerMap.get(normName);
-                                    const newC = await customerService.create({ ten_don_vi: customerName, mst: (r.mst_kh || '').trim() || undefined });
+                                    const newC = await customerService.create({
+                                        ten_don_vi: customerName,
+                                        mst: (r.mst_kh || '').trim() || undefined,
+                                    });
                                     if (newC?.id) customerMap.set(normName, newC.id);
                                     return newC?.id || null;
                                 };
-                                const getOrCreateProject = async (r: any, customerId: any) => {
+                                const getOrCreateProject = async (
+                                    r: Record<string, string>,
+                                    customerId: string | null,
+                                ) => {
                                     const projectName = cleanString(r.ten_da);
                                     if (!projectName) return null;
                                     const normProject = normalizeKey(projectName);
@@ -1675,69 +1939,55 @@ export function HopDong() {
                                     if (newP?.id) projectMap.set(normProject, newP.id);
                                     return newP?.id || null;
                                 };
-                                let totalOk = 0;
+
                                 const allErrors: string[] = [];
-                                for (let i = 0; i < rows.length; i += 20) {
-                                    const chunk = rows.slice(i, i + 20);
-                                    const processedChunk = [];
-                                    for (const r of chunk) {
-                                        const customerId = await getOrCreateCustomer(r);
-                                        const duAnId = await getOrCreateProject(r, customerId);
-                                        const giaTriQt = parseMoneyVi(r.gia_xuat_hd || '0');
-                                        const rowPayload: Record<string, unknown> = {
-                                            ...r,
-                                            __rowNumber: r.__rowNumber,
-                                            du_an_id: duAnId,
-                                            customer_id: customerId,
-                                            gia_tri_hd: parseMoneyVi(r.gia_hd_plhd || '0'),
-                                            gia_tri_qt: giaTriQt,
-                                            so_hop_dong: (r.so_ho_plhd || '').trim(),
-                                            project_name: cleanString(r.ten_da),
-                                            ten_goi_thau: cleanString(r.ten_goi_thau),
-                                            loai_dich_vu: cleanString(r.loai_dv),
-                                            ten_day_du_chu_dau_tu: cleanString(r.thong_tin_kh),
-                                            mst: (r.mst_kh || '').trim(),
-                                            ngay_ky_hd: parseExcelDate(r.ngay_ky_hd, r.nam_ky_hd),
-                                        };
-                                        recalcHopDongThuTuExcel(rowPayload);
-                                        processedChunk.push(rowPayload);
+                                const processedRows: Record<string, unknown>[] = [];
+
+                                for (let i = 0; i < rows.length; i++) {
+                                    const r = rows[i];
+                                    const soHopDong = (r.so_ho_plhd || '').trim();
+                                    if (!soHopDong) {
+                                        allErrors.push(
+                                            `Excel dòng ${r.__rowNumber || i + 2}: thiếu «Số HĐ & PLHĐ».`,
+                                        );
+                                        onProgress(i + 1, rows.length);
+                                        continue;
                                     }
-                                    
-                                    // Nhóm các dòng theo số hợp đồng và cộng dồn giá trị quyết toán
-                                    const contractGroups = new Map<string, any>();
-                                    for (const row of processedChunk) {
-                                        const soHd = (row.so_hop_dong || '').trim().toLowerCase();
-                                        const duAnId = row.du_an_id || '';
-                                        const groupKey = `${soHd}|${duAnId}`; // Key = số HĐ + dự án để tránh trùng
-                                        
-                                        if (!soHd) {
-                                            // Không có số HĐ, xử lý như bình thường (không nhóm)
-                                            const uniqueKey = `no_contract_${Math.random()}`;
-                                            contractGroups.set(uniqueKey, row);
-                                            continue;
-                                        }
-                                        
-                                        if (contractGroups.has(groupKey)) {
-                                            const existing = contractGroups.get(groupKey);
-                                            existing.gia_tri_hd += row.gia_tri_hd || 0;
-                                            existing.gia_tri_qt += row.gia_tri_qt || 0;
-                                            existing.cdt_thanh_toan =
-                                                (existing.cdt_thanh_toan || 0) + (row.cdt_thanh_toan || 0);
-                                            existing.cdt_tam_ung =
-                                                (existing.cdt_tam_ung || 0) + (row.cdt_tam_ung || 0);
-                                            recalcHopDongThuTuExcel(existing);
-                                        } else {
-                                            const copy = { ...row };
-                                            recalcHopDongThuTuExcel(copy);
-                                            contractGroups.set(groupKey, copy);
-                                        }
-                                    }
-                                    
-                                    const mergedChunk = Array.from(contractGroups.values());
-                                    const result = await contractService.bulkImport(mergedChunk);
-                                    totalOk += result.created + result.updated;
+                                    const customerId = await getOrCreateCustomer(r);
+                                    const duAnId = await getOrCreateProject(r, customerId);
+                                    const giaTriQt = parseMoneyVi(r.gia_xuat_hd || '0');
+                                    const rowPayload: Record<string, unknown> = {
+                                        ...r,
+                                        __rowNumber: r.__rowNumber,
+                                        du_an_id: duAnId,
+                                        customer_id: customerId,
+                                        gia_tri_hd: parseMoneyVi(r.gia_hd_plhd || '0'),
+                                        gia_tri_qt: giaTriQt,
+                                        cdt_thanh_toan: parseMoneyVi(r.cdt_thanh_toan || '0'),
+                                        cdt_tam_ung: parseMoneyVi(r.cdt_tam_ung || '0'),
+                                        so_hop_dong: soHopDong,
+                                        project_name: cleanString(r.ten_da),
+                                        ten_goi_thau: cleanString(r.ten_goi_thau),
+                                        loai_dich_vu: cleanString(r.loai_dv),
+                                        ten_day_du_chu_dau_tu: cleanString(r.thong_tin_kh),
+                                        mst: (r.mst_kh || '').trim(),
+                                        ngay_ky_hd: parseExcelDate(r.ngay_ky_hd, r.nam_ky_hd),
+                                    };
+                                    recalcHopDongThuTuExcel(rowPayload);
+                                    processedRows.push(rowPayload);
+                                    onProgress(i + 1, rows.length);
+                                }
+
+                                const mergedAll = mergeHopDongImportRows(processedRows);
+                                let contractsSaved = 0;
+
+                                for (let i = 0; i < mergedAll.length; i += 20) {
+                                    const chunk = mergedAll.slice(i, i + 20);
+                                    const result = await contractService.bulkImport(chunk);
+                                    contractsSaved += result.created + result.updated;
                                     if (result.errors.length > 0) allErrors.push(...result.errors);
-                                    for (const merged of mergedChunk) {
+
+                                    for (const merged of chunk) {
                                         if (
                                             (Number(merged.cdt_thanh_toan) || 0) <= 0 &&
                                             (Number(merged.cdt_tam_ung) || 0) <= 0
@@ -1747,7 +1997,7 @@ export function HopDong() {
                                         let found = findContractRowForExcelImport(
                                             contractCache,
                                             String(merged.so_hop_dong || ''),
-                                            merged.du_an_id,
+                                            merged.du_an_id as string | null | undefined,
                                         );
                                         if (!found) {
                                             try {
@@ -1761,7 +2011,7 @@ export function HopDong() {
                                                 found = findContractRowForExcelImport(
                                                     contractCache,
                                                     String(merged.so_hop_dong || ''),
-                                                    merged.du_an_id,
+                                                    merged.du_an_id as string | null | undefined,
                                                 );
                                             } catch {
                                                 found = undefined;
@@ -1774,7 +2024,10 @@ export function HopDong() {
                                             continue;
                                         }
                                         try {
-                                            await syncPhieuThuTuExcelHopDong(merged, contractCache);
+                                            await syncPhieuThuTuExcelHopDong(
+                                                merged as Parameters<typeof syncPhieuThuTuExcelHopDong>[0],
+                                                contractCache,
+                                            );
                                         } catch (e: unknown) {
                                             const msg =
                                                 e instanceof Error ? e.message : 'Lỗi tạo phiếu thu';
@@ -1784,9 +2037,19 @@ export function HopDong() {
                                         }
                                     }
                                 }
-                                return { ok: totalOk, errors: allErrors };
-                            } catch (e: any) {
-                                return { ok: 0, errors: [e?.message || 'Lỗi kết nối server'] };
+
+                                return {
+                                    ok: rows.length,
+                                    contractsSaved: mergedAll.length,
+                                    errors: allErrors,
+                                };
+                            } catch (e: unknown) {
+                                return {
+                                    ok: 0,
+                                    errors: [
+                                        e instanceof Error ? e.message : 'Lỗi kết nối server',
+                                    ],
+                                };
                             }
                         }}
                         onDone={() => {
@@ -1979,7 +2242,7 @@ export function HopDong() {
                                     onClick={() => toggleHopDongSort('gia_tri_qt')}
                                     className="w-full inline-flex items-center justify-end gap-1.5 uppercase tracking-wider font-bold text-[#f2f2ff] hover:text-white hover:bg-white/10 rounded px-1 py-0.5 -mx-1 transition-colors"
                                 >
-                                    <span>Giá trị QT</span>
+                                    <span>Giá xuất HĐ</span>
                                     <SortIcon active={hopDongSortKey === 'gia_tri_qt'} dir={hopDongSortDir} />
                                 </button>
                             </th>
@@ -1999,7 +2262,7 @@ export function HopDong() {
                                     onClick={() => toggleHopDongSort('con_phai_thu')}
                                     className="w-full inline-flex items-center justify-end gap-1.5 uppercase tracking-wider font-bold text-[#f2f2ff] hover:text-white hover:bg-white/10 rounded px-1 py-0.5 -mx-1 transition-colors"
                                 >
-                                    <span>Còn nợ</span>
+                                    <span>CĐT nợ</span>
                                     <SortIcon active={hopDongSortKey === 'con_phai_thu'} dir={hopDongSortDir} />
                                 </button>
                             </th>

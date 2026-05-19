@@ -28,7 +28,10 @@ export function XacNhanXoaThuChiModal({ isOpen, onClose, item, onSuccess }: Prop
         setIsDeleting(true);
         setError(null);
         try {
-            await thuChiService.delete(deleteId);
+            const ok = await thuChiService.delete(deleteId);
+            if (!ok) {
+                throw new Error('Không xóa được chứng từ. Kiểm tra server API đang chạy.');
+            }
             onSuccess();
             onClose();
         } catch (err: any) {

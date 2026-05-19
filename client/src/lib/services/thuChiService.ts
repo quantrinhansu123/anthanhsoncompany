@@ -1,4 +1,7 @@
 import { supabase } from '../supabase';
+import { api } from '../api';
+
+const API_BASE_URL = (import.meta as any).env.VITE_API_BASE_URL || 'http://localhost:3000/api';
 
 export interface ThuChiRow {
   id: string;
@@ -306,19 +309,11 @@ export const thuChiService = {
     }
   },
 
-  // Xóa thu chi
+  /** Xóa một chứng từ qua API server (service role — tránh RLS client chặn xóa). */
   async delete(id: string): Promise<boolean> {
     try {
-      const { error } = await supabase
-        .from('thu_chi')
-        .delete()
-        .eq('id', id);
-
-      if (error) {
-        console.error('Error deleting thu_chi:', error);
-        throw error;
-      }
-
+      const encoded = encodeURIComponent(String(id).trim());
+      await api.delete(`/thu-chi/${encoded}`);
       return true;
     } catch (err) {
       console.error('Exception in thuChiService.delete:', err);
@@ -326,30 +321,42 @@ export const thuChiService = {
     }
   },
 
-  /** Xóa mọi bản ghi `thu_chi` (theo lô) — chỉ dùng khi người dùng xác nhận rõ ràng. */
+  /** Xóa nhiều chứng từ một lần. */
+  async deleteMany(
+    ids: string[],
+  ): Promise<{ deleted: number; requested: number; error?: string }> {
+    try {
+      const unique = [...new Set(ids.map((id) => String(id).trim()).filter(Boolean))];
+      if (unique.length === 0) {
+        return { deleted: 0, requested: 0 };
+      }
+      const res = (await api.post('/thu-chi/bulk-delete', { ids: unique })) as {
+        deleted?: number;
+        requested?: number;
+      };
+      return {
+        deleted: Number(res.deleted) || 0,
+        requested: Number(res.requested) || unique.length,
+      };
+    } catch (err: any) {
+      console.error('Exception in thuChiService.deleteMany:', err);
+      return {
+        deleted: 0,
+        requested: ids.length,
+        error: err?.message || String(err),
+      };
+    }
+  },
+
+  /** Xóa mọi bản ghi `thu_chi` — chỉ dùng khi người dùng xác nhận rõ ràng. */
   async deleteAll(): Promise<{ ok: boolean; deleted: number; error?: string }> {
     try {
-      const { data: rows, error: selErr } = await supabase.from('thu_chi').select('id');
-      if (selErr) {
-        console.error('[thuChiService] deleteAll select:', selErr);
-        return { ok: false, deleted: 0, error: selErr.message };
+      const res = await fetch(`${API_BASE_URL}/thu-chi/all`, { method: 'DELETE' });
+      const body = (await res.json().catch(() => ({}))) as { deleted?: number; error?: string };
+      if (!res.ok) {
+        return { ok: false, deleted: 0, error: body.error || res.statusText || 'Request failed' };
       }
-      const ids = (rows || []).map((r: { id: string }) => String(r.id));
-      if (ids.length === 0) {
-        return { ok: true, deleted: 0 };
-      }
-      const chunkSize = 500;
-      let deleted = 0;
-      for (let i = 0; i < ids.length; i += chunkSize) {
-        const chunk = ids.slice(i, i + chunkSize);
-        const { error } = await supabase.from('thu_chi').delete().in('id', chunk);
-        if (error) {
-          console.error('[thuChiService] deleteAll chunk:', error);
-          return { ok: false, deleted, error: error.message };
-        }
-        deleted += chunk.length;
-      }
-      return { ok: true, deleted };
+      return { ok: true, deleted: Number(body.deleted) || 0 };
     } catch (err: any) {
       console.error('Exception in thuChiService.deleteAll:', err);
       return { ok: false, deleted: 0, error: err?.message || String(err) };

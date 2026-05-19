@@ -7,10 +7,18 @@ import {
     parseExcelToRows,
 } from '../lib/excelTableTools';
 
-export type ExcelImportResult = { ok: number; errors: string[] };
+export type ExcelImportResult = {
+    /** Số dòng Excel đã xử lý */
+    ok: number;
+    errors: string[];
+    /** Số hợp đồng / bản ghi DB sau khi gộp dòng (nếu có) */
+    contractsSaved?: number;
+};
 
 type Props = {
     columns: ExcelColumnDef[];
+    /** Cột bổ sung chỉ khi nhập (vd. CĐT) — không đưa vào file mẫu tải về */
+    importColumns?: ExcelColumnDef[];
     /** Mảng dữ liệu cần xuất ra (nếu có sẽ là nút Tải file Excel có dữ liệu) */
     data?: any[];
     /** Tên file tải về, không bắt buộc .xlsx */
@@ -32,6 +40,7 @@ type Props = {
 
 export function ExcelImportExportBar({
     columns,
+    importColumns,
     data,
     templateFileName,
     sheetName = 'Du lieu',
@@ -72,7 +81,7 @@ export function ExcelImportExportBar({
         setShowErrors(false);
         setProgress({ current: 0, total: 0 });
         try {
-            const rows = await parseExcelToRows(file, columns);
+            const rows = await parseExcelToRows(file, importColumns ?? columns);
             if (rows.length === 0) {
                 setMsg('File không có dòng dữ liệu (bỏ qua hàng tiêu đề).');
                 setBusy(false);
@@ -83,8 +92,11 @@ export function ExcelImportExportBar({
                 setProgress({ current, total });
             });
             setLastRes(result);
-            const { ok, errors } = result;
-            const parts = [`Đã nhập ${ok} bản ghi.`];
+            const { ok, errors, contractsSaved } = result;
+            const parts =
+                contractsSaved != null && contractsSaved !== ok
+                    ? [`Đã xử lý ${ok} dòng Excel → ${contractsSaved} hợp đồng lưu DB.`]
+                    : [`Đã xử lý ${ok} dòng Excel.`];
             if (errors.length)
                 parts.push(
                     `${errors.length} lỗi: ${errors.slice(0, 5).join('; ')}${errors.length > 5 ? '…' : ''}`,

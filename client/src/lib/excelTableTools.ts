@@ -5,6 +5,8 @@ export type ExcelColumnDef = {
     key: string;
     /** Tiêu đề cột dòng 1 file mẫu — dùng để khớp khi nhập (không gắn dấu *) */
     header: string;
+    /** Tiêu đề khác trên file Excel thực tế (chỉ dùng khi nhập, không ghi vào mẫu tải về). */
+    matchHeaders?: string[];
     /** Gợi ý dòng 2 trong mẫu */
     example?: string;
     /** Nếu true, file mẫu gắn " *" sau tiêu đề; ô ví dụ mặc định "Bắt buộc" khi không có example/hint */
@@ -12,6 +14,57 @@ export type ExcelColumnDef = {
     /** Chú thích ô ví dụ khi không khai báo example */
     hint?: string;
 };
+
+const EXCEL_MEANINGFUL_ROW_KEYS = [
+    'so_ho_plhd',
+    'so_hop_dong',
+    'ten_da',
+    'gia_xuat_hd',
+    'gia_hd_plhd',
+    'ten_goi_thau',
+    'thong_tin_kh',
+    'cdt_thanh_toan',
+    'cdt_tam_ung',
+] as const;
+
+/** Có ít nhất một trường nghiệp vụ — tránh bỏ sót dòng chỉ có số tiền / TT. */
+export function excelRowHasMeaningfulData(obj: Record<string, string>): boolean {
+    for (const k of EXCEL_MEANINGFUL_ROW_KEYS) {
+        if (String(obj[k] ?? '').trim()) return true;
+    }
+    return Object.keys(obj).some(
+        (k) => k !== '__rowNumber' && String(obj[k] ?? '').trim() !== '',
+    );
+}
+
+/** Bỏ dòng ví dụ ngay dưới tiêu đề trong file mẫu tải về. */
+export function isLikelyExcelTemplateExampleRow(
+    obj: Record<string, string>,
+    columns: ExcelColumnDef[],
+): boolean {
+    let matchExamples = 0;
+    let definedExamples = 0;
+    for (const col of columns) {
+        if (!col.example || String(col.example).trim() === '') continue;
+        definedExamples += 1;
+        const cell = normalizeKey(obj[col.key] ?? '');
+        const ex = normalizeKey(col.example);
+        if (cell && ex && cell === ex) matchExamples += 1;
+    }
+    if (definedExamples === 0) return false;
+    return matchExamples >= Math.min(3, definedExamples);
+}
+
+function buildHeaderKeyLookup(columns: ExcelColumnDef[]): Map<string, string> {
+    const map = new Map<string, string>();
+    for (const c of columns) {
+        map.set(normalizeHeaderForMatch(c.header), c.key);
+        for (const alt of c.matchHeaders ?? []) {
+            map.set(normalizeHeaderForMatch(alt), c.key);
+        }
+    }
+    return map;
+}
 
 /** Tiêu đề hiển thị trên file tải về (có dấu * nếu bắt buộc). */
 export function templateColumnHeader(c: ExcelColumnDef): string {
@@ -112,7 +165,7 @@ export async function parseExcelToRows(
     let globalRows: any[][] = [];
     let bestSheet = '';
 
-    const normalizedDefs = columns.map((c) => ({ ...c, norm: normalizeHeaderForMatch(c.header) }));
+    const headerKeyLookup = buildHeaderKeyLookup(columns);
 
     // Duyệt qua TẤT CẢ các sheet để tìm ra sheet nào chứa nhiều cột hợp lệ nhất
     for (const sheetName of wb.SheetNames) {
@@ -170,23 +223,21 @@ export async function parseExcelToRows(
     for (let r = globalHeaderRowIndex + 1; r < globalRows.length; r++) {
         const row = globalRows[r] || [];
         const obj: Record<string, string> = {
-            __rowNumber: (r + 1).toString() // Lưu lại số dòng thực tế trong Excel
+            __rowNumber: (r + 1).toString(), // Lưu lại số dòng thực tế trong Excel
         };
-        let any = false;
-        for (let c = 0; c < globalBestKeyByIndex.length; c++) {
+        const colCount = Math.max(globalBestKeyByIndex.length, row.length);
+        for (let c = 0; c < colCount; c++) {
             const k = globalBestKeyByIndex[c];
             if (!k) continue;
             const raw = row[c];
-            
+
             let s = '';
             if (raw instanceof Date) {
-                // Nếu là Date object (do XLSX tự nhận diện)
                 const dd = String(raw.getDate()).padStart(2, '0');
                 const mm = String(raw.getMonth() + 1).padStart(2, '0');
                 const yyyy = raw.getFullYear();
                 s = `${dd}/${mm}/${yyyy}`;
             } else if (typeof raw === 'number' && raw > 10000 && raw < 100000) {
-                // Có vẻ là Excel serial date (ví dỤ 45678)
                 try {
                     const d = XLSX.SSF.parse_date_code(raw);
                     s = `${String(d.d).padStart(2, '0')}/${String(d.m).padStart(2, '0')}/${d.y}`;
@@ -197,10 +248,11 @@ export async function parseExcelToRows(
                 s = raw === null || raw === undefined ? '' : String(raw).trim();
             }
 
-            if (s) any = true;
             obj[k] = s;
         }
-        if (any) out.push(obj);
+        if (!excelRowHasMeaningfulData(obj)) continue;
+        if (isLikelyExcelTemplateExampleRow(obj, columns)) continue;
+        out.push(obj);
     }
     return out;
 }
