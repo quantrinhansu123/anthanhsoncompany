@@ -6,6 +6,7 @@ function mapDuAnRows(data: any[] | null | undefined) {
   return (data || []).map((row: any) => {
     const manager = row.manager;
     const executor = row.executor;
+    const khachHang = row.khach_hang;
 
     const managerImg = row.manager_img || (manager?.anh_nhan_su || null);
     const executorImg = row.executor_img || (executor?.anh_nhan_su || null);
@@ -13,13 +14,16 @@ function mapDuAnRows(data: any[] | null | undefined) {
     const managerIds = Array.isArray(row.manager_ids) ? row.manager_ids : (row.manager_ids ? [row.manager_ids] : []);
     const executorIds = Array.isArray(row.executor_ids) ? row.executor_ids : (row.executor_ids ? [row.executor_ids] : []);
 
+    const tenDonViKh = khachHang?.ten_don_vi ? String(khachHang.ten_don_vi).trim() : '';
+
     return {
       ...row,
       manager_ids: managerIds,
       executor_ids: executorIds,
       manager_name: manager ? (manager.full_name || manager.name || manager.hoTen || '') : null,
       executor_name: executor ? (executor.full_name || executor.name || executor.hoTen || '') : null,
-      customer_name: row.ten_khach_hang || null,
+      /** Tên hiển thị cột Khách hàng — ưu tiên `khach_hang.ten_don_vi`, không dùng mã số `ten_khach_hang`. */
+      customer_name: tenDonViKh || null,
       manager_img: managerImg,
       executor_img: executorImg
     };
@@ -38,7 +42,8 @@ export const projectService = {
           `
         *,
         manager:manager_id(id, full_name, name, hoTen, code, anh_nhan_su),
-        executor:executor_id(id, full_name, name, hoTen, code, anh_nhan_su)
+        executor:executor_id(id, full_name, name, hoTen, code, anh_nhan_su),
+        khach_hang:customer_id(id, ten_don_vi)
       `,
           { count: 'exact' }
         );

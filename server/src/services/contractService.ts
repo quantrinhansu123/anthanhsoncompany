@@ -11,6 +11,70 @@ const normalizeKey = (s: any): string => {
   return cleanString(s).toLowerCase();
 };
 
+/** Chuẩn hóa từ khóa cho filter `.or()` PostgREST (tránh phá cú pháp dấu phẩy). */
+function escapePostgrestOrTerm(term: string): string {
+  return String(term ?? '')
+    .trim()
+    .replace(/,/g, ' ')
+    .replace(/%/g, '\\%');
+}
+
+const HOP_DONG_SEARCH_DU_AN_CACHE_TTL_MS = 90_000;
+const hopDongSearchDuAnCache = new Map<string, { ids: string[]; at: number }>();
+
+/** Dự án khớp tên dự án / tên KH trên `du_an`, hoặc KH trong `khach_hang`. */
+async function resolveHopDongSearchDuAnIds(supabase: ReturnType<typeof getSupabase>, term: string): Promise<string[]> {
+  const q = escapePostgrestOrTerm(term);
+  if (!q) return [];
+
+  const cacheKey = q.toLowerCase();
+  const cached = hopDongSearchDuAnCache.get(cacheKey);
+  if (cached && Date.now() - cached.at < HOP_DONG_SEARCH_DU_AN_CACHE_TTL_MS) {
+    return cached.ids;
+  }
+
+  const ids = new Set<string>();
+
+  const [{ data: byProject }, { data: byCustomer }] = await Promise.all([
+    supabase.from('du_an').select('id').or(`ten_du_an.ilike.%${q}%,ten_khach_hang.ilike.%${q}%`),
+    supabase.from('khach_hang').select('id').ilike('ten_don_vi', `%${q}%`),
+  ]);
+
+  for (const row of byProject || []) {
+    if (row?.id != null) ids.add(String(row.id));
+  }
+
+  const customerIds = (byCustomer || []).map((c) => c.id).filter((id) => id != null && String(id).trim() !== '');
+  if (customerIds.length > 0) {
+    const { data: byCustomerId } = await supabase.from('du_an').select('id').in('customer_id', customerIds);
+    for (const row of byCustomerId || []) {
+      if (row?.id != null) ids.add(String(row.id));
+    }
+  }
+
+  const list = [...ids];
+  hopDongSearchDuAnCache.set(cacheKey, { ids: list, at: Date.now() });
+  if (hopDongSearchDuAnCache.size > 80) {
+    const oldest = [...hopDongSearchDuAnCache.entries()].sort((a, b) => a[1].at - b[1].at)[0]?.[0];
+    if (oldest) hopDongSearchDuAnCache.delete(oldest);
+  }
+
+  return list;
+}
+
+function buildHopDongKhachDuAnSearchOr(term: string, duAnIds: string[]): string {
+  const q = escapePostgrestOrTerm(term);
+  const parts = [
+    `project_name.ilike.%${q}%`,
+    `customer_name.ilike.%${q}%`,
+    `ten_day_du_chu_dau_tu.ilike.%${q}%`,
+  ];
+  if (duAnIds.length > 0) {
+    parts.push(`du_an_id.in.(${duAnIds.join(',')})`);
+  }
+  return parts.join(',');
+}
+
 /** PostgREST/Supabase thường giới hạn ~1000 dòng mỗi response nếu không dùng range lặp */
 const HOP_DONG_FETCH_CHUNK = 1000;
 
@@ -51,6 +115,10 @@ export const contractService = {
   ) {
     const { page, pageSize, search, dateFrom, dateTo, trangThai } = options;
     const supabase = getSupabase();
+    const searchTerm = String(search ?? '').trim();
+    const searchDuAnIds = searchTerm
+      ? await resolveHopDongSearchDuAnIds(supabase, searchTerm)
+      : [];
 
     const buildOrderedQuery = () => {
       let query = supabase
@@ -64,10 +132,8 @@ export const contractService = {
           { count: 'exact' }
         );
 
-      if (search) {
-        query = query.or(
-          `so_hop_dong.ilike.%${search}%,ten_goi_thau.ilike.%${search}%,project_name.ilike.%${search}%`
-        );
+      if (searchTerm) {
+        query = query.or(buildHopDongKhachDuAnSearchOr(searchTerm, searchDuAnIds));
       }
 
       const from = String(dateFrom ?? '').trim();

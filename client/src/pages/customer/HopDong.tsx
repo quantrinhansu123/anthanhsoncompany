@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useMemo, useRef } from 'react';
+import React, { useEffect, useState, useMemo, useRef, useDeferredValue } from 'react';
 import { createPortal } from 'react-dom';
 import { Search, Plus, Eye, Edit, Trash2, X, ChevronDown, ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, FileText, FolderOpen, PlusCircle, User, CheckCircle, BarChart3, Briefcase, Calendar, Loader2, ArrowUp, ArrowDown, ArrowUpDown, RefreshCw } from 'lucide-react';
 import { useSearchParams } from 'react-router-dom';
@@ -159,15 +159,193 @@ function parseViDateToTs(value: string): number {
     return new Date(y, m - 1, d).getTime();
 }
 
-function hopDongProjectCustomerKey(p: ProjectMetaRow): string {
-    const cid = String(p.customer_id ?? '').trim();
-    if (cid) return `id:${cid}`;
-    const n = String(p.customer_name || p.ten_khach_hang || '')
+function normalizeHopDongCustomerName(value: string | null | undefined): string {
+    return String(value ?? '')
         .trim()
         .normalize('NFC')
         .toLowerCase()
         .replace(/\s+/g, ' ');
+}
+
+/** Giá trị `ten_khach_hang` / `customer_id` dạng mã số — không dùng làm nhãn cột Khách hàng. */
+function isHopDongKhachHangIdLike(value: string): boolean {
+    const s = value.trim();
+    if (!s) return true;
+    if (/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(s)) return true;
+    if (/^[0-9a-f]{8}$/i.test(s)) return true;
+    if (/^\d{6,}$/.test(s)) return true;
+    return false;
+}
+
+type HopDongKhachDisplayInput = {
+    customerName?: string | null;
+    tenDayDuChuDauTu?: string | null;
+    projectCustomerName?: string | null;
+    projectTenKhachHang?: string | null;
+};
+
+/** Cùng thứ tự ưu tiên với cột «Khách hàng» trên bảng HĐ. */
+function resolveHopDongKhachHangDisplay(input: HopDongKhachDisplayInput): string {
+    const cn = String(input.customerName ?? '').trim();
+    if (cn && !isHopDongKhachHangIdLike(cn)) return cn;
+
+    const cdt = String(input.tenDayDuChuDauTu ?? '').trim();
+    if (cdt) return cdt;
+
+    const pcn = String(input.projectCustomerName ?? '').trim();
+    if (pcn && !isHopDongKhachHangIdLike(pcn)) return pcn;
+
+    const tk = String(input.projectTenKhachHang ?? '').trim();
+    if (tk && !isHopDongKhachHangIdLike(tk)) return tk;
+
+    if (cn) return cn;
+    return '';
+}
+
+function hopDongKhachHangNameKey(display: string): string {
+    const n = normalizeHopDongCustomerName(display);
     return n ? `name:${n}` : 'empty:';
+}
+
+function findHopDongProjectMeta(
+    projectsMeta: ProjectMetaRow[],
+    duAnId?: string | null,
+    projectName?: string | null,
+): ProjectMetaRow | undefined {
+    const du = duAnId != null ? String(duAnId).trim() : '';
+    if (du) {
+        const pm = projectsMeta.find((p) => String(p.id) === du);
+        if (pm) return pm;
+    }
+    const pn = (projectName || '').trim();
+    if (!pn) return undefined;
+    return projectsMeta.find((p) => (p.ten_du_an || '').trim() === pn);
+}
+
+function resolveHopDongKhachHangDisplayFromContract(
+    row: Pick<ContractRow, 'customer_name' | 'ten_day_du_chu_dau_tu' | 'du_an_id' | 'project_name'>,
+    projectsMeta: ProjectMetaRow[],
+): string {
+    const pm = findHopDongProjectMeta(projectsMeta, row.du_an_id, row.project_name);
+    return resolveHopDongKhachHangDisplay({
+        customerName: row.customer_name,
+        tenDayDuChuDauTu: row.ten_day_du_chu_dau_tu,
+        projectCustomerName: pm?.customer_name,
+        projectTenKhachHang: pm?.ten_khach_hang,
+    });
+}
+
+function resolveHopDongKhachHangDisplayFromGroup(
+    group: HopDongKhachGroupRef,
+    projectsMeta: ProjectMetaRow[],
+): string {
+    const pm = findHopDongProjectMeta(projectsMeta, group.duAnId, group.projectName);
+    return resolveHopDongKhachHangDisplay({
+        customerName: group.customerLabel,
+        projectCustomerName: pm?.customer_name,
+        projectTenKhachHang: pm?.ten_khach_hang,
+    });
+}
+
+function hopDongProjectCustomerKey(p: ProjectMetaRow): string {
+    const display = resolveHopDongKhachHangDisplay({
+        projectCustomerName: p.customer_name,
+        projectTenKhachHang: p.ten_khach_hang,
+    });
+    if (display) return hopDongKhachHangNameKey(display);
+    const cid = String(p.customer_id ?? '').trim();
+    if (cid) return `id:${cid}`;
+    return 'empty:';
+}
+
+type HopDongKhachGroupRef = {
+    duAnId?: string | null;
+    customerLabel?: string | null;
+    projectName: string;
+};
+
+function collectHopDongGroupCustomerKeys(
+    group: HopDongKhachGroupRef,
+    projectsMeta: ProjectMetaRow[],
+): string[] {
+    const keys = new Set<string>();
+    keys.add(hopDongGroupCustomerKey(group, projectsMeta));
+
+    const du = group.duAnId ? String(group.duAnId).trim() : '';
+    if (du) {
+        const pm = projectsMeta.find((p) => String(p.id) === du);
+        if (pm) keys.add(hopDongProjectCustomerKey(pm));
+    }
+    const byName = projectsMeta.find(
+        (p) => (p.ten_du_an || '').trim() === (group.projectName || '').trim(),
+    );
+    if (byName) keys.add(hopDongProjectCustomerKey(byName));
+
+    const display = resolveHopDongKhachHangDisplayFromGroup(group, projectsMeta);
+    if (display) keys.add(hopDongKhachHangNameKey(display));
+
+    for (const k of [...keys]) {
+        if (!k.startsWith('id:')) continue;
+        const cid = k.slice(3);
+        const pm = projectsMeta.find((p) => String(p.customer_id ?? '').trim() === cid);
+        if (!pm) continue;
+        keys.add(hopDongProjectCustomerKey(pm));
+        const label = resolveHopDongKhachHangDisplay({
+            projectCustomerName: pm.customer_name,
+            projectTenKhachHang: pm.ten_khach_hang,
+        });
+        if (label) keys.add(hopDongKhachHangNameKey(label));
+    }
+
+    return [...keys];
+}
+
+/** Khớp lọc khách: cùng id KH, cùng tên chuẩn hóa, hoặc trùng một trong các khóa suy ra từ dự án / nhãn HĐ. */
+function hopDongKhachFilterMatches(
+    selectedKeys: string[],
+    group: HopDongKhachGroupRef,
+    projectsMeta: ProjectMetaRow[],
+): boolean {
+    if (selectedKeys.length === 0) return true;
+
+    const groupKeys = collectHopDongGroupCustomerKeys(group, projectsMeta);
+    if (groupKeys.some((gk) => selectedKeys.includes(gk))) return true;
+
+    const selectedIds = new Set<string>();
+    const selectedNames = new Set<string>();
+    let selectedEmpty = false;
+    for (const sk of selectedKeys) {
+        if (sk === 'empty:') {
+            selectedEmpty = true;
+            continue;
+        }
+        if (sk.startsWith('id:')) selectedIds.add(sk.slice(3));
+        else if (sk.startsWith('name:')) selectedNames.add(sk.slice(5));
+    }
+
+    for (const gid of selectedIds) {
+        if (groupKeys.some((gk) => gk === `id:${gid}`)) return true;
+        const pm = projectsMeta.find((p) => String(p.customer_id ?? '').trim() === gid);
+        if (!pm) continue;
+        const pn = normalizeHopDongCustomerName(
+            resolveHopDongKhachHangDisplay({
+                projectCustomerName: pm.customer_name,
+                projectTenKhachHang: pm.ten_khach_hang,
+            }),
+        );
+        const gl = normalizeHopDongCustomerName(resolveHopDongKhachHangDisplayFromGroup(group, projectsMeta));
+        if (pn && gl && pn === gl) return true;
+    }
+
+    for (const gn of selectedNames) {
+        if (groupKeys.some((gk) => gk === `name:${gn}`)) return true;
+        const gl = normalizeHopDongCustomerName(resolveHopDongKhachHangDisplayFromGroup(group, projectsMeta));
+        if (gl && gl === gn) return true;
+    }
+
+    if (selectedEmpty && groupKeys.some((gk) => gk === 'empty:')) return true;
+
+    return false;
 }
 
 /** CĐT nợ = Giá xuất HĐ − (CĐT thanh toán + CĐT tạm ứng). Mẫu Excel HĐ không có cột thu — mặc định 0; nhập thu qua module Thu chi. */
@@ -202,13 +380,13 @@ function resolveHopDongTenKhachHang(
     c: ContractRow,
     projectsMeta?: ProjectMetaRow[],
 ): string {
-    const fromContract = String(c.customer_name || '').trim();
-    if (fromContract) return fromContract;
-    if (!projectsMeta?.length) return '';
-    const pm = c.du_an_id
-        ? projectsMeta.find((p) => String(p.id) === String(c.du_an_id))
-        : projectsMeta.find((p) => (p.ten_du_an || '').trim() === (c.project_name || '').trim());
-    return (pm?.customer_name || pm?.ten_khach_hang || '').trim();
+    if (!projectsMeta?.length) {
+        return resolveHopDongKhachHangDisplay({
+            customerName: c.customer_name,
+            tenDayDuChuDauTu: c.ten_day_du_chu_dau_tu,
+        });
+    }
+    return resolveHopDongKhachHangDisplayFromContract(c, projectsMeta);
 }
 
 function excelRowTenKhachHang(r: Record<string, string>): string {
@@ -426,24 +604,6 @@ function contractRowPk(row: ContractRow): string {
     return String(row.hop_dong_row_id ?? row.id ?? '').trim();
 }
 
-function contractRowCustomerKey(row: ContractRow, projectsMeta: ProjectMetaRow[]): string {
-    const du = row.du_an_id ? String(row.du_an_id).trim() : '';
-    if (du) {
-        const pm = projectsMeta.find((p) => String(p.id) === du);
-        if (pm) return hopDongProjectCustomerKey(pm);
-    }
-    const byName = projectsMeta.find(
-        (p) => (p.ten_du_an || '').trim() === (row.project_name || '').trim(),
-    );
-    if (byName) return hopDongProjectCustomerKey(byName);
-    const cn = String(row.ten_day_du_chu_dau_tu || row.customer_name || '')
-        .trim()
-        .normalize('NFC')
-        .toLowerCase()
-        .replace(/\s+/g, ' ');
-    return cn ? `name:${cn}` : 'empty:';
-}
-
 function contractRowPassesHopDongFilters(
     row: ContractRow,
     projectsMeta: ProjectMetaRow[],
@@ -472,8 +632,19 @@ function contractRowPassesHopDongFilters(
         if (!pid || !filters.filterHopDongDuAnIds.includes(String(pid))) return false;
     }
     if (filters.filterHopDongKhachKeys.length > 0) {
-        const gk = contractRowCustomerKey(row, projectsMeta);
-        if (!filters.filterHopDongKhachKeys.includes(gk)) return false;
+        if (
+            !hopDongKhachFilterMatches(
+                filters.filterHopDongKhachKeys,
+                {
+                    duAnId: row.du_an_id,
+                    customerLabel: resolveHopDongKhachHangDisplayFromContract(row, projectsMeta) || null,
+                    projectName: (row.project_name || '').trim(),
+                },
+                projectsMeta,
+            )
+        ) {
+            return false;
+        }
     }
     return true;
 }
@@ -516,21 +687,11 @@ function hopDongGroupCustomerKey(
     group: { duAnId?: string | null; customerLabel?: string | null; projectName: string },
     projectsMeta: ProjectMetaRow[],
 ): string {
-    const du = group.duAnId ? String(group.duAnId).trim() : '';
-    if (du) {
-        const pm = projectsMeta.find((p) => String(p.id) === du);
-        if (pm) return hopDongProjectCustomerKey(pm);
-    }
-    const byName = projectsMeta.find(
-        (p) => (p.ten_du_an || '').trim() === (group.projectName || '').trim(),
-    );
-    if (byName) return hopDongProjectCustomerKey(byName);
-    const cn = String(group.customerLabel || '')
-        .trim()
-        .normalize('NFC')
-        .toLowerCase()
-        .replace(/\s+/g, ' ');
-    return cn ? `name:${cn}` : 'empty:';
+    const display = resolveHopDongKhachHangDisplayFromGroup(group, projectsMeta);
+    if (display) return hopDongKhachHangNameKey(display);
+    const pm = findHopDongProjectMeta(projectsMeta, group.duAnId, group.projectName);
+    if (pm) return hopDongProjectCustomerKey(pm);
+    return 'empty:';
 }
 
 function normalizeHangMucThuLabel(value: string | null | undefined): string {
@@ -625,6 +786,9 @@ function Toast({ message, type, onClose, action }: {
 /** Đặt `true` để hiện nút xóa toàn bộ hợp đồng (mặc định ẩn). */
 const SHOW_DELETE_ALL_HOP_DONG_BUTTON = false;
 
+/** Chờ người dùng gõ xong rồi mới gọi API — tránh lag mỗi phím. */
+const HOP_DONG_SEARCH_DEBOUNCE_MS = 320;
+
 export function HopDong() {
     const [searchParams] = useSearchParams();
     const filterFromUrl = searchParams.get('project');
@@ -651,6 +815,9 @@ export function HopDong() {
     const [pageSize, setPageSize] = useState<number>(PAGE_SIZE_OPTIONS[0]);
     const [totalContracts, setTotalContracts] = useState(0);
     const [isLoading, setIsLoading] = useState(false);
+    const [isListFetching, setIsListFetching] = useState(false);
+    const contractsFetchIdRef = useRef(0);
+    const allThuChiRef = useRef<ThuChiRow[]>([]);
     const [totalGiaTriQT, setTotalGiaTriQT] = useState(0);
     const [totalDaThu, setTotalDaThu] = useState(0);
     const [deletingAllContracts, setDeletingAllContracts] = useState(false);
@@ -695,14 +862,22 @@ export function HopDong() {
         return base;
     }, [filterYear]);
 
+    const prevDebouncedSearchRef = useRef(debouncedSearch);
+
     // Debounce search
     useEffect(() => {
         const timer = setTimeout(() => {
-            setDebouncedSearch(searchTerm);
-            setPage(1); // Reset page on search
-        }, 500);
+            const next = searchTerm.trim();
+            if (prevDebouncedSearchRef.current !== next) {
+                prevDebouncedSearchRef.current = next;
+                setPage(1);
+            }
+            setDebouncedSearch(next);
+        }, HOP_DONG_SEARCH_DEBOUNCE_MS);
         return () => clearTimeout(timer);
     }, [searchTerm]);
+
+    const isSearchPending = searchTerm.trim() !== debouncedSearch;
 
     const [tasksByContract, setTasksByContract] = useState<Map<string, TaskRow[]>>(new Map());
 
@@ -783,18 +958,29 @@ export function HopDong() {
 
     const hopDongCustomerOptions = useMemo(() => {
         const map = new Map<string, string>();
-        for (const p of projectsMeta) {
-            const key = hopDongProjectCustomerKey(p);
-            const label =
+        const addDisplay = (display: string) => {
+            const label = display.trim();
+            const key = hopDongKhachHangNameKey(label);
+            const L =
                 key === 'empty:'
                     ? '(Chưa có khách hàng)'
-                    : (p.customer_name || p.ten_khach_hang || '').trim() || '—';
-            if (!map.has(key)) map.set(key, label);
+                    : label || '—';
+            if (!map.has(key) || (label && map.get(key) === '—')) map.set(key, L);
+        };
+        for (const g of items) {
+            addDisplay(resolveHopDongKhachHangDisplayFromGroup(g, projectsMeta));
+        }
+        for (const p of projectsMeta) {
+            const label = resolveHopDongKhachHangDisplay({
+                projectCustomerName: p.customer_name,
+                projectTenKhachHang: p.ten_khach_hang,
+            });
+            if (label) addDisplay(label);
         }
         return Array.from(map.entries())
             .map(([key, label]) => ({ key, label }))
             .sort((a, b) => a.label.localeCompare(b.label, 'vi'));
-    }, [projectsMeta]);
+    }, [projectsMeta, items]);
 
     const hopDongProjectOptions = useMemo(() => {
         let list = projectsMeta;
@@ -956,29 +1142,48 @@ export function HopDong() {
         })();
     }, []);
 
-    // Load paged contracts
+    // Thu chi — chỉ tải lại khi đồng bộ / import, không gắn vào mỗi lần gõ tìm kiếm
     useEffect(() => {
+        let cancelled = false;
         (async () => {
             try {
-                setIsLoading(true);
-                const [response, thuChiRows] = await Promise.all([
-                    contractService.getAll({
-                        page,
-                        pageSize,
-                        search: debouncedSearch,
-                        dateFrom: dateFrom || undefined,
-                        dateTo: dateTo || undefined,
-                        trangThai: filterHopDongTrangThai || undefined,
-                    }),
-                    thuChiService.getAll(),
-                ]);
+                const thuChiRows = await thuChiService.getAll();
+                if (cancelled) return;
+                allThuChiRef.current = thuChiRows;
                 setAllThuChi(thuChiRows);
+            } catch (error) {
+                console.error('[HopDong] Error loading thu chi:', error);
+            }
+        })();
+        return () => {
+            cancelled = true;
+        };
+    }, [reloadKey]);
+
+    // Load paged contracts (tìm kiếm / lọc / phân trang)
+    useEffect(() => {
+        const fetchId = ++contractsFetchIdRef.current;
+        (async () => {
+            try {
+                setIsListFetching(true);
+                if (items.length === 0) setIsLoading(true);
+
+                const response = await contractService.getAll({
+                    page,
+                    pageSize,
+                    search: debouncedSearch || undefined,
+                    dateFrom: dateFrom || undefined,
+                    dateTo: dateTo || undefined,
+                    trangThai: filterHopDongTrangThai || undefined,
+                });
+
+                if (fetchId !== contractsFetchIdRef.current) return;
+
+                const thuChiPhieuThuMap = buildThuChiPhieuThuMap(allThuChiRef.current);
 
                 const contractRows = response.data || [];
                 const total = response.total || 0;
                 setTotalContracts(total);
-
-                const thuChiPhieuThuMap = buildThuChiPhieuThuMap(thuChiRows);
 
                 // Grouping logic
                 const groups = new Map<string, ContractRow[]>();
@@ -996,9 +1201,7 @@ export function HopDong() {
                             ? String(first.du_an_id).trim()
                             : null;
                     const customerLabel =
-                        (first?.customer_name && String(first.customer_name).trim()) ||
-                        (first?.ten_day_du_chu_dau_tu && String(first.ten_day_du_chu_dau_tu).trim()) ||
-                        null;
+                        resolveHopDongKhachHangDisplayFromContract(first, projectsMeta) || null;
                     return {
                     id: idCounter++,
                     projectName,
@@ -1061,7 +1264,10 @@ export function HopDong() {
             } catch (error) {
                 console.error("[HopDong] Error loading paged data:", error);
             } finally {
-                setIsLoading(false);
+                if (fetchId === contractsFetchIdRef.current) {
+                    setIsListFetching(false);
+                    setIsLoading(false);
+                }
             }
         })();
     }, [page, pageSize, debouncedSearch, dateFrom, dateTo, filterHopDongTrangThai, reloadKey]);
@@ -1136,9 +1342,11 @@ export function HopDong() {
             .filter((group) => {
                 if (filterFromUrl && group.projectName !== filterFromUrl) return false;
 
-                if (filterHopDongKhachKeys.length > 0) {
-                    const gk = hopDongGroupCustomerKey(group, projectsMeta);
-                    if (!filterHopDongKhachKeys.includes(gk)) return false;
+                if (
+                    filterHopDongKhachKeys.length > 0 &&
+                    !hopDongKhachFilterMatches(filterHopDongKhachKeys, group, projectsMeta)
+                ) {
+                    return false;
                 }
                 if (filterHopDongDuAnIds.length > 0) {
                     const pid =
@@ -1156,6 +1364,9 @@ export function HopDong() {
             }))
             .filter((project) => project.contracts.length > 0);
     }, [items, filterFromUrl, filterHopDongKhachKeys, filterHopDongDuAnIds, filterHopDongTrangThai, projectsMeta]);
+
+    /** Trì hoãn render bảng khi đang gõ / đang fetch — ô tìm vẫn mượt. */
+    const deferredFilteredItems = useDeferredValue(filteredItems);
 
     const filteredContractIds = useMemo(() => {
         const ids = new Set<string>();
@@ -1252,21 +1463,18 @@ export function HopDong() {
             khachDisplay: string;
             duAnDisplay: string;
         }> = [];
-        for (const group of filteredItems) {
+        for (const group of deferredFilteredItems) {
             const pm = group.duAnId
                 ? projectsMeta.find((p) => String(p.id) === String(group.duAnId))
                 : projectsMeta.find((p) => p.ten_du_an === group.projectName);
-            const khachDisplay =
-                group.customerLabel?.trim() ||
-                (pm?.customer_name || pm?.ten_khach_hang || '').trim() ||
-                '—';
+            const khachDisplay = resolveHopDongKhachHangDisplayFromGroup(group, projectsMeta) || '—';
             const duAnDisplay = group.projectName || '—';
             for (const c of group.contracts) {
                 rows.push({ group, c, khachDisplay, duAnDisplay });
             }
         }
         return rows;
-    }, [filteredItems, projectsMeta]);
+    }, [deferredFilteredItems, projectsMeta]);
 
     const sortedHopDongRows = useMemo(() => {
         if (!hopDongSortKey) return hopDongFlatRows;
@@ -1370,6 +1578,7 @@ export function HopDong() {
                     trangThai: filterHopDongTrangThai || undefined,
                 }),
             ]);
+            allThuChiRef.current = thuChiRows;
             setAllThuChi(thuChiRows);
 
             const contracts = ((res.data || []) as ContractRow[]).filter((row) =>
@@ -1737,9 +1946,17 @@ export function HopDong() {
                             type="text"
                             value={searchTerm}
                             onChange={(e) => setSearchTerm(e.target.value)}
-                            placeholder="Tìm kiếm hợp đồng..."
-                            className="w-full pl-9 pr-4 py-2 bg-white border border-slate-200 rounded-full text-sm"
+                            placeholder="Tìm tên khách hàng, tên dự án…"
+                            className="w-full pl-9 pr-9 py-2 bg-white border border-slate-200 rounded-full text-sm"
+                            aria-busy={isSearchPending || isListFetching}
                         />
+                        {isSearchPending || isListFetching ? (
+                            <Loader2
+                                size={16}
+                                className="absolute right-3 top-1/2 -translate-y-1/2 animate-spin text-[#004bcb]"
+                                aria-hidden
+                            />
+                        ) : null}
                     </div>
                     <div className="relative min-w-[10.5rem] max-w-[14rem]" ref={hdKhachFilterRef}>
                         <button
@@ -2352,7 +2569,12 @@ export function HopDong() {
                 </div>
             </section>
 
-            <section className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
+            <section
+                className={cn(
+                    'bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden transition-opacity duration-150',
+                    (isSearchPending || isListFetching) && 'opacity-70',
+                )}
+            >
                 <div className="flex flex-wrap items-center gap-2 px-4 py-2.5 border-b border-slate-200 bg-slate-50/90">
                     <button
                         type="button"
@@ -2668,7 +2890,7 @@ export function HopDong() {
                             <select
                                 value={pageSize}
                                 onChange={(event) => setPageSize(Number(event.target.value))}
-                                disabled={isLoading}
+                                disabled={isListFetching}
                                 className="rounded-lg border border-slate-300 bg-white px-2.5 py-1.5 text-sm font-medium text-slate-700 shadow-sm focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20 disabled:opacity-50"
                             >
                                 {PAGE_SIZE_OPTIONS.map((size) => (
@@ -2682,7 +2904,7 @@ export function HopDong() {
                     <div className="flex max-w-full flex-nowrap items-center gap-1 overflow-x-auto">
                         <button
                             type="button"
-                            disabled={page <= 1 || isLoading}
+                            disabled={page <= 1 || isListFetching}
                             onClick={() => setPage(1)}
                             className="rounded border border-slate-300 p-1.5 text-slate-400 hover:bg-white disabled:opacity-50"
                             title="Trang đầu"
@@ -2691,7 +2913,7 @@ export function HopDong() {
                         </button>
                         <button
                             type="button"
-                            disabled={page <= 1 || isLoading}
+                            disabled={page <= 1 || isListFetching}
                             onClick={() => setPage((p) => Math.max(1, p - 1))}
                             className="rounded border border-slate-300 p-1.5 text-slate-400 hover:bg-white disabled:opacity-50"
                             title="Trang trước"
@@ -2710,7 +2932,7 @@ export function HopDong() {
                                 <button
                                     key={pageNumber}
                                     type="button"
-                                    disabled={isLoading}
+                                    disabled={isListFetching}
                                     onClick={() => setPage(pageNumber)}
                                     className={cn(
                                         'h-8 min-w-8 rounded-lg px-2 text-sm font-bold transition-colors disabled:opacity-50',
@@ -2725,7 +2947,7 @@ export function HopDong() {
                         )}
                         <button
                             type="button"
-                            disabled={page >= totalPages || isLoading}
+                            disabled={page >= totalPages || isListFetching}
                             onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
                             className="rounded border border-slate-300 p-1.5 text-slate-400 hover:bg-white disabled:opacity-50"
                             title="Trang sau"
@@ -2734,7 +2956,7 @@ export function HopDong() {
                         </button>
                         <button
                             type="button"
-                            disabled={page >= totalPages || isLoading}
+                            disabled={page >= totalPages || isListFetching}
                             onClick={() => setPage(totalPages)}
                             className="rounded border border-slate-300 p-1.5 text-slate-400 hover:bg-white disabled:opacity-50"
                             title="Trang cuối"
