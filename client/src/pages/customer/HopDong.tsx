@@ -656,15 +656,42 @@ function contractThuChiIdSet(contracts: ContractRow[]): Set<string> {
     return ids;
 }
 
+function isPhieuThuLoai(loai: string | null | undefined): boolean {
+    const n = String(loai ?? '')
+        .trim()
+        .normalize('NFC')
+        .toLowerCase();
+    return n === 'phiếu thu' || n === 'phieu thu';
+}
+
 /** Tổng tiền theo map Thu chi: `hop_dong_id` có thể là PK `hop_dong` hoặc `contract_id`. */
 function sumThuChiMapForHopDong(c: ContractRow, amountMap: Map<string, number>): number {
     const rowPk = c.hop_dong_row_id != null ? String(c.hop_dong_row_id).trim() : '';
     const logicalId = c.id != null ? String(c.id).trim() : '';
-    const v1 = rowPk ? amountMap.get(rowPk) : undefined;
-    const v2 = logicalId ? amountMap.get(logicalId) : undefined;
-    if (v1 !== undefined) return v1;
-    if (v2 !== undefined) return v2;
-    return 0;
+    const keys = [...new Set([rowPk, logicalId].filter(Boolean))];
+    if (keys.length === 0) return 0;
+    if (keys.length === 1) return amountMap.get(keys[0]!) ?? 0;
+    const amounts = keys.map((k) => amountMap.get(k) ?? 0).filter((v) => v > 0);
+    if (amounts.length === 0) return 0;
+    if (amounts.length === 1) return amounts[0];
+    return Math.max(...amounts);
+}
+
+function contractRowFromHopDongContract(c: Contract): ContractRow {
+    return {
+        hop_dong_row_id: c.hopDongRowId ?? c.uuid,
+        id: c.uuid,
+    };
+}
+
+function applyPhieuThuToHopDongContract(c: Contract, phieuThuMap: Map<string, number>): Contract {
+    const daThu = sumThuChiMapForHopDong(contractRowFromHopDongContract(c), phieuThuMap);
+    const giaTriQT = Number(c.giaTriQT || 0);
+    return {
+        ...c,
+        daThu,
+        conPhaiThu: Math.max(0, giaTriQT - daThu),
+    };
 }
 
 /** Khóa trùng đúng cột «Hợp đồng / Nội dung» trên bảng: dòng Số HĐ + dòng tên gói thầu. */
@@ -787,7 +814,7 @@ function isTamUngHangMucThu(value: string | null | undefined): boolean {
 
 /** Phiếu thu tạm ứng — hạng mục thu hoặc tình trạng phiếu (dữ liệu Thu chi). */
 function isThuChiTamUngRow(tc: ThuChiRow): boolean {
-    if (tc.loai_phieu !== 'Phiếu thu') return false;
+    if (!isPhieuThuLoai(tc.loai_phieu)) return false;
     if (isTamUngHangMucThu(tc.hang_muc_thu)) return true;
     const st = normalizeHangMucThuLabel(tc.tinh_trang_phieu);
     return st === 'tạm ứng' || st === 'tam ung';
@@ -795,7 +822,7 @@ function isThuChiTamUngRow(tc: ThuChiRow): boolean {
 
 /** Phiếu thu CĐT thanh toán — hạng mục thu hoặc tình trạng phiếu. */
 function isThuChiThanhToanRow(tc: ThuChiRow): boolean {
-    if (tc.loai_phieu !== 'Phiếu thu') return false;
+    if (!isPhieuThuLoai(tc.loai_phieu)) return false;
     if (isThanhToanHangMucThu(tc.hang_muc_thu)) return true;
     const st = normalizeHangMucThuLabel(tc.tinh_trang_phieu);
     return st === 'thanh toán' || st === 'thanh toan';
@@ -805,7 +832,7 @@ function isThuChiThanhToanRow(tc: ThuChiRow): boolean {
 function buildThuChiPhieuThuMap(rows: ThuChiRow[]): Map<string, number> {
     const map = new Map<string, number>();
     for (const tc of rows) {
-        if (tc.loai_phieu !== 'Phiếu thu') continue;
+        if (!isPhieuThuLoai(tc.loai_phieu)) continue;
         const hid = tc.hop_dong_id != null ? String(tc.hop_dong_id).trim() : '';
         if (!hid) continue;
         const amount = Number(tc.so_tien) || 0;
@@ -1302,14 +1329,21 @@ export function HopDong() {
                     duAnId,
                     customerLabel,
                     contracts: contracts.map((c, idx) => {
-                        const daThu = sumThuChiMapForHopDong(c, thuChiPhieuThuMap);
+                        const contractUi: Contract = {
+                            id: idx + 1,
+                            uuid: String(c.hop_dong_row_id ?? c.id ?? '').trim() || undefined,
+                            hopDongRowId: String(c.hop_dong_row_id ?? c.id ?? '').trim() || undefined,
+                            giaTriQT: Number(c.gia_tri_qt || 0),
+                        } as Contract;
+                        const withThu = applyPhieuThuToHopDongContract(contractUi, thuChiPhieuThuMap);
                         const giaTriQT = Number(c.gia_tri_qt || 0);
                         const loaiNs = normalizeNguongLoai(c.nguong_chi_nhan_su_loai);
                         const rawNguong = Number(c.nguong_chi_nhan_su ?? 0);
                         return {
+                            ...withThu,
                             id: idx + 1,
-                            uuid: String(c.hop_dong_row_id ?? c.id ?? '').trim() || undefined,
-                            hopDongRowId: String(c.hop_dong_row_id ?? c.id ?? '').trim() || undefined,
+                            uuid: contractUi.uuid,
+                            hopDongRowId: contractUi.hopDongRowId,
                             duAnId: c.du_an_id || null,
                             fileStatus: c.file_status || 'Chưa có file',
                             files: c.files || [],
@@ -1322,9 +1356,6 @@ export function HopDong() {
                             nguongChiNhanSu: rawNguong,
                             nguongChiNhanSuLoai: loaiNs,
                             nguongChiNhanSuTien: tienQuyDoiNguongChiNhanSu(loaiNs, giaTriQT, rawNguong),
-                            daThu,
-                            /** CĐT nợ = Giá xuất HĐ − Đã thu (tổng Phiếu thu Thu chi) */
-                            conPhaiThu: Math.max(0, giaTriQT - daThu),
                             ngayUpdate: c.ngay_update ? new Date(c.ngay_update).toLocaleDateString('vi-VN') : '',
                             nhanSuId: c.nhan_su_id || null,
                             nhanSuIds: (c as any).nhan_su_ids || (c.nhan_su_id ? [c.nhan_su_id] : []),
@@ -1770,7 +1801,7 @@ export function HopDong() {
             let phieuThuCount = 0;
             let tongTamUng = 0;
             for (const tc of thuChiRows) {
-                if (tc.loai_phieu !== 'Phiếu thu') continue;
+                if (!isPhieuThuLoai(tc.loai_phieu)) continue;
                 const hid = String(tc.hop_dong_id || '').trim();
                 if (!hid || !thuChiIds.has(hid)) continue;
                 phieuThuCount += 1;
@@ -1779,6 +1810,15 @@ export function HopDong() {
             }
 
             const tongCongNo = Math.max(0, tongQt - tongDaThu);
+
+            setItems((prev) =>
+                prev.map((g) => ({
+                    ...g,
+                    contracts: g.contracts.map((c) => applyPhieuThuToHopDongContract(c, phieuThuMap)),
+                })),
+            );
+            setTotalGiaTriQT(tongQt);
+            setTotalDaThu(tongDaThu);
             setReloadKey((k) => k + 1);
             setToast({
                 type: 'success',
