@@ -247,6 +247,80 @@ function resolveHopDongKhachHangDisplayFromGroup(
     });
 }
 
+type HopDongKhachFilterOption = { key: string; label: string };
+
+/** Gợi ý lọc khách: mọi HĐ khớp bộ lọc bảng, tên = cột «Khách hàng». */
+function buildHopDongKhachOptionsFromContractRows(
+    rows: ContractRow[],
+    projectsMeta: ProjectMetaRow[],
+    scope: {
+        filterFromUrl?: string | null;
+        filterTrangThai?: '' | HopDongTienDo;
+    },
+): HopDongKhachFilterOption[] {
+    const map = new Map<string, string>();
+    const projectFilter = scope.filterFromUrl?.trim() || '';
+
+    for (const row of rows) {
+        if (projectFilter && (row.project_name || '').trim() !== projectFilter) continue;
+        if (
+            scope.filterTrangThai &&
+            normalizeHopDongTienDo(row.trang_thai) !== scope.filterTrangThai
+        ) {
+            continue;
+        }
+        const label = resolveHopDongKhachHangDisplayFromContract(row, projectsMeta);
+        if (!label) continue;
+        const key = hopDongKhachHangNameKey(label);
+        if (!map.has(key)) map.set(key, label);
+    }
+
+    return Array.from(map.entries())
+        .map(([key, label]) => ({ key, label }))
+        .sort((a, b) => a.label.localeCompare(b.label, 'vi'));
+}
+
+/** Gợi ý từ nhóm HĐ đang hiển thị — khớp cột «Khách hàng» trên bảng. */
+function buildHopDongKhachOptionsFromProjectGroups(
+    groups: ProjectGroup[],
+    projectsMeta: ProjectMetaRow[],
+): HopDongKhachFilterOption[] {
+    const map = new Map<string, string>();
+    for (const g of groups) {
+        const label = resolveHopDongKhachHangDisplayFromGroup(g, projectsMeta);
+        if (!label) continue;
+        const key = hopDongKhachHangNameKey(label);
+        if (!map.has(key)) map.set(key, label);
+    }
+    return Array.from(map.entries())
+        .map(([key, label]) => ({ key, label }))
+        .sort((a, b) => a.label.localeCompare(b.label, 'vi'));
+}
+
+function mergeHopDongKhachFilterOptions(
+    ...lists: HopDongKhachFilterOption[][]
+): HopDongKhachFilterOption[] {
+    const map = new Map<string, string>();
+    for (const list of lists) {
+        for (const { key, label } of list) {
+            const L = label.trim();
+            if (!map.has(key) || (L && map.get(key) === '—')) map.set(key, L || '—');
+        }
+    }
+    return Array.from(map.entries())
+        .map(([key, label]) => ({ key, label }))
+        .sort((a, b) => a.label.localeCompare(b.label, 'vi'));
+}
+
+/** API `/contracts` không page trả về mảng thuần, có page trả `{ data, total }`. */
+function normalizeContractGetAllRows(res: unknown): ContractRow[] {
+    if (Array.isArray(res)) return res as ContractRow[];
+    if (res && typeof res === 'object' && Array.isArray((res as { data?: unknown }).data)) {
+        return (res as { data: ContractRow[] }).data;
+    }
+    return [];
+}
+
 function hopDongProjectCustomerKey(p: ProjectMetaRow): string {
     const display = resolveHopDongKhachHangDisplay({
         projectCustomerName: p.customer_name,
@@ -306,7 +380,8 @@ function hopDongKhachFilterMatches(
     group: HopDongKhachGroupRef,
     projectsMeta: ProjectMetaRow[],
 ): boolean {
-    if (selectedKeys.length === 0) return true;
+    if (isHopDongKhachFilterNone(selectedKeys)) return false;
+    if (isHopDongKhachFilterAll(selectedKeys)) return true;
 
     const groupKeys = collectHopDongGroupCustomerKeys(group, projectsMeta);
     if (groupKeys.some((gk) => selectedKeys.includes(gk))) return true;
@@ -631,7 +706,10 @@ function contractRowPassesHopDongFilters(
                       ?.id;
         if (!pid || !filters.filterHopDongDuAnIds.includes(String(pid))) return false;
     }
-    if (filters.filterHopDongKhachKeys.length > 0) {
+    if (isHopDongKhachFilterNone(filters.filterHopDongKhachKeys)) {
+        return false;
+    }
+    if (isHopDongKhachFilterRestricted(filters.filterHopDongKhachKeys)) {
         if (
             !hopDongKhachFilterMatches(
                 filters.filterHopDongKhachKeys,
@@ -789,6 +867,21 @@ const SHOW_DELETE_ALL_HOP_DONG_BUTTON = false;
 /** Chờ người dùng gõ xong rồi mới gọi API — tránh lag mỗi phím. */
 const HOP_DONG_SEARCH_DEBOUNCE_MS = 320;
 
+/** Bỏ tick «Tất cả khách hàng» — ẩn mọi HĐ cho đến khi chọn lại khách cụ thể. */
+const HOP_DONG_KHACH_FILTER_NONE = '__hop_dong_khach_none__';
+
+function isHopDongKhachFilterAll(keys: string[]): boolean {
+    return keys.length === 0;
+}
+
+function isHopDongKhachFilterNone(keys: string[]): boolean {
+    return keys.length === 1 && keys[0] === HOP_DONG_KHACH_FILTER_NONE;
+}
+
+function isHopDongKhachFilterRestricted(keys: string[]): boolean {
+    return keys.length > 0 && !isHopDongKhachFilterNone(keys);
+}
+
 export function HopDong() {
     const [searchParams] = useSearchParams();
     const filterFromUrl = searchParams.get('project');
@@ -826,6 +919,11 @@ export function HopDong() {
 
     /** Bộ lọc checkbox: khách + dự án (client-side trên trang hiện tại) */
     const [filterHopDongKhachKeys, setFilterHopDongKhachKeys] = useState<string[]>([]);
+    const [hopDongKhachOptionsFetched, setHopDongKhachOptionsFetched] = useState<HopDongKhachFilterOption[]>(
+        [],
+    );
+    const [khachFilterOptionsLoading, setKhachFilterOptionsLoading] = useState(false);
+    const khachFilterOptionsFetchRef = useRef(0);
     const [filterHopDongDuAnIds, setFilterHopDongDuAnIds] = useState<string[]>([]);
     const [filterHopDongTrangThai, setFilterHopDongTrangThai] = useState<'' | HopDongTienDo>('');
     const [hdKhachFilterOpen, setHdKhachFilterOpen] = useState(false);
@@ -958,7 +1056,9 @@ export function HopDong() {
 
     const hopDongProjectOptions = useMemo(() => {
         let list = projectsMeta;
-        if (filterHopDongKhachKeys.length > 0) {
+        if (isHopDongKhachFilterNone(filterHopDongKhachKeys)) {
+            list = [];
+        } else if (isHopDongKhachFilterRestricted(filterHopDongKhachKeys)) {
             const allow = new Set(filterHopDongKhachKeys);
             list = list.filter((p) => allow.has(hopDongProjectCustomerKey(p)));
         }
@@ -1111,6 +1211,48 @@ export function HopDong() {
             cancelled = true;
         };
     }, [reloadKey]);
+
+    // Gợi ý lọc khách: toàn bộ HĐ khớp bộ lọc bảng (không phân trang), cột «Khách hàng»
+    useEffect(() => {
+        const fetchId = ++khachFilterOptionsFetchRef.current;
+        (async () => {
+            try {
+                setKhachFilterOptionsLoading(true);
+                const res = await contractService.getAll({
+                    search: debouncedSearch || undefined,
+                    dateFrom: dateFrom || undefined,
+                    dateTo: dateTo || undefined,
+                    trangThai: filterHopDongTrangThai || undefined,
+                });
+                if (fetchId !== khachFilterOptionsFetchRef.current) return;
+
+                const rows = normalizeContractGetAllRows(res);
+                setHopDongKhachOptionsFetched(
+                    buildHopDongKhachOptionsFromContractRows(rows, projectsMeta, {
+                        filterFromUrl,
+                        filterTrangThai: filterHopDongTrangThai,
+                    }),
+                );
+            } catch (error) {
+                console.error('[HopDong] load khach filter options:', error);
+                if (fetchId === khachFilterOptionsFetchRef.current) {
+                    setHopDongKhachOptionsFetched([]);
+                }
+            } finally {
+                if (fetchId === khachFilterOptionsFetchRef.current) {
+                    setKhachFilterOptionsLoading(false);
+                }
+            }
+        })();
+    }, [
+        debouncedSearch,
+        dateFrom,
+        dateTo,
+        filterHopDongTrangThai,
+        filterFromUrl,
+        reloadKey,
+        projectsMeta,
+    ]);
 
     // Load paged contracts (tìm kiếm / lọc / phân trang)
     useEffect(() => {
@@ -1294,8 +1436,11 @@ export function HopDong() {
             .filter((group) => {
                 if (filterFromUrl && group.projectName !== filterFromUrl) return false;
 
+                if (isHopDongKhachFilterNone(filterHopDongKhachKeys)) {
+                    return false;
+                }
                 if (
-                    filterHopDongKhachKeys.length > 0 &&
+                    isHopDongKhachFilterRestricted(filterHopDongKhachKeys) &&
                     !hopDongKhachFilterMatches(filterHopDongKhachKeys, group, projectsMeta)
                 ) {
                     return false;
@@ -1317,19 +1462,53 @@ export function HopDong() {
             .filter((project) => project.contracts.length > 0);
     }, [items, filterFromUrl, filterHopDongKhachKeys, filterHopDongDuAnIds, filterHopDongTrangThai, projectsMeta]);
 
-    /** Chỉ khách đang có trên bảng (trang hiện tại), đúng cột «Khách hàng». */
-    const hopDongCustomerOptions = useMemo(() => {
-        const map = new Map<string, string>();
-        for (const g of items) {
-            const label = resolveHopDongKhachHangDisplayFromGroup(g, projectsMeta);
-            if (!label) continue;
-            const key = hopDongKhachHangNameKey(label);
-            if (!map.has(key)) map.set(key, label);
+    /** Nhóm HĐ như bảng (trừ lọc khách) — nguồn gợi ý khớp cột «Khách hàng». */
+    const itemsForKhachFilterOptions = useMemo(() => {
+        return items
+            .filter((group) => {
+                if (filterFromUrl && group.projectName !== filterFromUrl) return false;
+                if (filterHopDongDuAnIds.length > 0) {
+                    const pid =
+                        group.duAnId ||
+                        projectsMeta.find((p) => p.ten_du_an === group.projectName)?.id;
+                    if (!pid || !filterHopDongDuAnIds.includes(String(pid))) return false;
+                }
+                return true;
+            })
+            .map((project) => ({
+                ...project,
+                contracts: project.contracts.filter(
+                    (c) => !filterHopDongTrangThai || c.trangThai === filterHopDongTrangThai,
+                ),
+            }))
+            .filter((project) => project.contracts.length > 0);
+    }, [items, filterFromUrl, filterHopDongDuAnIds, filterHopDongTrangThai, projectsMeta]);
+
+    const hopDongKhachOptionsFromTable = useMemo(
+        () => buildHopDongKhachOptionsFromProjectGroups(itemsForKhachFilterOptions, projectsMeta),
+        [itemsForKhachFilterOptions, projectsMeta],
+    );
+
+    const hopDongCustomerOptions = useMemo(
+        () => mergeHopDongKhachFilterOptions(hopDongKhachOptionsFromTable, hopDongKhachOptionsFetched),
+        [hopDongKhachOptionsFromTable, hopDongKhachOptionsFetched],
+    );
+
+    useEffect(() => {
+        if (
+            isHopDongKhachFilterNone(filterHopDongKhachKeys) ||
+            isHopDongKhachFilterAll(filterHopDongKhachKeys) ||
+            hopDongCustomerOptions.length === 0
+        ) {
+            return;
         }
-        return Array.from(map.entries())
-            .map(([key, label]) => ({ key, label }))
-            .sort((a, b) => a.label.localeCompare(b.label, 'vi'));
-    }, [items, projectsMeta]);
+        const allow = new Set(hopDongCustomerOptions.map((o) => o.key));
+        setFilterHopDongKhachKeys((prev) => {
+            const next = prev.filter((k) => allow.has(k));
+            return next.length === prev.length ? prev : next;
+        });
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- chỉ cắt key không còn trong gợi ý
+    }, [hopDongCustomerOptions]);
 
     const hopDongKhachOptionsMatching = useMemo(() => {
         const q = hdKhachFilterSearch.trim().toLowerCase();
@@ -1343,13 +1522,15 @@ export function HopDong() {
         const keys = hopDongKhachOptionsMatching.map((o) => o.key);
         if (keys.length === 0) return;
         setFilterHopDongKhachKeys((prev) =>
-            prev.length === 0 ? keys : Array.from(new Set([...prev, ...keys])),
+            isHopDongKhachFilterAll(prev) || isHopDongKhachFilterNone(prev)
+                ? keys
+                : Array.from(new Set([...prev, ...keys])),
         );
     };
 
     const allVisibleKhachSelected =
         hopDongKhachOptionsMatching.length > 0 &&
-        (filterHopDongKhachKeys.length === 0 ||
+        (isHopDongKhachFilterAll(filterHopDongKhachKeys) ||
             hopDongKhachOptionsMatching.every((o) => filterHopDongKhachKeys.includes(o.key)));
 
     /** Trì hoãn render bảng khi đang gõ / đang fetch — ô tìm vẫn mượt. */
@@ -1568,7 +1749,7 @@ export function HopDong() {
             allThuChiRef.current = thuChiRows;
             setAllThuChi(thuChiRows);
 
-            const contracts = ((res.data || []) as ContractRow[]).filter((row) =>
+            const contracts = normalizeContractGetAllRows(res).filter((row) =>
                 contractRowPassesHopDongFilters(row, projectsMeta, {
                     filterFromUrl,
                     filterHopDongKhachKeys,
@@ -1626,7 +1807,7 @@ export function HopDong() {
                 dateTo: dateTo || undefined,
                 trangThai: filterHopDongTrangThai || undefined,
             });
-            const allRows = ((res.data || []) as ContractRow[]).filter((row) =>
+            const allRows = normalizeContractGetAllRows(res).filter((row) =>
                 contractRowPassesHopDongFilters(row, projectsMeta, {
                     filterFromUrl,
                     filterHopDongKhachKeys,
@@ -1958,12 +2139,15 @@ export function HopDong() {
                             title="Lọc theo khách hàng"
                         >
                             <span className="truncate min-w-0 text-left">
-                                {filterHopDongKhachKeys.length === 0
+                                {isHopDongKhachFilterAll(filterHopDongKhachKeys)
                                     ? 'Tất cả khách hàng'
-                                    : filterHopDongKhachKeys.length === 1
-                                      ? hopDongCustomerOptions.find((x) => x.key === filterHopDongKhachKeys[0])
-                                          ?.label || '1 khách'
-                                      : `${filterHopDongKhachKeys.length} khách đã chọn`}
+                                    : isHopDongKhachFilterNone(filterHopDongKhachKeys)
+                                      ? 'Chưa chọn khách hàng'
+                                      : filterHopDongKhachKeys.length === 1
+                                        ? hopDongCustomerOptions.find(
+                                              (x) => x.key === filterHopDongKhachKeys[0],
+                                          )?.label || '1 khách'
+                                        : `${filterHopDongKhachKeys.length} khách đã chọn`}
                             </span>
                             <ChevronDown
                                 className={`w-4 h-4 shrink-0 text-slate-500 ${hdKhachFilterOpen ? 'rotate-180' : ''}`}
@@ -1998,12 +2182,20 @@ export function HopDong() {
                                                 );
                                                 if (allVisibleKhachSelected) {
                                                     setFilterHopDongKhachKeys((prev) => {
-                                                        if (prev.length === 0) {
-                                                            return hopDongCustomerOptions
+                                                        if (isHopDongKhachFilterAll(prev)) {
+                                                            const rest = hopDongCustomerOptions
                                                                 .map((o) => o.key)
                                                                 .filter((k) => !visible.has(k));
+                                                            return rest.length === 0
+                                                                ? [HOP_DONG_KHACH_FILTER_NONE]
+                                                                : rest;
                                                         }
-                                                        return prev.filter((k) => !visible.has(k));
+                                                        const next = prev.filter(
+                                                            (k) => !visible.has(k),
+                                                        );
+                                                        return next.length === 0
+                                                            ? [HOP_DONG_KHACH_FILTER_NONE]
+                                                            : next;
                                                     });
                                                 } else {
                                                     selectAllVisibleHopDongKhach();
@@ -2022,17 +2214,29 @@ export function HopDong() {
                                         <input
                                             type="checkbox"
                                             className="h-3.5 w-3.5 rounded border-slate-300 text-[#004bcb] focus:ring-[#004bcb]"
-                                            checked={filterHopDongKhachKeys.length === 0}
+                                            checked={isHopDongKhachFilterAll(filterHopDongKhachKeys)}
                                             onChange={(e) => {
-                                                if (e.target.checked) setFilterHopDongKhachKeys([]);
+                                                if (e.target.checked) {
+                                                    setFilterHopDongKhachKeys([]);
+                                                } else {
+                                                    setFilterHopDongKhachKeys([
+                                                        HOP_DONG_KHACH_FILTER_NONE,
+                                                    ]);
+                                                }
                                             }}
                                         />
                                         Tất cả khách hàng
                                     </label>
                                     <div className="mx-2 border-t border-slate-200" />
-                                    {hopDongCustomerOptions.length === 0 ? (
+                                    {khachFilterOptionsLoading &&
+                                    hopDongCustomerOptions.length === 0 &&
+                                    items.length === 0 ? (
                                         <p className="px-3 py-2 text-[11px] text-slate-500">
-                                            Không có khách hàng trên bảng hiện tại.
+                                            Đang tải danh sách khách…
+                                        </p>
+                                    ) : hopDongCustomerOptions.length === 0 ? (
+                                        <p className="px-3 py-2 text-[11px] text-slate-500">
+                                            Không có khách hàng trên bảng (thử đổi bộ lọc hoặc trang).
                                         </p>
                                     ) : hopDongKhachOptionsMatching.length === 0 ? (
                                         <p className="px-3 py-2 text-[11px] text-slate-500">
@@ -2041,7 +2245,7 @@ export function HopDong() {
                                     ) : (
                                         hopDongKhachOptionsMatching.map((o) => {
                                             const isAllKhachMode =
-                                                filterHopDongKhachKeys.length === 0;
+                                                isHopDongKhachFilterAll(filterHopDongKhachKeys);
                                             const checked =
                                                 isAllKhachMode ||
                                                 filterHopDongKhachKeys.includes(o.key);
@@ -2056,17 +2260,23 @@ export function HopDong() {
                                                         checked={checked}
                                                         onChange={() => {
                                                             setFilterHopDongKhachKeys((prev) => {
-                                                                if (prev.length === 0) {
-                                                                    return hopDongCustomerOptions
+                                                                if (isHopDongKhachFilterNone(prev)) {
+                                                                    return [o.key];
+                                                                }
+                                                                if (isHopDongKhachFilterAll(prev)) {
+                                                                    const rest = hopDongCustomerOptions
                                                                         .map((x) => x.key)
                                                                         .filter((k) => k !== o.key);
+                                                                    return rest.length === 0
+                                                                        ? [HOP_DONG_KHACH_FILTER_NONE]
+                                                                        : rest;
                                                                 }
                                                                 if (prev.includes(o.key)) {
                                                                     const next = prev.filter(
                                                                         (x) => x !== o.key,
                                                                     );
                                                                     return next.length === 0
-                                                                        ? []
+                                                                        ? [HOP_DONG_KHACH_FILTER_NONE]
                                                                         : next;
                                                                 }
                                                                 return [...prev, o.key];
@@ -2278,7 +2488,7 @@ export function HopDong() {
                                 dateTo: dateTo || undefined,
                                 trangThai: filterHopDongTrangThai || undefined,
                             });
-                            const list = (res.data || []) as ContractRow[];
+                            const list = normalizeContractGetAllRows(res);
                             list.sort((a, b) => {
                                 const pA = a.project_name || '';
                                 const pB = b.project_name || '';
