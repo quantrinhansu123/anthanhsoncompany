@@ -280,6 +280,47 @@ export const contractService = {
       errors: [] as string[],
     };
 
+    const contractKey = (
+      soHopDong: string,
+      duAnId: string | null | undefined,
+      tenGoiThau?: string | null,
+    ) =>
+      `${String(soHopDong || '').trim().toLowerCase()}|${String(duAnId || '').trim()}|${normalizeKey(tenGoiThau || '')}`;
+
+    /** Đã xử lý ít nhất một dòng Excel cùng khóa trong lô này → dòng trùng tiếp theo tạo HĐ mới. */
+    const touchedKeysInBatch = new Set<string>();
+
+    const soHopDongSet = new Set(
+      rows
+        .map((r) => String(r.so_hop_dong || '').trim())
+        .filter(Boolean),
+    );
+    const soHopDongList = Array.from(soHopDongSet);
+    const existingByKey = new Map<string, any>();
+    const existingBySo = new Map<string, any[]>();
+    const fetchChunk = 500;
+    for (let i = 0; i < soHopDongList.length; i += fetchChunk) {
+      const chunk = soHopDongList.slice(i, i + fetchChunk);
+      const { data, error } = await supabase
+        .from('hop_dong')
+        .select('*')
+        .in('so_hop_dong', chunk);
+      if (error) {
+        results.errors.push(`Không thể tải HĐ hiện có: ${error.message}`);
+        continue;
+      }
+      for (const ex of data || []) {
+        const so = String(ex.so_hop_dong || '').trim();
+        const du = ex.du_an_id != null ? String(ex.du_an_id).trim() : '';
+        const k = contractKey(so, du, ex.ten_goi_thau);
+        if (!existingByKey.has(k)) existingByKey.set(k, ex);
+        const normSo = so.toLowerCase();
+        const list = existingBySo.get(normSo) || [];
+        list.push(ex);
+        existingBySo.set(normSo, list);
+      }
+    }
+
     for (let i = 0; i < rows.length; i++) {
       const row = rows[i];
       // Ưu tiên lấy số dòng thực tế từ Excel do client gửi lên
@@ -311,6 +352,7 @@ export const contractService = {
           project_name: rawProjectName || null,
           du_an_id: duAnId,
           ten_goi_thau: row.ten_goi_thau || null,
+          loai_dich_vu: row.loai_dich_vu || row.loai_dv || null,
           ngay_ky_hd: row.ngay_ky_hd || null,
           gia_tri_hd: row.gia_tri_hd !== undefined && row.gia_tri_hd !== null ? Number(row.gia_tri_hd) : null,
           gia_tri_qt: row.gia_tri_qt !== undefined && row.gia_tri_qt !== null ? Number(row.gia_tri_qt) : null,
@@ -319,6 +361,8 @@ export const contractService = {
             row.con_phai_thu !== undefined && row.con_phai_thu !== null
               ? Number(row.con_phai_thu)
               : null,
+          customer_name:
+            row.customer_name || row.ten_khach_hang || row.ten_day_du_chu_dau_tu || null,
           ten_day_du_chu_dau_tu: row.ten_day_du_chu_dau_tu || null,
           dai_dien_ben_a: row.dai_dien_ben_a || null,
           chuc_vu_dai_dien_a: row.chuc_vu_dai_dien_a || null,
@@ -330,25 +374,21 @@ export const contractService = {
           trang_thai: row.trang_thai || null,
         };
 
-        // Check if exists by so_hop_dong
-        const { data: existing } = await supabase
-          .from('hop_dong')
-          .select('*')
-          .eq('so_hop_dong', soHopDong)
-          .maybeSingle();
+        const rowKey = contractKey(soHopDong, duAnId ?? '', payload.ten_goi_thau);
+        const duplicateRowInFile = touchedKeysInBatch.has(rowKey);
+        const existing = duplicateRowInFile
+          ? null
+          : existingByKey.get(rowKey) ?? null;
 
         if (existing) {
-          // Check if changed and field is not null in payload
           let changed = false;
           const updatePayload: any = {};
-          
+
           for (const key in payload) {
-            // Only update if payload has a value and it's different from existing
             if (payload[key] !== null && payload[key] !== undefined) {
-              // Basic comparison (works for strings, numbers, nulls)
               const existingValue = existing[key];
               const newValue = payload[key];
-              
+
               if (String(newValue) !== String(existingValue)) {
                 updatePayload[key] = newValue;
                 changed = true;
@@ -356,25 +396,38 @@ export const contractService = {
             }
           }
 
+          const pkCol = existing.id ? 'id' : 'contract_id';
           if (changed) {
-            // Identifying the PK column (could be 'id' or 'contract_id' based on migrations)
-            const pkCol = existing.id ? 'id' : 'contract_id';
             const { error: updateError } = await supabase
               .from('hop_dong')
               .update(updatePayload)
               .eq(pkCol, existing[pkCol]);
-            
+
             if (updateError) throw updateError;
-            results.updated++;
+            const merged = { ...existing, ...updatePayload };
+            existingByKey.set(rowKey, merged);
           }
+          results.updated++;
+          touchedKeysInBatch.add(rowKey);
         } else {
-          // Create new record
-          const { error: insertError } = await supabase
+          const { data: inserted, error: insertError } = await supabase
             .from('hop_dong')
-            .insert([payload]);
-          
+            .insert([payload])
+            .select('*')
+            .maybeSingle();
+
           if (insertError) throw insertError;
           results.created++;
+          const added = inserted || payload;
+          const so = String(added.so_hop_dong || soHopDong).trim();
+          const du = added.du_an_id != null ? String(added.du_an_id).trim() : '';
+          const kNew = contractKey(so, du, added.ten_goi_thau ?? payload.ten_goi_thau);
+          existingByKey.set(kNew, added);
+          touchedKeysInBatch.add(rowKey);
+          const normSo = so.toLowerCase();
+          const list = existingBySo.get(normSo) || [];
+          list.push(added);
+          existingBySo.set(normSo, list);
         }
       } catch (err: any) {
         results.errors.push(`${rowSuffix}: ${err.message}`);

@@ -23,7 +23,7 @@ import { contractService } from '../../lib/services/contractService';
 import { thuChiService, type ThuChiRow } from '../../lib/services/thuChiService';
 import { ExcelImportExportBar } from '../../components/ExcelImportExportBar';
 import type { ExcelColumnDef } from '../../lib/excelTableTools';
-import { normalizeKey } from '../../lib/excelTableTools';
+import { cleanString, normalizeKey } from '../../lib/excelTableTools';
 import { cn } from '../../lib/utils';
 import { PAGE_SIZE_OPTIONS, buildVisiblePages } from '../../lib/tablePagination';
 
@@ -60,9 +60,24 @@ export function DanhSachKhachHang() {
     const [toast, setToast] = useState<{ message: string; type: 'success' | 'info' | 'warning' } | null>(null);
     const [reloadKey, setReloadKey] = useState(0);
     const [deletingAllKhach, setDeletingAllKhach] = useState(false);
+    const [selectedKhachIds, setSelectedKhachIds] = useState<string[]>([]);
+    const [deletingSelectedKhach, setDeletingSelectedKhach] = useState(false);
 
     const khachHangExcelColumns: ExcelColumnDef[] = [
-        { key: 'ten_don_vi', header: 'Tên đơn vị', example: 'Công ty ABC' },
+        {
+            key: 'ten_khach_hang',
+            header: 'Tên Khách hàng',
+            example: 'Công ty ABC',
+            required: true,
+            matchHeaders: [
+                'Ten khach hang',
+                'Tên KH',
+                'Khách hàng',
+                'Khach hang',
+                'Customer',
+                'customer_name',
+            ],
+        },
         { key: 'loai_hinh', header: 'Loại hình', example: 'TNHH' },
         { key: 'mst', header: 'MST', example: '0123456789' },
         { key: 'dia_chi', header: 'Địa chỉ', example: 'Hà Nội' },
@@ -71,6 +86,16 @@ export function DanhSachKhachHang() {
         { key: 'nguoi_lien_he', header: 'Người liên hệ', example: 'Trần Thị B' },
         { key: 'chuc_vu_lien_he', header: 'Chức vụ liên hệ', example: 'Kế toán' },
         { key: 'sdt_lien_he', header: 'SĐT liên hệ', example: '0901234567' },
+    ];
+
+    /** Cột chỉ khi nhập — nhận file cũ có «Tên đơn vị» hoặc xuất từ hệ thống khác */
+    const khachHangExcelImportColumns: ExcelColumnDef[] = [
+        ...khachHangExcelColumns,
+        {
+            key: 'ten_don_vi',
+            header: 'Tên đơn vị',
+            matchHeaders: ['Ten don vi', 'Tên đơn vị', 'ten_don_vi', 'Don vi'],
+        },
     ];
 
     const { openDuAnModal } = useDuAnModal();
@@ -263,6 +288,57 @@ export function DanhSachKhachHang() {
         setCurrentPage(1);
     }, [itemsPerPage, searchTerm]);
 
+    const khachHangRowId = (item: { id?: string | number }) => String(item.id ?? '').trim();
+
+    const isAllKhachSelected =
+        filteredItems.length > 0 &&
+        filteredItems.every((item) => selectedKhachIds.includes(khachHangRowId(item)));
+
+    const selectedKhachInFilter = useMemo(
+        () =>
+            filteredItems
+                .filter((item) => selectedKhachIds.includes(khachHangRowId(item)))
+                .map((item) => khachHangRowId(item))
+                .filter(Boolean),
+        [filteredItems, selectedKhachIds],
+    );
+
+    useEffect(() => {
+        const valid = new Set(items.map((item) => khachHangRowId(item)).filter(Boolean));
+        setSelectedKhachIds((prev) => prev.filter((id) => valid.has(id)));
+    }, [items]);
+
+    const toggleSelectAllKhach = () => {
+        setSelectedKhachIds(
+            isAllKhachSelected
+                ? []
+                : filteredItems.map((item) => khachHangRowId(item)).filter(Boolean),
+        );
+    };
+
+    const toggleKhachRowSelected = (item: { id?: string | number }) => {
+        const id = khachHangRowId(item);
+        if (!id) return;
+        setSelectedKhachIds((prev) =>
+            prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id],
+        );
+    };
+
+    const excelTenKhachHang = (r: Record<string, string>) =>
+        cleanString(r.ten_khach_hang || r.ten_don_vi || r.customer_name || '');
+
+    const mapKhachHangToExcelRow = (item: (typeof items)[0]) => ({
+        ten_khach_hang: item.Ten_Don_Vi ?? '',
+        loai_hinh: item.Loai_Hinh ?? '',
+        mst: item.MST ?? '',
+        dia_chi: item.Dia_Chi ?? '',
+        nguoi_dai_dien: item.Nguoi_Dai_Dien ?? '',
+        chuc_vu_dai_dien: item.Chuc_Vu_Dai_Dien ?? '',
+        nguoi_lien_he: item.Nguoi_Lien_He ?? '',
+        chuc_vu_lien_he: item.Chuc_Vu_Lien_He ?? '',
+        sdt_lien_he: item.SDT_Lien_He ?? '',
+    });
+
     const formatCurrency = (amount: number) => {
         return amount.toLocaleString('vi-VN');
     };
@@ -277,6 +353,48 @@ export function DanhSachKhachHang() {
 
     const handleDeleteClick = (item: any) => {
         openDelete({ id: item.id, tenDonVi: item.Ten_Don_Vi });
+    };
+
+    const handleDeleteSelectedKhachHang = async () => {
+        if (selectedKhachInFilter.length === 0 || deletingSelectedKhach) return;
+        if (
+            !window.confirm(
+                `Xóa ${selectedKhachInFilter.length} khách hàng đã chọn (theo bộ lọc hiện tại)? Hợp đồng gắn khách có thể bị ảnh hưởng. Không hoàn tác.`,
+            )
+        ) {
+            return;
+        }
+        setDeletingSelectedKhach(true);
+        try {
+            const { deleted, requested, error } = await customerService.deleteMany(
+                selectedKhachInFilter,
+            );
+            setSelectedKhachIds((prev) =>
+                prev.filter((id) => !selectedKhachInFilter.includes(id)),
+            );
+            setReloadKey((k) => k + 1);
+            if (error) {
+                setToast({ type: 'warning', message: error });
+            } else if (deleted < requested) {
+                setToast({
+                    type: 'warning',
+                    message: `Đã xóa ${deleted}/${requested} khách hàng. Một số bản ghi không xóa được.`,
+                });
+            } else {
+                setToast({
+                    type: 'success',
+                    message: `Đã xóa ${deleted} khách hàng.`,
+                });
+            }
+        } catch (err: unknown) {
+            setToast({
+                type: 'warning',
+                message: err instanceof Error ? err.message : 'Không xóa được khách hàng đã chọn.',
+            });
+            setReloadKey((k) => k + 1);
+        } finally {
+            setDeletingSelectedKhach(false);
+        }
     };
 
     const handleDeleteAllKhachHang = async () => {
@@ -333,7 +451,7 @@ export function DanhSachKhachHang() {
         <div className="bg-[#faf8ff] text-[#131b2e] min-h-screen animate-in fade-in duration-500 p-6 md:p-8 space-y-6">
             {toast && <Toast message={toast.message} type={toast.type} onClose={() => setToast(null)} />}
 
-            <div className="max-w-7xl mx-auto space-y-6">
+            <div className="w-full max-w-none space-y-6">
                 <div className="mb-2">
                     <h2 className="text-2xl font-black tracking-tight uppercase">Quản lý Khách hàng</h2>
                     <p className="text-slate-500 text-sm mt-1">Danh mục đối tác và khách hàng.</p>
@@ -397,6 +515,10 @@ export function DanhSachKhachHang() {
                             ) : null}
                             <ExcelImportExportBar
                                 columns={khachHangExcelColumns}
+                                importColumns={khachHangExcelImportColumns}
+                                fetchExportData={async () =>
+                                    filteredItems.map((item) => mapKhachHangToExcelRow(item))
+                                }
                                 templateFileName="mau-khach-hang"
                                 sheetName="Khach hang"
                                 onImport={async (rows) => {
@@ -404,9 +526,14 @@ export function DanhSachKhachHang() {
                                     let ok = 0;
                                     for (let i = 0; i < rows.length; i++) {
                                         const r = rows[i];
-                                        const ten = (r.ten_don_vi || '').trim();
+                                        const rowLabel = r.__rowNumber
+                                            ? `Excel dòng ${r.__rowNumber}`
+                                            : `Dòng ${i + 2}`;
+                                        const ten = excelTenKhachHang(r);
                                         if (!ten) {
-                                            errors.push(`Dòng ${i + 2}: thiếu Tên đơn vị`);
+                                            errors.push(
+                                                `${rowLabel}: thiếu «Tên Khách hàng» (hoặc «Tên đơn vị» trên file cũ).`,
+                                            );
                                             continue;
                                         }
                                         try {
@@ -423,7 +550,7 @@ export function DanhSachKhachHang() {
                                             });
                                             ok++;
                                         } catch (e: any) {
-                                            errors.push(`Dòng ${i + 2}: ${e?.message || 'Lỗi'}`);
+                                            errors.push(`${rowLabel}: ${e?.message || 'Lỗi'}`);
                                         }
                                     }
                                     return { ok, errors };
@@ -442,20 +569,82 @@ export function DanhSachKhachHang() {
                 </div>
 
                 <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
-                    <table className="w-full text-left border-collapse">
+                    <div className="flex flex-wrap items-center gap-2 px-4 py-2.5 border-b border-slate-200 bg-slate-50/90">
+                        <button
+                            type="button"
+                            disabled={
+                                selectedKhachInFilter.length === 0 || deletingSelectedKhach
+                            }
+                            onClick={handleDeleteSelectedKhachHang}
+                            className="inline-flex items-center gap-1.5 rounded-lg border border-red-200 bg-white px-3 py-1.5 text-xs font-bold text-red-700 shadow-sm hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-45"
+                        >
+                            {deletingSelectedKhach ? (
+                                <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                            ) : (
+                                <Trash2 className="w-3.5 h-3.5" />
+                            )}
+                            Xóa đã chọn
+                            {selectedKhachInFilter.length > 0
+                                ? ` (${selectedKhachInFilter.length})`
+                                : ''}
+                        </button>
+                        {selectedKhachInFilter.length > 0 ? (
+                            <button
+                                type="button"
+                                onClick={() => setSelectedKhachIds([])}
+                                className="text-xs font-semibold text-slate-600 hover:text-[#004bcb] hover:underline"
+                            >
+                                Bỏ chọn
+                            </button>
+                        ) : null}
+                        <span className="text-[11px] text-slate-500">
+                            Tick đầu cột hoặc từng dòng — chọn mọi KH đang lọc (có thể nhiều trang).
+                        </span>
+                    </div>
+                    <div className="w-full overflow-x-auto overscroll-x-contain [-webkit-overflow-scrolling:touch]">
+                    <table className="w-full min-w-[1240px] text-left border-collapse">
                         <thead className="bg-[#f2f3ff] border-b border-slate-200">
                             <tr>
-                                <th className="px-6 py-4 text-[11px] font-black text-slate-500 uppercase tracking-wider">Khách hàng / Đơn vị</th>
-                                <th className="px-6 py-4 text-[11px] font-black text-slate-500 uppercase tracking-wider">Mã số định danh</th>
-                                <th className="px-6 py-4 text-[11px] font-black text-slate-500 uppercase tracking-wider">SĐT liên hệ</th>
-                                <th className="px-6 py-4 text-[11px] font-black text-slate-500 uppercase tracking-wider text-center">Hợp đồng</th>
-                                <th className="px-6 py-4 text-[11px] font-black text-slate-500 uppercase tracking-wider text-right">Tổng giao dịch (VND)</th>
-                                <th className="px-6 py-4 text-[11px] font-black text-slate-500 uppercase tracking-wider text-right">Thao tác</th>
+                                <th className="px-3 py-4 w-11 text-center">
+                                    <input
+                                        type="checkbox"
+                                        checked={isAllKhachSelected}
+                                        disabled={filteredItems.length === 0 || deletingSelectedKhach}
+                                        onChange={toggleSelectAllKhach}
+                                        className="h-4 w-4 rounded border-slate-400 bg-white text-[#004bcb] focus:ring-[#004bcb]/40 cursor-pointer disabled:opacity-40"
+                                        aria-label="Chọn tất cả khách hàng đang lọc"
+                                    />
+                                </th>
+                                <th className="px-6 py-4 text-[11px] font-black text-slate-500 uppercase tracking-wider min-w-[280px]">Khách hàng / Đơn vị</th>
+                                <th className="px-6 py-4 text-[11px] font-black text-slate-500 uppercase tracking-wider min-w-[140px]">Mã số định danh</th>
+                                <th className="px-6 py-4 text-[11px] font-black text-slate-500 uppercase tracking-wider min-w-[130px]">SĐT liên hệ</th>
+                                <th className="px-6 py-4 text-[11px] font-black text-slate-500 uppercase tracking-wider text-center min-w-[100px]">Hợp đồng</th>
+                                <th className="px-6 py-4 text-[11px] font-black text-slate-500 uppercase tracking-wider text-right min-w-[160px]">Tổng giao dịch (VND)</th>
+                                <th className="px-6 py-4 text-[11px] font-black text-slate-500 uppercase tracking-wider text-right min-w-[140px]">Thao tác</th>
                             </tr>
                         </thead>
                         <tbody className="divide-y divide-slate-100">
-                            {currentItems.map((item) => (
-                                <tr key={item.id} className="hover:bg-slate-50 transition-colors">
+                            {currentItems.map((item) => {
+                                const rowId = khachHangRowId(item);
+                                const rowChecked = rowId ? selectedKhachIds.includes(rowId) : false;
+                                return (
+                                <tr
+                                    key={item.id}
+                                    className={cn(
+                                        'hover:bg-slate-50 transition-colors',
+                                        rowChecked && 'bg-blue-50/40',
+                                    )}
+                                >
+                                    <td className="px-3 py-4 text-center align-top">
+                                        <input
+                                            type="checkbox"
+                                            checked={rowChecked}
+                                            disabled={!rowId || deletingSelectedKhach}
+                                            onChange={() => toggleKhachRowSelected(item)}
+                                            className="h-4 w-4 rounded border-slate-300 text-[#004bcb] focus:ring-[#004bcb]/40 cursor-pointer disabled:opacity-40"
+                                            aria-label={`Chọn ${item.Ten_Don_Vi || 'khách hàng'}`}
+                                        />
+                                    </td>
                                     <td className="px-6 py-4">
                                         <div className="flex items-center gap-3">
                                             <div className="w-10 h-10 rounded-lg bg-blue-50 flex items-center justify-center border border-blue-100 overflow-hidden shrink-0">
@@ -489,9 +678,11 @@ export function DanhSachKhachHang() {
                                         </div>
                                     </td>
                                 </tr>
-                            ))}
+                            );
+                            })}
                         </tbody>
                     </table>
+                    </div>
                     <div className="px-6 py-4 bg-[#f2f3ff] border-t border-slate-200 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
                         <div className="flex flex-wrap items-center gap-3 text-xs text-slate-600">
                             <p>

@@ -7,6 +7,8 @@ export type ExcelColumnDef = {
     header: string;
     /** Tiêu đề khác trên file Excel thực tế (chỉ dùng khi nhập, không ghi vào mẫu tải về). */
     matchHeaders?: string[];
+    /** Trường trên bản ghi DB khi xuất (hoặc hàm format) — mặc định dùng `key`. */
+    exportKey?: string | ((row: Record<string, any>) => unknown);
     /** Gợi ý dòng 2 trong mẫu */
     example?: string;
     /** Nếu true, file mẫu gắn " *" sau tiêu đề; ô ví dụ mặc định "Bắt buộc" khi không có example/hint */
@@ -18,6 +20,8 @@ export type ExcelColumnDef = {
 const EXCEL_MEANINGFUL_ROW_KEYS = [
     'so_ho_plhd',
     'so_hop_dong',
+    'ten_khach_hang',
+    'ten_don_vi',
     'ten_da',
     'gia_xuat_hd',
     'gia_hd_plhd',
@@ -55,15 +59,44 @@ export function isLikelyExcelTemplateExampleRow(
     return matchExamples >= Math.min(3, definedExamples);
 }
 
-function buildHeaderKeyLookup(columns: ExcelColumnDef[]): Map<string, string> {
-    const map = new Map<string, string>();
-    for (const c of columns) {
-        map.set(normalizeHeaderForMatch(c.header), c.key);
-        for (const alt of c.matchHeaders ?? []) {
-            map.set(normalizeHeaderForMatch(alt), c.key);
+/** Khớp tiêu đề ô Excel với cột cấu hình (ưu tiên khớp dài / chính xác — tránh lệch «Số HĐ» vs «Số HĐ & PLHĐ»). */
+export function resolveExcelHeaderKey(
+    headerCell: string,
+    columns: ExcelColumnDef[],
+): string | null {
+    const nh = normalizeHeaderForMatch(headerCell);
+    if (!nh) return null;
+
+    let bestKey: string | null = null;
+    let bestScore = 0;
+
+    for (const col of columns) {
+        const labels = [col.header, ...(col.matchHeaders ?? [])];
+        for (const label of labels) {
+            const nl = normalizeHeaderForMatch(label);
+            if (!nl) continue;
+
+            let score = 0;
+            if (nh === nl) {
+                score = 1000 + nl.length;
+            } else if (nl.length >= 6 && nh.startsWith(nl)) {
+                score = 500 + nl.length;
+            } else if (nh.length >= 6 && nl.startsWith(nh)) {
+                score = 400 + nh.length;
+            }
+
+            if (score > bestScore) {
+                bestScore = score;
+                bestKey = col.key;
+            }
         }
     }
-    return map;
+
+    return bestKey;
+}
+
+function minHeaderMatchesRequired(columnCount: number): number {
+    return Math.max(3, Math.min(6, Math.ceil(columnCount * 0.25)));
 }
 
 /** Tiêu đề hiển thị trên file tải về (có dấu * nếu bắt buộc). */
@@ -127,6 +160,15 @@ export function downloadExcelTemplate(
 }
 
 /** Tải file .xlsx kèm dữ liệu thực tế: hàng 1 = tiêu đề, từ hàng 2 = dữ liệu. */
+/** Giá trị một ô khi xuất Excel (ưu tiên `exportKey` nếu dữ liệu DB dùng tên khác `key`). */
+export function getExcelExportCellValue(row: Record<string, any>, col: ExcelColumnDef): unknown {
+    if (col.exportKey) {
+        if (typeof col.exportKey === 'function') return col.exportKey(row);
+        return row[col.exportKey];
+    }
+    return row[col.key];
+}
+
 export function downloadExcelData(
     columns: ExcelColumnDef[],
     data: Record<string, any>[],
@@ -136,7 +178,7 @@ export function downloadExcelData(
     const headerRow = columns.map((c) => templateColumnHeader(c));
     const dataRows = data.map((row) => {
         return columns.map((col) => {
-            const val = row[col.key];
+            const val = getExcelExportCellValue(row, col);
             return val === null || val === undefined ? '' : val;
         });
     });
@@ -163,9 +205,8 @@ export async function parseExcelToRows(
     let globalHeaderRowIndex = 0;
     let globalBestKeyByIndex: (string | null)[] = [];
     let globalRows: any[][] = [];
-    let bestSheet = '';
 
-    const headerKeyLookup = buildHeaderKeyLookup(columns);
+    const minMatches = minHeaderMatchesRequired(columns.length);
 
     // Duyệt qua TẤT CẢ các sheet để tìm ra sheet nào chứa nhiều cột hợp lệ nhất
     for (const sheetName of wb.SheetNames) {
@@ -183,15 +224,14 @@ export async function parseExcelToRows(
         let sheetHeaderRowIndex = 0;
         let sheetBestKeyByIndex: (string | null)[] = [];
 
-        // Tìm dòng tiêu đề tốt nhất trong 20 dòng đầu của sheet này
-        for (let r = 0; r < Math.min(20, rows.length); r++) {
+        // Tìm dòng tiêu đề tốt nhất trong 40 dòng đầu của sheet này
+        for (let r = 0; r < Math.min(40, rows.length); r++) {
             const headerCells = (rows[r] || []).map((h) => String(h ?? '').trim());
             let matches = 0;
             const keyByIndex: (string | null)[] = headerCells.map((h) => {
-                const nh = normalizeHeaderForMatch(h);
-                const col = normalizedDefs.find((c) => c.norm === nh);
-                if (col) matches++;
-                return col?.key ?? null;
+                const key = resolveExcelHeaderKey(h, columns);
+                if (key) matches++;
+                return key;
             });
 
             if (matches > sheetMaxMatches) {
@@ -207,16 +247,14 @@ export async function parseExcelToRows(
             globalHeaderRowIndex = sheetHeaderRowIndex;
             globalBestKeyByIndex = sheetBestKeyByIndex;
             globalRows = rows;
-            bestSheet = sheetName;
         }
     }
 
-    if (globalMaxMatches === 0) {
-        throw new Error('File không có dòng tiêu đề hợp lệ.');
+    if (globalMaxMatches < minMatches) {
+        throw new Error(
+            `File không có dòng tiêu đề hợp lệ (khớp ${globalMaxMatches}/${minMatches} cột tối thiểu). Kiểm tra tên cột giống mẫu.`,
+        );
     }
-
-    console.log(`[Excel] Matched Sheet: "${bestSheet}", Matches: ${globalMaxMatches}/${columns.length}`);
-    console.log(`[Excel] Mapping keys found:`, globalBestKeyByIndex.filter(k => k !== null));
 
     const out: Record<string, string>[] = [];
     // Data bắt đầu từ dòng ngay sau dòng tiêu đề của sheet tốt nhất
@@ -248,10 +286,11 @@ export async function parseExcelToRows(
                 s = raw === null || raw === undefined ? '' : String(raw).trim();
             }
 
-            obj[k] = s;
+            if (s) obj[k] = s;
+            else if (obj[k] === undefined) obj[k] = '';
         }
         if (!excelRowHasMeaningfulData(obj)) continue;
-        if (isLikelyExcelTemplateExampleRow(obj, columns)) continue;
+        if (isLikelyExcelTemplateExampleRow(obj, columns.filter((c) => c.example))) continue;
         out.push(obj);
     }
     return out;

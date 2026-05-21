@@ -135,6 +135,36 @@ export const customerService = {
     }
   },
 
+  /** Xóa nhiều khách hàng theo danh sách id (theo lô). */
+  async deleteMany(
+    ids: string[],
+  ): Promise<{ deleted: number; requested: number; error?: string }> {
+    try {
+      const unique = [...new Set(ids.map((id) => String(id).trim()).filter(Boolean))];
+      if (unique.length === 0) return { deleted: 0, requested: 0 };
+
+      const chunkSize = 500;
+      let deleted = 0;
+      for (let i = 0; i < unique.length; i += chunkSize) {
+        const chunk = unique.slice(i, i + chunkSize);
+        const { error } = await supabase.from('khach_hang').delete().in('id', chunk);
+        if (error) {
+          console.error('[customerService] deleteMany chunk:', error);
+          return { deleted, requested: unique.length, error: error.message };
+        }
+        deleted += chunk.length;
+      }
+      return { deleted, requested: unique.length };
+    } catch (err: any) {
+      console.error('Exception in customerService.deleteMany:', err);
+      return {
+        deleted: 0,
+        requested: ids.length,
+        error: err?.message || String(err),
+      };
+    }
+  },
+
   // Xóa khách hàng
   async delete(id: string) {
     try {

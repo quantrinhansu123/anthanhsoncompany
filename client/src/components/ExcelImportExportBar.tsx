@@ -21,6 +21,8 @@ type Props = {
     importColumns?: ExcelColumnDef[];
     /** Mảng dữ liệu cần xuất ra (nếu có sẽ là nút Tải file Excel có dữ liệu) */
     data?: any[];
+    /** Tải toàn bộ dữ liệu xuất (ưu tiên hơn `data` — tránh chỉ xuất một trang) */
+    fetchExportData?: () => Promise<Record<string, unknown>[]>;
     /** Tên file tải về, không bắt buộc .xlsx */
     templateFileName: string;
     /** Tên sheet trong file Excel */
@@ -42,6 +44,7 @@ export function ExcelImportExportBar({
     columns,
     importColumns,
     data,
+    fetchExportData,
     templateFileName,
     sheetName = 'Du lieu',
     onImport,
@@ -57,12 +60,26 @@ export function ExcelImportExportBar({
     const [lastRes, setLastRes] = useState<ExcelImportResult | null>(null);
     const [showErrors, setShowErrors] = useState(false);
 
-    const handleDownload = () => {
+    const handleDownload = async () => {
+        if (disabled || busy) return;
         setMsg(null);
-        if (data && data.length > 0) {
-            downloadExcelData(columns, data, templateFileName, sheetName);
-        } else {
+        setBusy(true);
+        try {
+            if (fetchExportData) {
+                const rows = await fetchExportData();
+                if (rows.length > 0) {
+                    downloadExcelData(columns, rows, templateFileName, sheetName);
+                    return;
+                }
+            } else if (data && data.length > 0) {
+                downloadExcelData(columns, data, templateFileName, sheetName);
+                return;
+            }
             downloadExcelTemplate(columns, templateFileName, sheetName);
+        } catch (e: unknown) {
+            setMsg(e instanceof Error ? e.message : 'Không tải được file Excel.');
+        } finally {
+            setBusy(false);
         }
     };
 
@@ -125,7 +142,9 @@ export function ExcelImportExportBar({
                     className={`inline-flex items-center font-semibold border border-slate-200 bg-white text-slate-700 hover:bg-slate-50 disabled:opacity-50 ${btnBase}`}
                 >
                     <Download size={iconSz} />
-                    {data && data.length > 0 ? 'Tải file Excel' : 'Tải mẫu Excel'}
+                    {fetchExportData || (data && data.length > 0)
+                        ? 'Tải file Excel'
+                        : 'Tải mẫu Excel'}
                 </button>
                 <input
                     ref={inputRef}
