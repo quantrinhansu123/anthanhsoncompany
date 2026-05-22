@@ -22,6 +22,7 @@ import {
 } from '../../lib/excelTableTools';
 import { cn } from '../../lib/utils';
 import { PAGE_SIZE_OPTIONS, buildVisiblePages } from '../../lib/tablePagination';
+import { isThuChiXuatHoaDonRow } from '../../lib/thuChiTinhTrang';
 
 type HopDongTienDo = 'Đang thực hiện' | 'Hoàn thành';
 
@@ -833,6 +834,7 @@ function buildThuChiPhieuThuMap(rows: ThuChiRow[]): Map<string, number> {
     const map = new Map<string, number>();
     for (const tc of rows) {
         if (!isPhieuThuLoai(tc.loai_phieu)) continue;
+        if (isThuChiXuatHoaDonRow(tc)) continue;
         const hid = tc.hop_dong_id != null ? String(tc.hop_dong_id).trim() : '';
         if (!hid) continue;
         const amount = Number(tc.so_tien) || 0;

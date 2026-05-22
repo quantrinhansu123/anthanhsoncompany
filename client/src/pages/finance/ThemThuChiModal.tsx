@@ -23,6 +23,14 @@ import {
 } from '../../lib/nguongChiNhanSu';
 import type { ThuChiCreatePrefill } from '../../contexts/ThuChiModalContext';
 import { cn } from '../../lib/utils';
+import {
+    THU_CHI_TINH_TRANG_PHIEU_OPTIONS,
+    THU_CHI_TRANG_THAI_HD_OPTIONS,
+    hangMucThuForTinhTrangPhieu,
+    resolveTrangThaiHdDisplay,
+    syncThuChiTrangThaiHdFields,
+    tinhTrangPhieuFromInitial,
+} from '../../lib/thuChiTinhTrang';
 
 type HangMucChi = 'chi_du_an' | 'chi_nhan_su';
 type LoaiPhieu = 'Phiếu thu' | 'Phiếu chi';
@@ -121,13 +129,6 @@ function contractSelValue(c: ContractRow): string {
     return String(c.hop_dong_row_id || c.id || '').trim();
 }
 
-function tinhTrangPhieuFromInitial(raw: unknown): string {
-    const t = String(raw ?? '').trim();
-    if (!t) return 'Tạm ứng';
-    if (t.toLowerCase() === 'thanh_toan') return 'Thanh toán';
-    return t;
-}
-
 function filterProjectsByCustomer(rows: ProjectOpt[], customerId: string, tenDonVi?: string): ProjectOpt[] {
     const cid = String(customerId).trim();
     const nameKey = normCustomerKey(tenDonVi);
@@ -190,6 +191,7 @@ export function ThemThuChiModal({
         nhanSuId: '',
         hangMucChi: 'chi_du_an' as HangMucChi,
         tinhTrangPhieu: 'Tạm ứng',
+        trangThaiHd: 'Phát sinh',
         tenGoiThau: '',
         hangMucThu: '',
     });
@@ -399,6 +401,13 @@ export function ThemThuChiModal({
                         tinhTrangPhieu: tinhTrangPhieuFromInitial(
                             source.tinh_trang_phieu ?? source.tinhTrangPhieu,
                         ),
+                        trangThaiHd:
+                            resolveTrangThaiHdDisplay({
+                                trang_thai_hd: source.trang_thai_hd,
+                                loai_phieu: source.loai_phieu ?? source.loaiPhieu,
+                                tinh_trang_phieu: source.tinh_trang_phieu,
+                                hang_muc_thu: source.hang_muc_thu,
+                            }) || 'Phát sinh',
                         tenGoiThau:
                             String(source.ten_goi_thau ?? source.tenGoiThau ?? '').trim() ||
                             String(ctHd?.ten_goi_thau ?? '').trim(),
@@ -433,6 +442,7 @@ export function ThemThuChiModal({
                         nhanSuId: '',
                         hangMucChi: 'chi_du_an',
                         tinhTrangPhieu: 'Tạm ứng',
+                        trangThaiHd: 'Phát sinh',
                         tenGoiThau: '',
                         hangMucThu: '',
                     });
@@ -734,6 +744,10 @@ export function ThemThuChiModal({
             const hopDongPayload = hopContract
                 ? String(hopContract.hop_dong_row_id || hopContract.id || '').trim() || null
                 : hid || null;
+            const syncedHd = syncThuChiTrangThaiHdFields(
+                formData.tinhTrangPhieu,
+                formData.loaiPhieu === 'Phiếu thu' ? formData.trangThaiHd : null,
+            );
             const payload = {
                 du_an_id: formData.duAnId || null,
                 hop_dong_id: hopDongPayload,
@@ -744,11 +758,16 @@ export function ThemThuChiModal({
                 nhan_su_id: formData.loaiPhieu === 'Phiếu chi' ? String(formData.nhanSuId).trim() || null : null,
                 nguoi_nhan: null,
                 hang_muc_chi: formData.loaiPhieu === 'Phiếu chi' ? formData.hangMucChi : null,
-                tinh_trang_phieu: String(formData.tinhTrangPhieu || '').trim() || null,
+                tinh_trang_phieu: syncedHd.tinh_trang_phieu,
+                trang_thai_hd:
+                    formData.loaiPhieu === 'Phiếu thu' ? syncedHd.trang_thai_hd : null,
                 ten_goi_thau: String(formData.tenGoiThau || '').trim() || null,
                 hang_muc_thu:
                     formData.loaiPhieu === 'Phiếu thu'
-                        ? String(formData.hangMucThu || '').trim() || null
+                        ? hangMucThuForTinhTrangPhieu(
+                              syncedHd.tinh_trang_phieu,
+                              formData.hangMucThu,
+                          )
                         : null,
             };
 
@@ -918,15 +937,19 @@ export function ThemThuChiModal({
                                         className="w-full appearance-none pl-4 pr-10 py-3 bg-white border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500/10 focus:border-indigo-500 text-sm text-slate-800 transition-all hover:border-slate-300 shadow-sm"
                                     >
                                         <option value="">— Trống —</option>
-                                        <option value="Tạm ứng">Tạm ứng</option>
-                                        <option value="Thanh toán">Thanh toán</option>
-                                        {formData.tinhTrangPhieu &&
-                                        formData.tinhTrangPhieu !== 'Tạm ứng' &&
-                                        formData.tinhTrangPhieu !== 'Thanh toán' && (
-                                            <option value={formData.tinhTrangPhieu}>
-                                                {formData.tinhTrangPhieu}
+                                        {THU_CHI_TINH_TRANG_PHIEU_OPTIONS.map((v) => (
+                                            <option key={v} value={v}>
+                                                {v}
                                             </option>
-                                        )}
+                                        ))}
+                                        {formData.tinhTrangPhieu &&
+                                            !(
+                                                THU_CHI_TINH_TRANG_PHIEU_OPTIONS as readonly string[]
+                                            ).includes(formData.tinhTrangPhieu) && (
+                                                <option value={formData.tinhTrangPhieu}>
+                                                    {formData.tinhTrangPhieu}
+                                                </option>
+                                            )}
                                     </select>
                                     <ChevronDown
                                         size={16}
@@ -934,9 +957,44 @@ export function ThemThuChiModal({
                                     />
                                 </div>
                                 <p className="text-[11px] text-slate-500 ml-1">
-                                    Khớp cột «Tình trạng» trên danh sách (ví dụ thu CĐT: Thanh toán / Tạm ứng).
+                                    Xuất hóa đơn = dòng có hóa đơn (giá trị Giá xuất HĐ); không tính vào Đã thu.
                                 </p>
                             </div>
+
+                            {formData.loaiPhieu === 'Phiếu thu' && (
+                                <div className="space-y-1.5 md:col-span-2">
+                                    <label className="text-[11px] font-bold text-slate-500 uppercase tracking-wider ml-1">
+                                        Trạng thái HĐ
+                                    </label>
+                                    <div className="relative">
+                                        <select
+                                            name="trangThaiHd"
+                                            value={formData.trangThaiHd}
+                                            onChange={handleChange}
+                                            required
+                                            className="w-full appearance-none pl-4 pr-10 py-3 bg-white border border-slate-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-indigo-500/10 focus:border-indigo-500 text-sm text-slate-800 transition-all hover:border-slate-300 shadow-sm"
+                                        >
+                                            {THU_CHI_TRANG_THAI_HD_OPTIONS.map((v) => (
+                                                <option key={v} value={v}>
+                                                    {v}
+                                                </option>
+                                            ))}
+                                            {formData.trangThaiHd &&
+                                                !(
+                                                    THU_CHI_TRANG_THAI_HD_OPTIONS as readonly string[]
+                                                ).includes(formData.trangThaiHd) && (
+                                                    <option value={formData.trangThaiHd}>
+                                                        {formData.trangThaiHd}
+                                                    </option>
+                                                )}
+                                        </select>
+                                        <ChevronDown
+                                            size={16}
+                                            className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none"
+                                        />
+                                    </div>
+                                </div>
+                            )}
 
                             <div className="space-y-1.5 md:col-span-2">
                                 <label className="text-[11px] font-bold text-slate-500 uppercase tracking-wider ml-1">Số tiền (VNĐ)</label>

@@ -25,6 +25,14 @@ import type { ContractRow } from '../../lib/services/contractService';
 import { type NhanSuOption } from '../../lib/formatNhanSu';
 import { NhanSuTenAnhPicker } from '../../components/NhanSuTenAnhPicker';
 import { cn } from '../../lib/utils';
+import {
+    THU_CHI_TINH_TRANG_PHIEU_OPTIONS,
+    THU_CHI_TRANG_THAI_HD_OPTIONS,
+    hangMucThuForTinhTrangPhieu,
+    resolveTrangThaiHdDisplay,
+    syncThuChiTrangThaiHdFields,
+    tinhTrangPhieuFromInitial,
+} from '../../lib/thuChiTinhTrang';
 
 type HangMucChi = 'chi_du_an' | 'chi_nhan_su';
 
@@ -103,6 +111,7 @@ export function AddThuChi() {
         // Mặc định: nếu có query ?type=thu thì là Phiếu thu, ngược lại là Phiếu chi
         loaiPhieu: searchParams.get('type') === 'thu' ? 'Phiếu thu' : 'Phiếu chi',
         tinhTrangPhieu: 'Tạm ứng',
+        trangThaiHd: 'Phát sinh',
         ngayTienVe: new Date().toISOString().split('T')[0],
         soTien: 0,
         noiDung: '',
@@ -335,7 +344,14 @@ export function AddThuChi() {
                     nhanSuId:
                         item.nhan_su_id ? String(item.nhan_su_id) : '',
                     loaiPhieu: item.loai_phieu,
-                    tinhTrangPhieu: item.tinh_trang_phieu || 'Tạm ứng',
+                    tinhTrangPhieu: tinhTrangPhieuFromInitial(item.tinh_trang_phieu),
+                    trangThaiHd:
+                        resolveTrangThaiHdDisplay({
+                            trang_thai_hd: item.trang_thai_hd,
+                            loai_phieu: item.loai_phieu,
+                            tinh_trang_phieu: item.tinh_trang_phieu,
+                            hang_muc_thu: item.hang_muc_thu,
+                        }) || 'Phát sinh',
                     ngayTienVe: item.ngay || new Date().toISOString().split('T')[0],
                     soTien: item.so_tien,
                     noiDung: item.noi_dung || '',
@@ -407,6 +423,10 @@ export function AddThuChi() {
                 ? String(hopContract.hop_dong_row_id || hopContract.id || '').trim() || null
                 : hid || null;
 
+            const syncedHd = syncThuChiTrangThaiHdFields(
+                formData.tinhTrangPhieu,
+                formData.loaiPhieu === 'Phiếu thu' ? formData.trangThaiHd : null,
+            );
             const payload: Partial<ThuChiRow> = {
                 du_an_id: formData.duAnId || null,
                 hop_dong_id: hopDongPayload,
@@ -416,13 +436,18 @@ export function AddThuChi() {
                 so_tien: formData.soTien,
                 ngay: formData.ngayTienVe,
                 noi_dung: formData.noiDung || null,
-                tinh_trang_phieu: formData.tinhTrangPhieu || null,
+                tinh_trang_phieu: syncedHd.tinh_trang_phieu,
+                trang_thai_hd:
+                    formData.loaiPhieu === 'Phiếu thu' ? syncedHd.trang_thai_hd : null,
                 nguoi_nhan: null,
                 hang_muc_chi: formData.loaiPhieu === 'Phiếu chi' ? formData.hangMucChi : null,
                 ten_goi_thau: String(formData.tenGoiThau || '').trim() || null,
                 hang_muc_thu:
                     formData.loaiPhieu === 'Phiếu thu'
-                        ? String(formData.hangMucThu || '').trim() || null
+                        ? hangMucThuForTinhTrangPhieu(
+                              syncedHd.tinh_trang_phieu,
+                              formData.hangMucThu,
+                          )
                         : null,
                 file_url: fileUrl || null,
                 anh_url: imageUrl || null
@@ -1174,8 +1199,11 @@ export function AddThuChi() {
                                 onChange={(e) => setFormData({ ...formData, tinhTrangPhieu: e.target.value })}
                                 className="w-full pl-4 pr-16 py-2.5 bg-white border border-slate-300 rounded-md appearance-none focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 text-slate-700"
                             >
-                                <option value="Tạm ứng">Tạm ứng</option>
-                                <option value="Thanh toán">Thanh toán</option>
+                                {THU_CHI_TINH_TRANG_PHIEU_OPTIONS.map((v) => (
+                                    <option key={v} value={v}>
+                                        {v}
+                                    </option>
+                                ))}
                             </select>
                             <div className="absolute right-3 top-1/2 -translate-y-1/2 flex items-center gap-2">
                                 <button
@@ -1188,6 +1216,34 @@ export function AddThuChi() {
                             </div>
                         </div>
                     </div>
+
+                    {formData.loaiPhieu === 'Phiếu thu' && (
+                        <div className="flex flex-col md:flex-row md:items-center gap-4 md:gap-8">
+                            <div className="md:w-1/3 md:text-right">
+                                <label className="text-sm font-medium text-slate-500">Trạng thái HĐ</label>
+                            </div>
+                            <div className="md:w-2/3 relative flex-1">
+                                <select
+                                    value={formData.trangThaiHd}
+                                    onChange={(e) =>
+                                        setFormData({ ...formData, trangThaiHd: e.target.value })
+                                    }
+                                    required
+                                    className="w-full pl-4 pr-10 py-2.5 bg-white border border-slate-300 rounded-md appearance-none focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 text-slate-700"
+                                >
+                                    {THU_CHI_TRANG_THAI_HD_OPTIONS.map((v) => (
+                                        <option key={v} value={v}>
+                                            {v}
+                                        </option>
+                                    ))}
+                                </select>
+                                <ChevronDown
+                                    size={16}
+                                    className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none"
+                                />
+                            </div>
+                        </div>
+                    )}
 
                     {/* Ngày thu / Ngày chi */}
                     <div className="flex flex-col md:flex-row md:items-center gap-4 md:gap-8">

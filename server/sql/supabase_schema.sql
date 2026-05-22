@@ -1348,6 +1348,15 @@ BEGIN
   ) THEN
     ALTER TABLE public.thu_chi ADD COLUMN tinh_trang_phieu VARCHAR(50);
   END IF;
+
+  IF NOT EXISTS (
+    SELECT FROM information_schema.columns 
+    WHERE table_schema = 'public' 
+    AND table_name = 'thu_chi' 
+    AND column_name = 'trang_thai_hd'
+  ) THEN
+    ALTER TABLE public.thu_chi ADD COLUMN trang_thai_hd VARCHAR(50);
+  END IF;
   
   IF NOT EXISTS (
     SELECT FROM information_schema.columns 

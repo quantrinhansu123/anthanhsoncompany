@@ -43,6 +43,21 @@ import type { ExcelColumnDef } from '../../lib/excelTableTools';
 import { parseMoneyVi, parseExcelDate, cleanString, normalizeKey } from '../../lib/excelTableTools';
 import { cn } from '../../lib/utils';
 import { PAGE_SIZE_OPTIONS, buildVisiblePages } from '../../lib/tablePagination';
+import {
+    TRANG_THAI_HD_CO,
+    TRANG_THAI_HD_PHAT_SINH,
+    hangMucThuForTinhTrangPhieu,
+    isCdtExcelRowCoHoaDon,
+    normalizeHangMucThuInput,
+    normalizeTrangThaiHdInput,
+    normalizeTinhTrangPhieuInput,
+    resolveThuChiTinhTrangDisplay,
+    resolveTrangThaiHdDisplay,
+    syncThuChiTrangThaiHdFields,
+    trangThaiHdBadgeClass,
+    tinhTrangPhieuBadgeClass,
+    tinhTrangThuCdtLabel,
+} from '../../lib/thuChiTinhTrang';
 
 interface ToastProps {
     message: string;
@@ -116,13 +131,6 @@ function thuChiHopDongNoiDungParts(item: {
         String(item.description || '').trim() ||
         '—';
     return { soHopDong, noiDung };
-}
-
-/** Hiển thị tình trạng thu CĐT (nhập Excel) — thêm tiền tố CĐT cho đúng ngữ cảnh. */
-function tinhTrangThuCdtLabel(display: string): string {
-    if (display === 'Thanh toán') return 'CĐT thanh toán';
-    if (display === 'Tạm ứng') return 'CĐT tạm ứng';
-    return display;
 }
 
 /** Map cột Excel «Hạng mục chi» → giá trị lưu DB (giống ThuChiNhanSu). */
@@ -215,7 +223,7 @@ export function ThuChi() {
         {
             key: 'hang_muc_thu',
             header: 'Hạng mục thu',
-            example: 'Tạm ứng / Thanh toán',
+            example: 'Tạm ứng / Thanh toán / Xuất hóa đơn',
             hint: 'Chỉ phiếu thu',
         },
         {
@@ -224,7 +232,17 @@ export function ThuChi() {
             example: 'Nguyễn Văn A',
             hint: 'Bắt buộc với Phiếu chi (khớp họ tên trong NS)',
         },
-        { key: 'tinh_trang', header: 'Tình trạng phiếu', example: 'Tạm ứng / Thanh toán' },
+        {
+            key: 'tinh_trang',
+            header: 'Tình trạng phiếu',
+            example: 'Tạm ứng / Thanh toán / Xuất hóa đơn',
+        },
+        {
+            key: 'trang_thai_hd',
+            header: 'Trạng thái HĐ',
+            example: 'Có hóa đơn / Phát sinh',
+            hint: 'Chỉ phiếu thu',
+        },
         { key: 'ten_goi_thau', header: 'Tên gói thầu', hint: 'Tùy chọn' },
     ];
 
@@ -505,13 +523,8 @@ export function ThuChi() {
                 linkedContract?.so_hop_dong ||
                 null;
 
-            const rawTinhTrang = (item.tinh_trang_phieu || '').trim();
-            const tinhTrangDisplay =
-                !rawTinhTrang
-                    ? ''
-                    : rawTinhTrang.toLowerCase() === 'thanh_toan'
-                      ? 'Thanh toán'
-                      : rawTinhTrang;
+            const tinhTrangDisplay = resolveThuChiTinhTrangDisplay(item);
+            const trangThaiHdDisplay = resolveTrangThaiHdDisplay(item);
 
             return {
                 ...item,
@@ -522,6 +535,7 @@ export function ThuChi() {
                 amount: new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND' }).format(item.so_tien),
                 description: item.noi_dung || '',
                 tinh_trang_display: tinhTrangDisplay,
+                trang_thai_hd_display: trangThaiHdDisplay,
                 hang_muc_display:
                     item.loai_phieu === 'Phiếu chi'
                         ? item.hang_muc_chi === 'chi_du_an'
@@ -532,7 +546,9 @@ export function ThuChi() {
                         : '—',
                 hang_muc_thu_display:
                     item.loai_phieu === 'Phiếu thu'
-                        ? String(item.hang_muc_thu || '').trim() || '—'
+                        ? normalizeHangMucThuInput(item.hang_muc_thu) ||
+                          resolveThuChiTinhTrangDisplay(item) ||
+                          '—'
                         : '—',
                 ten_du_an: item.ten_du_an || projInfo?.ten_du_an || '(Chưa có dự án)',
                 customer_id: customerId,
@@ -1134,6 +1150,21 @@ export function ThuChi() {
 
                     bump(tt, 'Thanh toán', `Thu CĐT thanh toán (${tenDa})`);
                     bump(tu, 'Tạm ứng', `Thu CĐT tạm ứng (${tenDa})`);
+
+                    const giaXuatRow =
+                        parseMoneyVi(String(r.gia_xuat_hd ?? '').trim() || '0') || 0;
+                    let giaXuatAmt = giaXuatRow;
+                    if (giaXuatAmt <= 0 && soHdLienKet) {
+                        const hk = `${normalizeKey(tenDa)}|${normalizeKey(soHdLienKet)}`;
+                        giaXuatAmt = contractHintsByKey.get(hk)?.gia_xuat_hd ?? 0;
+                    }
+                    if (giaXuatAmt > 0 && (giaXuatRow > 0 || isCdtExcelRowCoHoaDon(r))) {
+                        bump(
+                            giaXuatAmt,
+                            'Xuất hóa đơn',
+                            `Giá xuất HĐ — có hóa đơn (${tenDa})`,
+                        );
+                    }
                 }
                 const rows2 = Array.from(grouped.values());
                 type ContractRowLite = (typeof contracts)[number];
@@ -1288,6 +1319,12 @@ export function ThuChi() {
                     }
 
                     try {
+                        const syncedCdt = syncThuChiTrangThaiHdFields(
+                            r.tinh_trang_phieu,
+                            r.tinh_trang_phieu === 'Xuất hóa đơn'
+                                ? TRANG_THAI_HD_CO
+                                : TRANG_THAI_HD_PHAT_SINH,
+                        );
                         await thuChiService.create({
                             loai_phieu: 'Phiếu thu',
                             so_tien: Number(r.so_tien || 0),
@@ -1295,7 +1332,9 @@ export function ThuChi() {
                             du_an_id: duAnId,
                             hop_dong_id: hopDongId,
                             noi_dung: r.noi_dung,
-                            tinh_trang_phieu: r.tinh_trang_phieu,
+                            tinh_trang_phieu: syncedCdt.tinh_trang_phieu,
+                            trang_thai_hd: syncedCdt.trang_thai_hd,
+                            hang_muc_thu: hangMucThuForTinhTrangPhieu(syncedCdt.tinh_trang_phieu),
                             ten_goi_thau: String(r.ten_goi_thau || '').trim() || null,
                         });
                         ok++;
@@ -1367,12 +1406,26 @@ export function ThuChi() {
                         continue;
                     }
 
-                    const tinhTrangRaw = String(r.tinh_trang || r.tinh_trang_phieu || '').trim();
-                    let tinhTrangPhieu: string | null =
-                        tinhTrangRaw.toLowerCase() === 'thanh_toan'
-                            ? 'Thanh toán'
-                            : tinhTrangRaw || null;
+                    let tinhTrangPhieu = normalizeTinhTrangPhieuInput(
+                        String(r.tinh_trang || r.tinh_trang_phieu || '').trim(),
+                    );
+                    const hangMucThuRaw = loaiPhieu === 'Phiếu thu' ? String(r.hang_muc_thu || '').trim() : '';
+                    const hangMucThuNorm = hangMucThuRaw ? normalizeHangMucThuInput(hangMucThuRaw) : '';
+                    if (!tinhTrangPhieu && hangMucThuNorm) {
+                        tinhTrangPhieu = normalizeTinhTrangPhieuInput(hangMucThuNorm) || hangMucThuNorm;
+                    }
                     if (!tinhTrangPhieu) tinhTrangPhieu = 'Tạm ứng';
+                    const trangThaiHdRaw =
+                        loaiPhieu === 'Phiếu thu'
+                            ? normalizeTrangThaiHdInput(String(r.trang_thai_hd || '').trim()) ||
+                              TRANG_THAI_HD_PHAT_SINH
+                            : '';
+                    const synced = syncThuChiTrangThaiHdFields(tinhTrangPhieu, trangThaiHdRaw || null);
+                    tinhTrangPhieu = synced.tinh_trang_phieu || tinhTrangPhieu;
+                    const hangMucThu =
+                        loaiPhieu === 'Phiếu thu'
+                            ? hangMucThuForTinhTrangPhieu(tinhTrangPhieu, hangMucThuNorm)
+                            : null;
                     try {
                         await thuChiService.create({
                             loai_phieu: loaiPhieu,
@@ -1383,6 +1436,9 @@ export function ThuChi() {
                             hop_dong_id: hopDongId,
                             noi_dung: String(r.noi_dung || '').trim() || null,
                             tinh_trang_phieu: tinhTrangPhieu,
+                            trang_thai_hd:
+                                loaiPhieu === 'Phiếu thu' ? synced.trang_thai_hd : null,
+                            hang_muc_thu: hangMucThu,
                             ten_goi_thau: String(r.ten_goi_thau || '').trim() || null,
                             hang_muc_chi: hangMucChi,
                             nhan_su_id: nhanSuId,
@@ -1822,6 +1878,7 @@ export function ThuChi() {
                                             <th className="px-6 py-3.5 font-bold min-w-[9rem] whitespace-nowrap">Ngày chứng từ</th>
                                             <th className="px-6 py-3.5 font-bold min-w-[9.5rem]">Loại</th>
                                             <th className="px-6 py-3.5 font-bold min-w-[12rem]">Tình trạng</th>
+                                            <th className="px-6 py-3.5 font-bold min-w-[10rem]">Trạng thái HĐ</th>
                                             <th className="px-6 py-3.5 font-bold min-w-[11rem] text-right whitespace-nowrap">Số tiền</th>
                                             <th className="px-6 py-3.5 font-bold min-w-[15rem]">Nội dung</th>
                                             <th className="px-6 py-3.5 font-bold min-w-[8rem] text-center">Thao tác</th>
@@ -1829,7 +1886,7 @@ export function ThuChi() {
                                     </thead>
                                     <tbody className="divide-y divide-slate-100">
                                         {currentItems.length === 0 ? (
-                                            <tr><td colSpan={11} className="px-6 py-10 text-center text-sm text-slate-500">Không có dữ liệu phù hợp bộ lọc hiện tại</td></tr>
+                                            <tr><td colSpan={12} className="px-6 py-10 text-center text-sm text-slate-500">Không có dữ liệu phù hợp bộ lọc hiện tại</td></tr>
                                         ) : (
                                             currentItems.map((item) => (
                                                 <tr key={item.id} className="hover:bg-slate-50/60 transition-colors">
@@ -1908,16 +1965,33 @@ export function ThuChi() {
                                                                 title={tinhTrangThuCdtLabel(item.tinh_trang_display)}
                                                                 className={cn(
                                                                     'inline-flex max-w-full items-center px-2 py-0.5 rounded-full text-[11px] font-semibold leading-tight truncate align-top',
-                                                                    item.tinh_trang_display === 'Thanh toán' &&
-                                                                        'bg-emerald-100 text-emerald-900',
-                                                                    item.tinh_trang_display === 'Tạm ứng' &&
-                                                                        'bg-amber-100 text-amber-900',
-                                                                    item.tinh_trang_display !== 'Thanh toán' &&
-                                                                        item.tinh_trang_display !== 'Tạm ứng' &&
-                                                                        'bg-slate-100 text-slate-700',
+                                                                    tinhTrangPhieuBadgeClass(
+                                                                        item.tinh_trang_display,
+                                                                    ),
                                                                 )}
                                                             >
                                                                 {tinhTrangThuCdtLabel(item.tinh_trang_display)}
+                                                            </span>
+                                                        ) : (
+                                                            <span className="text-slate-400">—</span>
+                                                        )}
+                                                    </td>
+                                                    <td className="px-6 py-4 text-sm align-top min-w-[10rem] max-w-[14rem]">
+                                                        {(item as { trang_thai_hd_display?: string })
+                                                            .trang_thai_hd_display ? (
+                                                            <span
+                                                                className={cn(
+                                                                    'inline-flex max-w-full items-center px-2 py-0.5 rounded-full text-[11px] font-semibold leading-tight truncate',
+                                                                    trangThaiHdBadgeClass(
+                                                                        (item as { trang_thai_hd_display: string })
+                                                                            .trang_thai_hd_display,
+                                                                    ),
+                                                                )}
+                                                            >
+                                                                {
+                                                                    (item as { trang_thai_hd_display: string })
+                                                                        .trang_thai_hd_display
+                                                                }
                                                             </span>
                                                         ) : (
                                                             <span className="text-slate-400">—</span>

@@ -2,6 +2,13 @@ import React, { useEffect, useState } from 'react';
 import { X, Eye, FileText, Calendar, DollarSign, User, Briefcase, Clock, Layout, Package } from 'lucide-react';
 import { PreviewLinkModal } from '../../components/PreviewLinkModal';
 import { NhanSuAvatar } from '../../components/NhanSuTenAnhPicker';
+import {
+    resolveThuChiTinhTrangDisplay,
+    resolveTrangThaiHdDisplay,
+    trangThaiHdBadgeClass,
+    tinhTrangPhieuBadgeClass,
+    tinhTrangThuCdtLabel,
+} from '../../lib/thuChiTinhTrang';
 
 interface Props {
     isOpen: boolean;
@@ -9,18 +16,16 @@ interface Props {
     item: any;
 }
 
-function labelTinhTrangPhieu(raw: unknown, preformatted?: string): string {
-    if (preformatted && String(preformatted).trim()) return String(preformatted).trim();
-    const t = String(raw ?? '').trim();
-    if (!t) return '—';
-    if (t.toLowerCase() === 'thanh_toan') return 'Thanh toán';
-    return t;
-}
-
-function tinhTrangThuCdtLabel(display: string): string {
-    if (display === 'Thanh toán') return 'CĐT thanh toán';
-    if (display === 'Tạm ứng') return 'CĐT tạm ứng';
-    return display;
+function labelTinhTrangPhieu(item: {
+    tinh_trang_phieu?: string | null;
+    hang_muc_thu?: string | null;
+    tinh_trang_display?: string;
+}): string {
+    if (item.tinh_trang_display && String(item.tinh_trang_display).trim()) {
+        return String(item.tinh_trang_display).trim();
+    }
+    const n = resolveThuChiTinhTrangDisplay(item);
+    return n || '—';
 }
 
 export function ChiTietThuChiModal({ isOpen, onClose, item }: Props) {
@@ -30,11 +35,10 @@ export function ChiTietThuChiModal({ isOpen, onClose, item }: Props) {
         if (!isOpen) setPreviewUrl(null);
     }, [isOpen]);
 
-    const tinhTrangLabel = item
-        ? labelTinhTrangPhieu(item.tinh_trang_phieu, item.tinh_trang_display)
-        : '—';
+    const tinhTrangLabel = item ? labelTinhTrangPhieu(item) : '—';
     const tinhTrangBadgeText =
         tinhTrangLabel === '—' ? '—' : tinhTrangThuCdtLabel(tinhTrangLabel);
+    const trangThaiHdLabel = item ? resolveTrangThaiHdDisplay(item) : '';
 
     return (
         <>
@@ -103,18 +107,31 @@ export function ChiTietThuChiModal({ isOpen, onClose, item }: Props) {
                                                     ) : (
                                                         <span
                                                             title={tinhTrangBadgeText}
-                                                            className={`inline-flex max-w-full px-2.5 py-1 rounded-full text-[11px] font-bold ${
-                                                                tinhTrangLabel === 'Thanh toán'
-                                                                    ? 'bg-emerald-100 text-emerald-800'
-                                                                    : tinhTrangLabel === 'Tạm ứng'
-                                                                      ? 'bg-amber-100 text-amber-900'
-                                                                      : 'bg-slate-100 text-slate-700'
-                                                            }`}
+                                                            className={`inline-flex max-w-full px-2.5 py-1 rounded-full text-[11px] font-bold ${tinhTrangPhieuBadgeClass(tinhTrangLabel)}`}
                                                         >
                                                             {tinhTrangBadgeText}
                                                         </span>
                                                     )}
                                                 </div>
+
+                                                {item.type === 'Phiếu thu' && (
+                                                    <>
+                                                        <div className="flex items-center gap-2 text-slate-500">
+                                                            Trạng thái HĐ:
+                                                        </div>
+                                                        <div className="text-right">
+                                                            {trangThaiHdLabel ? (
+                                                                <span
+                                                                    className={`inline-flex max-w-full px-2.5 py-1 rounded-full text-[11px] font-bold ${trangThaiHdBadgeClass(trangThaiHdLabel)}`}
+                                                                >
+                                                                    {trangThaiHdLabel}
+                                                                </span>
+                                                            ) : (
+                                                                <span className="text-slate-400">—</span>
+                                                            )}
+                                                        </div>
+                                                    </>
+                                                )}
 
                                                 {item.type === 'Phiếu chi' ? (
                                                     <>
