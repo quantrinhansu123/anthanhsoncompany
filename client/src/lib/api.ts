@@ -1,4 +1,7 @@
-const API_BASE_URL = (import.meta as any).env.VITE_API_BASE_URL || 'http://localhost:3000/api';
+/** Dev: `/api` qua Vite proxy → backend. Prod: set `VITE_API_BASE_URL`. */
+export const API_BASE_URL =
+  (import.meta as any).env.VITE_API_BASE_URL ||
+  (import.meta.env.DEV ? '/api' : 'http://localhost:3000/api');
 
 export const api = {
   async get(endpoint: string) {

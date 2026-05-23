@@ -24,6 +24,12 @@ export default defineConfig(({mode}) => {
       port: Number(env.VITE_DEV_PORT) || 5174,
       strictPort: false,
       host: '0.0.0.0',
+      proxy: {
+        '/api': {
+          target: 'http://127.0.0.1:3000',
+          changeOrigin: true,
+        },
+      },
       // HMR is disabled in AI Studio via DISABLE_HMR env var.
       // Do not modifyâfile watching is disabled to prevent flickering during agent edits.
       hmr: process.env.DISABLE_HMR !== 'true',

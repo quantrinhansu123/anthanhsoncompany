@@ -97,6 +97,45 @@ function StatChip({ label }: { label: string }) {
     );
 }
 
+function formatNgayForThuChiExcel(isoNgay: string | null | undefined): string {
+    const raw = String(isoNgay ?? '').trim().slice(0, 10);
+    const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(raw);
+    if (m) return `${m[3]}/${m[2]}/${m[1]}`;
+    return raw;
+}
+
+function mapThuChiListRowToExcel(item: {
+    code?: string;
+    customer_name?: string | null;
+    ten_du_an?: string | null;
+    so_hop_dong_display?: string | null;
+    so_hop_dong?: string | null;
+    ten_goi_thau?: string | null;
+    ngay?: string | null;
+    type?: string;
+    loai_phieu?: string;
+    tinh_trang_display?: string;
+    trang_thai_hd_display?: string;
+    trang_thai_hd?: string | null;
+    so_tien?: number;
+    description?: string;
+    noi_dung?: string | null;
+}): Record<string, unknown> {
+    return {
+        ma_chung_tu: item.code || '',
+        doi_tuong: String(item.customer_name || '').trim(),
+        ten_da: String(item.ten_du_an || '').trim(),
+        so_hop_dong: String(item.so_hop_dong_display || item.so_hop_dong || '').trim(),
+        ten_goi_thau: String(item.ten_goi_thau || '').trim(),
+        ngay: formatNgayForThuChiExcel(item.ngay),
+        loai_phieu: item.type || item.loai_phieu || '',
+        tinh_trang: item.tinh_trang_display || '',
+        trang_thai_hd: item.trang_thai_hd_display || item.trang_thai_hd || '',
+        so_tien: Number(item.so_tien) || 0,
+        noi_dung: String(item.description || item.noi_dung || '').trim(),
+    };
+}
+
 function normalizeThuChiStatusLabel(value: string | null | undefined): string {
     return String(value ?? '')
         .trim()
@@ -197,56 +236,67 @@ export function ThuChi() {
     const [toast, setToast] = useState<{ message: string, type: 'success' | 'error' | 'info' } | null>(null);
     const [tamUngTotalsOpen, setTamUngTotalsOpen] = useState(false);
 
-    /** Cột mẫu thu/chi thường — khớp form Thêm phiếu; * trên file = bắt buộc (xem mẫu tải về). */
+    /** Cột mẫu tải / xuất — khớp bảng Thu chi trên màn hình. */
     const thuChiExcelColumns: ExcelColumnDef[] = [
-        { key: 'loai_phieu', header: 'Loại phiếu', example: 'Phiếu thu', required: true },
-        { key: 'so_tien', header: 'Số tiền', example: '15000000', required: true },
-        { key: 'ngay', header: 'Ngày', example: '2025-03-01', required: true },
+        { key: 'ma_chung_tu', header: 'Mã chứng từ', hint: 'Chỉ khi xuất dữ liệu' },
+        { key: 'doi_tuong', header: 'Đối tượng', example: 'Tên khách hàng' },
         {
-            key: 'ten_du_an',
-            header: 'Tên dự án',
-            example: 'Khớp đúng tên dự án trong hệ thống',
+            key: 'ten_da',
+            header: 'Tên DA',
+            example: 'Khớp tên dự án trong hệ thống',
             required: true,
+            matchHeaders: ['Tên dự án', 'ten_du_an'],
         },
         {
             key: 'so_hop_dong',
-            header: 'Số hợp đồng',
-            hint: 'Tùy chọn — khớp số HĐ thuộc dự án (bắt buộc nếu Chi nhân sự)',
+            header: 'Số HĐ',
+            matchHeaders: ['Số hợp đồng', 'Số HĐ & PLHĐ'],
         },
-        { key: 'noi_dung', header: 'Nội dung', hint: 'Ghi chú / diễn giải (tùy chọn)' },
+        { key: 'ten_goi_thau', header: 'Tên gói thầu' },
         {
-            key: 'hang_muc_chi',
-            header: 'Hạng mục chi',
-            example: 'Chi dự án',
-            hint: 'Chỉ phiếu chi: Chi dự án hoặc Chi nhân sự',
-        },
-        {
-            key: 'hang_muc_thu',
-            header: 'Hạng mục thu',
-            example: 'Tạm ứng / Thanh toán / Xuất hóa đơn',
-            hint: 'Chỉ phiếu thu',
+            key: 'ngay',
+            header: 'Ngày chứng từ',
+            example: '01/03/2025',
+            required: true,
+            matchHeaders: ['Ngày'],
         },
         {
-            key: 'ten_nhan_su',
-            header: 'Tên nhân sự',
-            example: 'Nguyễn Văn A',
-            hint: 'Bắt buộc với Phiếu chi (khớp họ tên trong NS)',
+            key: 'loai_phieu',
+            header: 'Loại',
+            example: 'Phiếu thu',
+            required: true,
+            matchHeaders: ['Loại phiếu'],
         },
         {
             key: 'tinh_trang',
-            header: 'Tình trạng phiếu',
+            header: 'Tình trạng',
             example: 'Tạm ứng / Thanh toán / Xuất hóa đơn',
+            matchHeaders: ['Tình trạng phiếu'],
         },
         {
             key: 'trang_thai_hd',
             header: 'Trạng thái HĐ',
             example: 'Có hóa đơn / Phát sinh',
-            hint: 'Chỉ phiếu thu',
         },
-        { key: 'ten_goi_thau', header: 'Tên gói thầu', hint: 'Tùy chọn' },
+        { key: 'so_tien', header: 'Số tiền', example: '15000000', required: true },
+        { key: 'noi_dung', header: 'Nội dung', hint: 'Ghi chú / diễn giải' },
     ];
 
-    /** Mẫu bảng CĐT — nhánh import riêng; Tên DA *; ít nhất một cột tiền CĐT. */
+    /** Cột chỉ khi nhập (file cũ / CĐT / phiếu chi) — không có trong mẫu tải về. */
+    const thuChiExcelImportExtraColumns: ExcelColumnDef[] = [
+        {
+            key: 'ten_nhan_su',
+            header: 'Tên nhân sự',
+            hint: 'Bắt buộc Phiếu chi',
+        },
+        {
+            key: 'hang_muc_chi',
+            header: 'Hạng mục chi',
+            example: 'Chi dự án',
+        },
+    ];
+
+    /** Mẫu bảng CĐT — chỉ nhánh import; không đưa vào file mẫu tải về. */
     const customCdtExcelColumns: ExcelColumnDef[] = [
         { key: 'tt', header: 'TT', hint: 'STT (tùy chọn)' },
         {
@@ -284,6 +334,12 @@ export function ThuChi() {
         { key: 'ngay_kiem_tra_hs', header: 'Ngày kiểm tra HS', hint: 'Tùy chọn' },
     ];
 
+    const thuChiExcelImportColumns = useMemo(
+        () => [...thuChiExcelColumns, ...thuChiExcelImportExtraColumns, ...customCdtExcelColumns],
+        // eslint-disable-next-line react-hooks/exhaustive-deps -- cột Excel cố định trong component
+        [],
+    );
+
     const { openChiTietThuChi, openDelete, openThemThuChi } = useThuChiModal();
     const handleEditClick = (item: any) => {
         const loaiPhieu =
@@ -308,12 +364,29 @@ export function ThuChi() {
 
     const reloadLookupData = useCallback(async () => {
         try {
-            const [customerList, projectList, contractList, employeeList] = await Promise.all([
+            const [customerRes, projectRes, contractRes, employeeRes] = await Promise.allSettled([
                 customerService.getAll(),
                 projectService.getAll(),
                 contractService.getAll(),
                 employeeService.getAll(),
             ]);
+            const customerList =
+                customerRes.status === 'fulfilled' ? customerRes.value : [];
+            const projectList = projectRes.status === 'fulfilled' ? projectRes.value : [];
+            const contractList = contractRes.status === 'fulfilled' ? contractRes.value : [];
+            const employeeList = employeeRes.status === 'fulfilled' ? employeeRes.value : [];
+            if (customerRes.status === 'rejected') {
+                console.error('Error loading customers:', customerRes.reason);
+            }
+            if (projectRes.status === 'rejected') {
+                console.error('Error loading projects:', projectRes.reason);
+            }
+            if (contractRes.status === 'rejected') {
+                console.error('Error loading contracts:', contractRes.reason);
+            }
+            if (employeeRes.status === 'rejected') {
+                console.error('Error loading employees:', employeeRes.reason);
+            }
 
             setCustomers(
                 (customerList || []).map((c: any) => ({
@@ -475,6 +548,10 @@ export function ThuChi() {
     }, []);
 
     const handleImportDone = useCallback(() => {
+        setToast({
+            type: 'success',
+            message: 'Đã nhập Excel — đang tải lại danh sách…',
+        });
         void loadRecords();
         void reloadLookupData();
     }, [loadRecords, reloadLookupData]);
@@ -514,9 +591,15 @@ export function ThuChi() {
             const customerId =
                 linkedContract?.customer_id ?? projInfo?.customer_id ?? null;
             let customerName =
-                linkedContract?.customer_name ?? projInfo?.customer_name ?? null;
+                item.customer_name ||
+                linkedContract?.customer_name ||
+                projInfo?.customer_name ||
+                null;
             if (!customerName && customerId) {
                 customerName = customers.find((cc) => cc.id === customerId)?.ten_don_vi ?? null;
+            }
+            if (!customerId && item.customer_id) {
+                customerId = item.customer_id;
             }
             const soHopDong =
                 (item.so_hop_dong && String(item.so_hop_dong).trim()) ||
@@ -848,6 +931,11 @@ export function ThuChi() {
         [baseFiltered, activeTab],
     );
 
+    const thuChiExcelExportRows = useMemo(
+        () => filteredItems.map((item) => mapThuChiListRowToExcel(item)),
+        [filteredItems],
+    );
+
     // Tính tổng số tiền theo các bộ lọc
     const totalAmount = filteredItems.reduce((sum, item) => sum + (item.so_tien || 0), 0);
     const formattedTotalAmount = new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND' }).format(totalAmount);
@@ -1070,7 +1158,43 @@ export function ThuChi() {
             const errors: string[] = [];
             let ok = 0;
             const totalRows = rows.length;
-            const isCdtTemplate = rows.some((r) => r.cdt_thanh_toan || r.ngay_tien_ve || r.ten_da);
+
+            const normalizeLoaiPhieuKey = (raw: string) =>
+                String(raw || '')
+                    .trim()
+                    .toLowerCase()
+                    .normalize('NFD')
+                    .replace(/[\u0300-\u036f]/g, '');
+
+            /** Dòng file mẫu CĐT (cột CĐT thanh toán / tạm ứng / nợ). */
+            const isCdtExcelRow = (r: Record<string, string>) =>
+                parseMoneyVi(String(r.cdt_thanh_toan ?? '')) > 0 ||
+                parseMoneyVi(String(r.cdt_tam_ung ?? '')) > 0 ||
+                parseMoneyVi(String(r.cdt_no ?? '')) > 0;
+
+            /** Dòng mẫu Thu chi (Loại + Số tiền) — không nhầm với chỉ có Tên DA. */
+            const isStandardThuChiExcelRow = (r: Record<string, string>) => {
+                const soTien = parseMoneyVi(String(r.so_tien ?? ''));
+                if (soTien <= 0) return false;
+                const loai = normalizeLoaiPhieuKey(r.loai_phieu || '');
+                if (!loai) return false;
+                const hasPhieu = loai.includes('phieu');
+                const hasThu = loai.includes('thu');
+                const hasChi = loai.includes('chi');
+                if (hasThu && hasChi) return false;
+                return hasPhieu ? hasThu || hasChi : hasThu || hasChi;
+            };
+
+            const standardRowCount = rows.filter(isStandardThuChiExcelRow).length;
+            const cdtRowCount = rows.filter(isCdtExcelRow).length;
+            const isCdtTemplate = cdtRowCount > 0 && standardRowCount === 0;
+
+            console.log('[ExcelImport] thuChi_import_branch', {
+                isCdtTemplate,
+                standardRowCount,
+                cdtRowCount,
+                totalRows,
+            });
 
             if (isCdtTemplate) {
                 type CdtAgg = {
@@ -1343,6 +1467,43 @@ export function ThuChi() {
                     }
                 }
             } else {
+                const projectKhPatched = new Set<string>();
+                const findKhachHangByTen = (ten: string) => {
+                    const key = normalizeKey(ten);
+                    if (!key) return undefined;
+                    return customers.find((c) => normalizeKey(c.ten_don_vi) === key);
+                };
+                const syncProjectKhachHangFromExcel = async (
+                    project: { id: string; customer_id: string | null; customer_name: string | null },
+                    doiTuong: string,
+                ) => {
+                    if (!doiTuong || projectKhPatched.has(project.id)) return project;
+                    projectKhPatched.add(project.id);
+                    const kh = findKhachHangByTen(doiTuong);
+                    try {
+                        if (kh && !project.customer_id) {
+                            await projectService.update(project.id, {
+                                customer_id: kh.id,
+                                ten_khach_hang: kh.ten_don_vi,
+                            });
+                            return {
+                                ...project,
+                                customer_id: kh.id,
+                                customer_name: kh.ten_don_vi,
+                            };
+                        }
+                        if (!kh) {
+                            await projectService.update(project.id, {
+                                ten_khach_hang: doiTuong,
+                            });
+                            return { ...project, customer_name: doiTuong };
+                        }
+                    } catch (e: unknown) {
+                        console.warn('[ExcelImport] syncProjectKhachHangFromExcel', e);
+                    }
+                    return project;
+                };
+
                 for (let i = 0; i < rows.length; i++) {
                     const r = rows[i];
                     onProgress(i + 1, totalRows);
@@ -1350,21 +1511,57 @@ export function ThuChi() {
                     const loai = String(r.loai_phieu || '').trim();
                     const soTien =
                         parseMoneyVi(r.so_tien) || Number(String(r.so_tien || '').replace(/[, ]/g, ''));
-                    const tenDuAn = String(r.ten_du_an || '').trim();
-                    const project = projects.find(
-                        (p) => (p.ten_du_an || '').trim().toLowerCase() === tenDuAn.toLowerCase(),
-                    );
-                    const loaiL = loai.toLowerCase();
-                    const isPhieuThu =
-                        loaiL.includes('thu') && (loaiL.includes('phiếu') || loaiL.includes('phieu'));
-                    const isPhieuChi =
-                        loaiL.includes('chi') && (loaiL.includes('phiếu') || loaiL.includes('phieu'));
-                    if (!(isPhieuThu || isPhieuChi) || !project || !(soTien > 0)) {
+                    const tenDuAn = String(r.ten_da || r.ten_du_an || '').trim();
+                    const soHdForProject = String(
+                        r.so_hop_dong || r.so_hd_plhd || r.so_hd || '',
+                    ).trim();
+                    let project = tenDuAn
+                        ? projects.find(
+                              (p) =>
+                                  (p.ten_du_an || '').trim().toLowerCase() ===
+                                  tenDuAn.toLowerCase(),
+                          )
+                        : undefined;
+                    if (!project && soHdForProject) {
+                        const cForProj = contracts.find(
+                            (x) =>
+                                (x.so_hop_dong || '').trim().toLowerCase() ===
+                                soHdForProject.toLowerCase(),
+                        );
+                        if (cForProj?.du_an_id) {
+                            project = projects.find(
+                                (p) => String(p.id) === String(cForProj.du_an_id),
+                            );
+                        }
+                    }
+                    const loaiL = normalizeLoaiPhieuKey(loai);
+                    const hasPhieuWord = loaiL.includes('phieu');
+                    const hasThu = loaiL.includes('thu');
+                    const hasChi = loaiL.includes('chi');
+                    const isPhieuThu = hasThu && !hasChi && (hasPhieuWord || loaiL === 'thu');
+                    const isPhieuChi = hasChi && !hasThu && (hasPhieuWord || loaiL === 'chi');
+                    if (!(isPhieuThu || isPhieuChi) || !(soTien > 0)) {
                         errors.push(
-                            `Dòng ${rowLabel}: dữ liệu không hợp lệ (loại phiếu / dự án / số tiền)`,
+                            `Dòng ${rowLabel}: dữ liệu không hợp lệ (Loại: «${loai || 'trống'}», Số tiền: ${soTien || 0})`,
                         );
                         continue;
                     }
+                    if (!project) {
+                        errors.push(
+                            `Dòng ${rowLabel}: cần «Tên DA» hoặc «Số HĐ» khớp hợp đồng trong hệ thống`,
+                        );
+                        continue;
+                    }
+
+                    const doiTuongExcel = String(r.doi_tuong || '').trim();
+                    let projectForRow = project;
+                    if (doiTuongExcel) {
+                        projectForRow = await syncProjectKhachHangFromExcel(
+                            { ...project },
+                            doiTuongExcel,
+                        );
+                    }
+
                     const loaiPhieu = isPhieuThu ? 'Phiếu thu' : 'Phiếu chi';
                     let hangMucChi: 'chi_du_an' | 'chi_nhan_su' | null = null;
                     let nhanSuId: string | null = null;
@@ -1391,7 +1588,7 @@ export function ThuChi() {
                         const c = contracts.find(
                             (x) =>
                                 (x.so_hop_dong || '').trim().toLowerCase() === soHdRaw.toLowerCase() &&
-                                (!x.du_an_id || String(x.du_an_id) === String(project.id)),
+                                (!x.du_an_id || String(x.du_an_id) === String(projectForRow.id)),
                         );
                         if (!c) {
                             errors.push(
@@ -1432,7 +1629,7 @@ export function ThuChi() {
                             so_tien: soTien,
                             ngay:
                                 parseExcelDate(r.ngay) || new Date().toISOString().split('T')[0],
-                            du_an_id: project.id,
+                            du_an_id: projectForRow.id,
                             hop_dong_id: hopDongId,
                             noi_dung: String(r.noi_dung || '').trim() || null,
                             tinh_trang_phieu: tinhTrangPhieu,
@@ -1449,6 +1646,15 @@ export function ThuChi() {
                     }
                 }
             }
+
+            if (ok === 0 && errors.length === 0) {
+                errors.push(
+                    'Không có phiếu nào được lưu. Kiểm tra: Tên DA khớp hệ thống, Loại (Phiếu thu/chi), Số tiền > 0. File mẫu «Tải mẫu Excel» dùng cột Loại/Số tiền — không phải bảng CĐT.',
+                );
+            }
+
+            console.log('[ExcelImport] thuChi_import_done', { ok, errorCount: errors.length });
+
             return { ok, errors };
         },
         [projects, contracts, customers, employees],
@@ -1845,7 +2051,9 @@ export function ThuChi() {
                                 </div>
                                 <ExcelImportExportBar
                                     className="shrink-0 min-w-0"
-                                    columns={[...thuChiExcelColumns, ...customCdtExcelColumns]}
+                                    columns={thuChiExcelColumns}
+                                    importColumns={thuChiExcelImportColumns}
+                                    data={thuChiExcelExportRows}
                                     templateFileName="mau-thu-chi"
                                     sheetName="Thu chi"
                                     onImport={handleThuChiExcelImport}

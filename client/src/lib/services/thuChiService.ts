@@ -1,7 +1,5 @@
 import { supabase } from '../supabase';
-import { api } from '../api';
-
-const API_BASE_URL = (import.meta as any).env.VITE_API_BASE_URL || 'http://localhost:3000/api';
+import { api, API_BASE_URL } from '../api';
 
 export interface ThuChiRow {
   id: string;
@@ -29,6 +27,8 @@ export interface ThuChiRow {
   created_at?: string;
   updated_at?: string;
   // Joined data
+  customer_id?: string | null;
+  customer_name?: string | null;
   ten_du_an?: string | null;
   so_hop_dong?: string | null;
   nhan_su_ten?: string | null; // Tên nhân sự từ join
@@ -63,7 +63,9 @@ const THU_CHI_LIST_SELECT = `
     so_hop_dong,
     ten_goi_thau,
     du_an_id,
-    du_an:du_an_id(id, ten_du_an)
+    customer_id,
+    customer_name,
+    du_an:du_an_id(id, ten_du_an, customer_id, ten_khach_hang)
   ),
   nhan_su:nhan_su_id(id, code, full_name, name, hoTen, anh_nhan_su)
 `;
@@ -102,6 +104,11 @@ function mapThuChiJoinedRow(row: any): ThuChiRow {
     trang_thai_hd: row.trang_thai_hd ?? null,
     created_at: row.created_at,
     updated_at: row.updated_at,
+    customer_id: hopDong?.customer_id ?? duAn?.customer_id ?? null,
+    customer_name:
+      (hopDong?.customer_name && String(hopDong.customer_name).trim()) ||
+      (duAn?.ten_khach_hang && String(duAn.ten_khach_hang).trim()) ||
+      null,
     ten_du_an: effectiveDuAn?.ten_du_an ?? null,
     so_hop_dong: hopDong?.so_hop_dong ?? null,
     nhan_su_ten: tenNhanSu,
@@ -128,21 +135,31 @@ export const thuChiService = {
    * Thu chi một lần truy vấn (join). Dùng cho mọi màn cần danh sách đầy đủ + tên dự án / HĐ / nhân sự.
    */
   async fetchJoinedList(filterDuAnId?: string | null): Promise<ThuChiRow[]> {
-    let query = supabase
-      .from('thu_chi')
-      .select(THU_CHI_LIST_SELECT)
-      .order('ngay', { ascending: false });
+    try {
+      const q = filterDuAnId
+        ? `?du_an_id=${encodeURIComponent(String(filterDuAnId))}`
+        : '';
+      const data = await api.get(`/thu-chi${q}`);
+      const rows = Array.isArray(data) ? data : [];
+      return rows.map(mapThuChiJoinedRow);
+    } catch (apiErr) {
+      console.warn('[thuChiService] fetchJoinedList API failed, thử Supabase trực tiếp:', apiErr);
+      let query = supabase
+        .from('thu_chi')
+        .select(THU_CHI_LIST_SELECT)
+        .order('ngay', { ascending: false });
 
-    if (filterDuAnId) {
-      query = query.eq('du_an_id', filterDuAnId);
-    }
+      if (filterDuAnId) {
+        query = query.eq('du_an_id', filterDuAnId);
+      }
 
-    const { data, error } = await query;
-    if (error) {
-      console.error('[thuChiService] fetchJoinedList:', error);
-      throw error;
+      const { data, error } = await query;
+      if (error) {
+        console.error('[thuChiService] fetchJoinedList:', error);
+        throw error;
+      }
+      return (data || []).map(mapThuChiJoinedRow);
     }
-    return (data || []).map(mapThuChiJoinedRow);
   },
 
   /**
@@ -202,22 +219,12 @@ export const thuChiService = {
 
   // Lấy thu chi phục vụ dashboard/danh sách dự án (một vòng Supabase).
   async getAllForDuAnDashboard(filterDuAnId?: string | null): Promise<ThuChiRow[]> {
-    try {
-      return await this.fetchJoinedList(filterDuAnId ?? undefined);
-    } catch (err) {
-      console.error('Exception in thuChiService.getAllForDuAnDashboard:', err);
-      return [];
-    }
+    return await this.fetchJoinedList(filterDuAnId ?? undefined);
   },
 
-  // Lấy tất cả thu chi — cùng đường join với getAllForDuAnDashboard (không gọi thêm project/employee API).
+  // Lấy tất cả thu chi — qua API server (tránh RLS ẩn dòng vừa nhập Excel).
   async getAll(filterDuAnId?: string | null): Promise<ThuChiRow[]> {
-    try {
-      return await this.fetchJoinedList(filterDuAnId ?? undefined);
-    } catch (err) {
-      console.error('Exception in thuChiService.getAll:', err);
-      return [];
-    }
+    return await this.fetchJoinedList(filterDuAnId ?? undefined);
   },
 
   // Lấy thu chi theo ID
@@ -241,75 +248,37 @@ export const thuChiService = {
     }
   },
 
-  // Tạo thu chi mới
+  /** Tạo qua API server (service role) — tránh RLS Supabase trên client. */
   async create(payload: Partial<ThuChiRow>): Promise<ThuChiRow | null> {
     try {
-      const { data, error } = await supabase
-        .from('thu_chi')
-        .insert([payload])
-        .select();
-
-      if (error) {
-        console.error('Error creating thu_chi:', error);
-        throw error;
-      }
-
-      if (!data || data.length === 0) {
-        console.error('[thuChiService] No data returned after insert');
-        return null;
-      }
-
-      return data[0] as ThuChiRow;
+      const data = await api.post('/thu-chi', payload);
+      return (data as ThuChiRow) ?? null;
     } catch (err) {
       console.error('Exception in thuChiService.create:', err);
       throw err;
     }
   },
 
-  // Tạo nhiều thu chi cùng lúc (tối ưu hiệu suất)
   async createMany(payloads: Partial<ThuChiRow>[]): Promise<ThuChiRow[]> {
     try {
       if (!payloads.length) return [];
-      const { data, error } = await supabase
-        .from('thu_chi')
-        .insert(payloads)
-        .select();
-
-      if (error) {
-        console.error('Error creating many thu_chi:', error);
-        throw error;
-      }
-
-      return (data || []) as ThuChiRow[];
+      const result = await api.post('/thu-chi/bulk', { rows: payloads });
+      const data = (result as { data?: ThuChiRow[] })?.data;
+      return Array.isArray(data) ? data : [];
     } catch (err) {
       console.error('Exception in thuChiService.createMany:', err);
       throw err;
     }
   },
 
-  // Cập nhật thu chi
   async update(id: string, payload: Partial<ThuChiRow>): Promise<ThuChiRow | null> {
     try {
-      const { data, error } = await supabase
-        .from('thu_chi')
-        .update(payload)
-        .eq('id', id)
-        .select();
-
-      if (error) {
-        console.error('Error updating thu_chi:', error);
-        throw error;
-      }
-
-      if (!data || data.length === 0) {
-        console.error('[thuChiService] No data returned after update');
-        return null;
-      }
-
-      return data[0] as ThuChiRow;
+      const encoded = encodeURIComponent(String(id).trim());
+      const data = await api.put(`/thu-chi/${encoded}`, payload);
+      return (data as ThuChiRow) ?? null;
     } catch (err) {
       console.error('Exception in thuChiService.update:', err);
-      return null;
+      throw err;
     }
   },
 

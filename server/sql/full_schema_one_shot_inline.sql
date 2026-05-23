@@ -913,6 +913,20 @@ BEGIN
     ADD CONSTRAINT fk_du_an_executor 
     FOREIGN KEY (executor_id) REFERENCES public.nhan_su(id) ON DELETE SET NULL;
   END IF;
+
+  UPDATE public.du_an d
+  SET customer_id = NULL
+  WHERE d.customer_id IS NOT NULL
+    AND NOT EXISTS (SELECT 1 FROM public.khach_hang k WHERE k.id = d.customer_id);
+
+  IF NOT EXISTS (
+    SELECT FROM pg_constraint
+    WHERE conname = 'fk_du_an_khach_hang'
+  ) THEN
+    ALTER TABLE public.du_an
+    ADD CONSTRAINT fk_du_an_khach_hang
+    FOREIGN KEY (customer_id) REFERENCES public.khach_hang(id) ON DELETE SET NULL;
+  END IF;
 END $$;
 
 -- Index cho bảng du_an

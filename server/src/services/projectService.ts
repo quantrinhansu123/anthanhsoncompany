@@ -1,12 +1,41 @@
 import { getSupabase } from '../config/supabase';
 
 const DU_AN_FETCH_CHUNK = 1000;
+const KHACH_HANG_LOOKUP_CHUNK = 200;
 
-function mapDuAnRows(data: any[] | null | undefined) {
+const DU_AN_SELECT = `
+  *,
+  manager:manager_id(id, full_name, name, hoTen, code, anh_nhan_su),
+  executor:executor_id(id, full_name, name, hoTen, code, anh_nhan_su)
+`;
+
+/** PostgREST embed cần FK — bảng `du_an` có thể chưa có FK `customer_id` → tra `khach_hang` riêng. */
+async function fetchKhachHangTenDonViByIds(
+  supabase: ReturnType<typeof getSupabase>,
+  customerIds: string[],
+): Promise<Map<string, string>> {
+  const map = new Map<string, string>();
+  const unique = [...new Set(customerIds.map((id) => String(id).trim()).filter(Boolean))];
+  for (let i = 0; i < unique.length; i += KHACH_HANG_LOOKUP_CHUNK) {
+    const chunk = unique.slice(i, i + KHACH_HANG_LOOKUP_CHUNK);
+    const { data, error } = await supabase
+      .from('khach_hang')
+      .select('id, ten_don_vi')
+      .in('id', chunk);
+    if (error) throw error;
+    for (const row of data || []) {
+      const id = row.id != null ? String(row.id) : '';
+      const name = row.ten_don_vi != null ? String(row.ten_don_vi).trim() : '';
+      if (id && name) map.set(id, name);
+    }
+  }
+  return map;
+}
+
+function mapDuAnRows(data: any[] | null | undefined, customerNameById?: Map<string, string>) {
   return (data || []).map((row: any) => {
     const manager = row.manager;
     const executor = row.executor;
-    const khachHang = row.khach_hang;
 
     const managerImg = row.manager_img || (manager?.anh_nhan_su || null);
     const executorImg = row.executor_img || (executor?.anh_nhan_su || null);
@@ -14,7 +43,9 @@ function mapDuAnRows(data: any[] | null | undefined) {
     const managerIds = Array.isArray(row.manager_ids) ? row.manager_ids : (row.manager_ids ? [row.manager_ids] : []);
     const executorIds = Array.isArray(row.executor_ids) ? row.executor_ids : (row.executor_ids ? [row.executor_ids] : []);
 
-    const tenDonViKh = khachHang?.ten_don_vi ? String(khachHang.ten_don_vi).trim() : '';
+    const cid = row.customer_id != null ? String(row.customer_id) : '';
+    const tenDonViKh = (cid && customerNameById?.get(cid)) || '';
+    const tenKhFallback = row.ten_khach_hang ? String(row.ten_khach_hang).trim() : '';
 
     return {
       ...row,
@@ -23,11 +54,23 @@ function mapDuAnRows(data: any[] | null | undefined) {
       manager_name: manager ? (manager.full_name || manager.name || manager.hoTen || '') : null,
       executor_name: executor ? (executor.full_name || executor.name || executor.hoTen || '') : null,
       /** Tên hiển thị cột Khách hàng — ưu tiên `khach_hang.ten_don_vi`, không dùng mã số `ten_khach_hang`. */
-      customer_name: tenDonViKh || null,
+      customer_name: tenDonViKh || tenKhFallback || null,
       manager_img: managerImg,
-      executor_img: executorImg
+      executor_img: executorImg,
     };
   });
+}
+
+async function mapDuAnRowsWithCustomers(
+  supabase: ReturnType<typeof getSupabase>,
+  data: any[] | null | undefined,
+) {
+  const raw = data || [];
+  const customerIds = raw
+    .map((row) => (row.customer_id != null ? String(row.customer_id) : ''))
+    .filter(Boolean);
+  const customerNameById = await fetchKhachHangTenDonViByIds(supabase, customerIds);
+  return mapDuAnRows(raw, customerNameById);
 }
 
 export const projectService = {
@@ -36,17 +79,7 @@ export const projectService = {
     const supabase = getSupabase();
 
     const buildOrderedQuery = () => {
-      let query = supabase
-        .from('du_an')
-        .select(
-          `
-        *,
-        manager:manager_id(id, full_name, name, hoTen, code, anh_nhan_su),
-        executor:executor_id(id, full_name, name, hoTen, code, anh_nhan_su),
-        khach_hang:customer_id(id, ten_don_vi)
-      `,
-          { count: 'exact' }
-        );
+      let query = supabase.from('du_an').select(DU_AN_SELECT, { count: 'exact' });
 
       if (search) {
         query = query.ilike('ten_du_an', `%${search}%`);
@@ -60,7 +93,7 @@ export const projectService = {
       const to = from + pageSize - 1;
       const { data, error, count } = await buildOrderedQuery().range(from, to);
       if (error) throw error;
-      const rows = mapDuAnRows(data);
+      const rows = await mapDuAnRowsWithCustomers(supabase, data);
       return {
         data: rows,
         total: count || 0
@@ -83,7 +116,7 @@ export const projectService = {
       offset += DU_AN_FETCH_CHUNK;
     }
 
-    const rows = mapDuAnRows(allRaw);
+    const rows = await mapDuAnRowsWithCustomers(supabase, allRaw);
     return {
       data: rows,
       total: totalCount ?? rows.length
@@ -91,18 +124,17 @@ export const projectService = {
   },
 
   async getById(id: string) {
-    const { data, error } = await getSupabase()
+    const supabase = getSupabase();
+    const { data, error } = await supabase
       .from('du_an')
-      .select(`
-        *,
-        manager:manager_id(id, full_name, name, hoTen, code, anh_nhan_su),
-        executor:executor_id(id, full_name, name, hoTen, code, anh_nhan_su)
-      `)
+      .select(DU_AN_SELECT)
       .eq('id', id)
       .maybeSingle();
-    
+
     if (error) throw error;
-    return data;
+    if (!data) return null;
+    const [row] = await mapDuAnRowsWithCustomers(supabase, [data]);
+    return row ?? data;
   },
 
   async create(payload: any) {
@@ -153,18 +185,14 @@ export const projectService = {
 
   async getByNames(names: string[]) {
     if (!names || names.length === 0) return [];
-    
-    // Tìm kiếm dự án theo danh sách tên (dùng mảng names)
-    const { data, error } = await getSupabase()
+
+    const supabase = getSupabase();
+    const { data, error } = await supabase
       .from('du_an')
-      .select(`
-        id, ten_du_an,
-        manager:manager_id(id, full_name, name, hoTen, code, anh_nhan_su),
-        executor:executor_id(id, full_name, name, hoTen, code, anh_nhan_su)
-      `)
+      .select(DU_AN_SELECT)
       .in('ten_du_an', names);
-    
+
     if (error) throw error;
-    return data || [];
-  }
+    return await mapDuAnRowsWithCustomers(supabase, data || []);
+  },
 };

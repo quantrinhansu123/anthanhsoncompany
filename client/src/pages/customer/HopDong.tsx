@@ -843,6 +843,91 @@ function buildThuChiPhieuThuMap(rows: ThuChiRow[]): Map<string, number> {
     return map;
 }
 
+/** Khóa khớp HĐ: cùng dự án + Số HĐ (+ tên gói thầu nếu có) — dùng khi Thu chi chưa gắn `hop_dong_id`. */
+function giaXuatThuChiMatchKey(
+    duAnId: string | null | undefined,
+    projectName: string | null | undefined,
+    soHopDong: string | null | undefined,
+    tenGoiThau: string | null | undefined,
+): string {
+    const so = normalizeKey(soHopDong || '');
+    if (!so) return '';
+    const du = String(duAnId ?? '').trim();
+    const pn = normalizeKey(projectName || '');
+    const proj = du ? `id:${du}` : pn ? `name:${pn}` : 'name:';
+    return `${proj}|${so}|${normalizeKey(tenGoiThau || '')}`;
+}
+
+type GiaXuatHdMaps = {
+    byHopDongId: Map<string, number>;
+    byMatchKey: Map<string, number>;
+};
+
+/** Tổng Số tiền phiếu thu «Có hóa đơn» — theo HĐ hoặc theo (Dự án + Số HĐ + gói thầu). */
+function buildGiaXuatHdFromThuChiMaps(rows: ThuChiRow[]): GiaXuatHdMaps {
+    const byHopDongId = new Map<string, number>();
+    const byMatchKey = new Map<string, number>();
+    for (const tc of rows) {
+        if (!isThuChiXuatHoaDonRow(tc)) continue;
+        const amount = Number(tc.so_tien) || 0;
+        if (amount <= 0) continue;
+        const hid = tc.hop_dong_id != null ? String(tc.hop_dong_id).trim() : '';
+        if (hid) {
+            byHopDongId.set(hid, (byHopDongId.get(hid) || 0) + amount);
+            continue;
+        }
+        const mk = giaXuatThuChiMatchKey(
+            tc.du_an_id,
+            tc.ten_du_an,
+            tc.so_hop_dong,
+            tc.ten_goi_thau,
+        );
+        if (!mk) continue;
+        byMatchKey.set(mk, (byMatchKey.get(mk) || 0) + amount);
+    }
+    return { byHopDongId, byMatchKey };
+}
+
+function resolveGiaXuatHdForContractRow(c: ContractRow, maps: GiaXuatHdMaps): number {
+    const rowPk = contractRowPk(c);
+    const logicalId = c.id != null ? String(c.id).trim() : '';
+    const ids = [...new Set([rowPk, logicalId].filter(Boolean))];
+    let fromHopDong = 0;
+    for (const id of ids) {
+        fromHopDong = Math.max(fromHopDong, maps.byHopDongId.get(id) || 0);
+    }
+    if (fromHopDong > 0) return fromHopDong;
+    const mk = giaXuatThuChiMatchKey(
+        c.du_an_id,
+        c.project_name,
+        c.so_hop_dong,
+        c.ten_goi_thau,
+    );
+    return mk ? maps.byMatchKey.get(mk) || 0 : 0;
+}
+
+async function persistGiaXuatHdFromThuChi(
+    contracts: ContractRow[],
+    maps: GiaXuatHdMaps,
+): Promise<number> {
+    let updated = 0;
+    for (const c of contracts) {
+        const newQt = resolveGiaXuatHdForContractRow(c, maps);
+        const oldQt = Number(c.gia_tri_qt || 0);
+        if (newQt === oldQt) continue;
+        const id = contractRowPk(c);
+        if (!id) continue;
+        try {
+            await contractService.update(id, { gia_tri_qt: newQt });
+            c.gia_tri_qt = newQt;
+            updated += 1;
+        } catch (err) {
+            console.warn('[HopDong] sync gia_tri_qt:', id, err);
+        }
+    }
+    return updated;
+}
+
 function isThanhToanHangMucThu(value: string | null | undefined): boolean {
     const normalized = normalizeHangMucThuLabel(value);
     return normalized === 'thanh toán' || normalized === 'thanh toan';
@@ -1770,7 +1855,7 @@ export function HopDong() {
         if (isLoading || dongBoThuChiBusy) return;
         setDongBoThuChiBusy(true);
         try {
-            const [thuChiRows, res] = await Promise.all([
+            const [thuChiRows, res, allContractsRes] = await Promise.all([
                 thuChiService.getAll(),
                 contractService.getAll({
                     search: debouncedSearch || undefined,
@@ -1778,9 +1863,14 @@ export function HopDong() {
                     dateTo: dateTo || undefined,
                     trangThai: filterHopDongTrangThai || undefined,
                 }),
+                contractService.getAll(),
             ]);
             allThuChiRef.current = thuChiRows;
             setAllThuChi(thuChiRows);
+
+            const allContractRows = normalizeContractGetAllRows(allContractsRes);
+            const giaXuatMaps = buildGiaXuatHdFromThuChiMaps(thuChiRows);
+            const giaXuatUpdated = await persistGiaXuatHdFromThuChi(allContractRows, giaXuatMaps);
 
             const contracts = normalizeContractGetAllRows(res).filter((row) =>
                 contractRowPassesHopDongFilters(row, projectsMeta, {
@@ -1797,7 +1887,7 @@ export function HopDong() {
             let tongQt = 0;
             for (const c of contracts) {
                 tongDaThu += sumThuChiMapForHopDong(c, phieuThuMap);
-                tongQt += Number(c.gia_tri_qt || 0);
+                tongQt += resolveGiaXuatHdForContractRow(c, giaXuatMaps);
             }
 
             let phieuThuCount = 0;
@@ -1816,7 +1906,21 @@ export function HopDong() {
             setItems((prev) =>
                 prev.map((g) => ({
                     ...g,
-                    contracts: g.contracts.map((c) => applyPhieuThuToHopDongContract(c, phieuThuMap)),
+                    contracts: g.contracts.map((c) => {
+                        const row: ContractRow = {
+                            hop_dong_row_id: c.hopDongRowId ?? c.uuid,
+                            id: c.uuid,
+                            du_an_id: c.duAnId ?? null,
+                            project_name: g.projectName,
+                            so_hop_dong: c.soHopDong,
+                            ten_goi_thau: c.tenGoiThau,
+                        };
+                        const giaTriQT = resolveGiaXuatHdForContractRow(row, giaXuatMaps);
+                        return applyPhieuThuToHopDongContract(
+                            { ...c, giaTriQT },
+                            phieuThuMap,
+                        );
+                    }),
                 })),
             );
             setTotalGiaTriQT(tongQt);
@@ -1825,7 +1929,8 @@ export function HopDong() {
             setToast({
                 type: 'success',
                 message:
-                    `Đã đồng bộ Thu chi — ${contracts.length} HĐ: Đã thu ${formatCurrency(tongDaThu)} đ ` +
+                    `Đã đồng bộ — cập nhật Giá xuất HĐ ${giaXuatUpdated} HĐ (tổng Thu chi «Có hóa đơn» theo dự án + Số HĐ). ` +
+                    `${contracts.length} HĐ trong bộ lọc: Đã thu ${formatCurrency(tongDaThu)} đ ` +
                     `(${phieuThuCount} phiếu thu), Tạm ứng ${formatCurrency(tongTamUng)} đ, ` +
                     `CĐT nợ ${formatCurrency(tongCongNo)} đ.`,
             });
@@ -2496,7 +2601,7 @@ export function HopDong() {
                         type="button"
                         onClick={handleDongBoThuChi}
                         disabled={isLoading || dongBoThuChiBusy}
-                        title="Tải lại Thu chi và tổng hợp Đã thu / Tạm ứng / CĐT nợ theo bộ lọc HĐ hiện tại"
+                        title="Đồng bộ Giá xuất HĐ từ Thu chi (Có hóa đơn, theo dự án + Số HĐ) và tổng Đã thu / Tạm ứng / CĐT nợ"
                         className="inline-flex items-center gap-1.5 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-xs font-bold text-amber-900 shadow-sm hover:bg-amber-100 disabled:cursor-not-allowed disabled:opacity-45"
                     >
                         {dongBoThuChiBusy ? (

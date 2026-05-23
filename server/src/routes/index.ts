@@ -7,6 +7,7 @@ import { thuChiService } from '../services/thuChiService';
 import { aiService } from '../services/aiService';
 import employeeRoutes from './employeeRoutes';
 import workScheduleRoutes from './workScheduleRoutes';
+import excelRoutes from './excelRoutes';
 
 const router = Router();
 
@@ -27,6 +28,7 @@ router.post('/ai', async (req, res) => {
 // Employee routes are specialized (has search)
 router.use('/employees', employeeRoutes);
 router.use('/work-schedules', workScheduleRoutes);
+router.use('/excel', excelRoutes);
 
 // Generic CRUD routes
 const projectController = createGenericController(projectService);
@@ -89,7 +91,48 @@ router.post('/contracts/bulk-import', async (req, res) => {
   }
 });
 
-// Thu chi
+// Thu chi (service role — tránh RLS client)
+router.get('/thu-chi', async (req, res) => {
+  try {
+    const duAnId = (req.query.du_an_id as string) || null;
+    const data = await thuChiService.list(duAnId);
+    res.json(data);
+  } catch (err: any) {
+    res.status(500).json({ error: err.message || 'list failed' });
+  }
+});
+
+router.post('/thu-chi', async (req, res) => {
+  try {
+    const data = await thuChiService.create(req.body ?? {});
+    res.status(201).json(data);
+  } catch (err: any) {
+    res.status(500).json({ error: err.message || 'create failed' });
+  }
+});
+
+router.post('/thu-chi/bulk', async (req, res) => {
+  try {
+    const rows = req.body?.rows ?? req.body;
+    if (!Array.isArray(rows)) {
+      return res.status(400).json({ error: 'rows must be an array' });
+    }
+    const result = await thuChiService.createMany(rows);
+    res.status(201).json(result);
+  } catch (err: any) {
+    res.status(500).json({ error: err.message || 'bulk create failed' });
+  }
+});
+
+router.put('/thu-chi/:id', async (req, res) => {
+  try {
+    const data = await thuChiService.update(String(req.params.id ?? ''), req.body ?? {});
+    res.json(data);
+  } catch (err: any) {
+    res.status(500).json({ error: err.message || 'update failed' });
+  }
+});
+
 router.delete('/thu-chi/all', async (_req, res) => {
   try {
     const { deleted } = await thuChiService.deleteAll();
