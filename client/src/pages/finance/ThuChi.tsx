@@ -29,6 +29,7 @@ import {
     Gauge,
     Percent,
     Calculator,
+    RefreshCw,
 } from 'lucide-react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { thuChiService, ThuChiRow } from '../../lib/services/thuChiService';
@@ -191,6 +192,7 @@ export function ThuChi() {
     const [loading, setLoading] = useState(false);
     const [deletingAll, setDeletingAll] = useState(false);
     const [deletingSelected, setDeletingSelected] = useState(false);
+    const [migratingCdtLabel, setMigratingCdtLabel] = useState(false);
     const [error, setError] = useState<string | null>(null);
     const [selectedIds, setSelectedIds] = useState<string[]>([]);
     const [searchTerm, setSearchTerm] = useState('');
@@ -1096,6 +1098,47 @@ export function ThuChi() {
             await loadRecords();
         } finally {
             setDeletingSelected(false);
+        }
+    };
+
+    const handleMigrateChuDauTuThanhToan = async () => {
+        if (loading || migratingCdtLabel) return;
+        if (
+            !window.confirm(
+                'Đổi toàn bộ «Chủ đầu tư thanh toán» thành chuẩn «CĐT thanh toán» (cột Tình trạng) trên mọi phiếu thu chi?\n\n' +
+                    'Tình trạng / hạng mục thu được lưu «Thanh toán»; nội dung có chữ cũ được thay bằng «CĐT thanh toán».',
+            )
+        ) {
+            return;
+        }
+        setMigratingCdtLabel(true);
+        try {
+            const res = await thuChiService.migrateChuDauTuThanhToan();
+            if (res.error) {
+                setToast({ type: 'error', message: res.error });
+                return;
+            }
+            await loadRecords();
+            if (res.updated === 0) {
+                setToast({
+                    type: 'info',
+                    message: 'Không có bản ghi nào chứa «Chủ đầu tư thanh toán».',
+                });
+            } else {
+                setToast({
+                    type: 'success',
+                    message:
+                        `Đã cập nhật ${res.updated} phiếu — Tình trạng: ${res.tinh_trang_phieu}, ` +
+                        `Hạng mục thu: ${res.hang_muc_thu}, Nội dung: ${res.noi_dung}.`,
+                });
+            }
+        } catch (err: unknown) {
+            setToast({
+                type: 'error',
+                message: err instanceof Error ? err.message : 'Không chuẩn hóa được tình trạng.',
+            });
+        } finally {
+            setMigratingCdtLabel(false);
         }
     };
 
@@ -2032,6 +2075,20 @@ export function ThuChi() {
                                             {rawThuChi.length > 0 ? ` (${rawThuChi.length})` : ''}
                                         </button>
                                     ) : null}
+                                    <button
+                                        type="button"
+                                        onClick={handleMigrateChuDauTuThanhToan}
+                                        disabled={loading || migratingCdtLabel}
+                                        title="Đổi mọi «Chủ đầu tư thanh toán» trong DB thành chuẩn hiển thị «CĐT thanh toán»"
+                                        className="inline-flex items-center gap-1.5 rounded-lg border border-sky-300 bg-sky-50 px-3 py-1.5 text-xs font-bold text-sky-900 shadow-sm hover:bg-sky-100 disabled:cursor-not-allowed disabled:opacity-45"
+                                    >
+                                        {migratingCdtLabel ? (
+                                            <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                                        ) : (
+                                            <RefreshCw className="w-3.5 h-3.5" />
+                                        )}
+                                        Đổi → CĐT thanh toán
+                                    </button>
                                     <button
                                         type="button"
                                         onClick={() => setTamUngTotalsOpen(true)}

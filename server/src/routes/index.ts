@@ -155,6 +155,15 @@ router.post('/thu-chi/bulk-delete', async (req, res) => {
   }
 });
 
+router.post('/thu-chi/migrate-chu-dau-tu-thanh-toan', async (_req, res) => {
+  try {
+    const result = await thuChiService.migrateChuDauTuThanhToan();
+    res.json(result);
+  } catch (err: any) {
+    res.status(500).json({ error: err.message || 'migrate failed' });
+  }
+});
+
 router.delete('/thu-chi/:id', async (req, res) => {
   try {
     await thuChiService.delete(String(req.params.id ?? ''));

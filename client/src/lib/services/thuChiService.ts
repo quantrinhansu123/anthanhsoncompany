@@ -321,6 +321,39 @@ export const thuChiService = {
     }
   },
 
+  /** Đổi «Chủ đầu tư thanh toán» → chuẩn «Thanh toán» (hiển thị CĐT thanh toán). */
+  async migrateChuDauTuThanhToan(): Promise<{
+    updated: number;
+    tinh_trang_phieu: number;
+    hang_muc_thu: number;
+    noi_dung: number;
+    error?: string;
+  }> {
+    try {
+      const res = (await api.post('/thu-chi/migrate-chu-dau-tu-thanh-toan', {})) as {
+        updated?: number;
+        tinh_trang_phieu?: number;
+        hang_muc_thu?: number;
+        noi_dung?: number;
+      };
+      return {
+        updated: Number(res.updated) || 0,
+        tinh_trang_phieu: Number(res.tinh_trang_phieu) || 0,
+        hang_muc_thu: Number(res.hang_muc_thu) || 0,
+        noi_dung: Number(res.noi_dung) || 0,
+      };
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      return {
+        updated: 0,
+        tinh_trang_phieu: 0,
+        hang_muc_thu: 0,
+        noi_dung: 0,
+        error: msg,
+      };
+    }
+  },
+
   /** Xóa mọi bản ghi `thu_chi` — chỉ dùng khi người dùng xác nhận rõ ràng. */
   async deleteAll(): Promise<{ ok: boolean; deleted: number; error?: string }> {
     try {

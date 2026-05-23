@@ -554,3 +554,17 @@ html {
     -ms-overflow-style: none;
     scrollbar-width: none;
 }
+
+@keyframes gia-han-overdue-blink {
+    0%,
+    100% {
+        opacity: 1;
+    }
+    50% {
+        opacity: 0.35;
+    }
+}
+
+.gia-han-overdue-blink {
+    animation: gia-han-overdue-blink 1s ease-in-out infinite;
+}

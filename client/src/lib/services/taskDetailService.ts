@@ -171,6 +171,10 @@ export interface DanhSachCongViecItem {
   ghi_chu?: string | null;
   /** Id nhân sự phụ trách (chọn từ danh sách người phụ trách của công việc) */
   nhan_su_phu_trach_ids?: string[];
+  /** Gia hạn lần 1–3 (YYYY-MM-DD) */
+  ngay_gia_han_1?: string | null;
+  ngay_gia_han_2?: string | null;
+  ngay_gia_han_3?: string | null;
   /** Cũ — đọc để tương thích bản ghi trước khi có `trang_thai` */
   da_xong?: boolean;
 }
@@ -196,6 +200,15 @@ export function parseDanhSachCongViecColumn(raw: unknown): DanhSachCongViecItem[
       const nhan_su_phu_trach_ids = Array.isArray(nsRaw)
         ? nsRaw.map((x) => String(x)).filter((s) => s.trim() !== '')
         : [];
+      const legacyGiaHan =
+        o.ngay_gia_han != null && String(o.ngay_gia_han).trim() !== ''
+          ? String(o.ngay_gia_han).trim().slice(0, 10)
+          : null;
+      const pickGiaHan = (key: string) => {
+        const v = o[key];
+        if (v != null && String(v).trim() !== '') return String(v).trim().slice(0, 10);
+        return null;
+      };
       return {
         id: typeof o.id === 'string' && o.id ? o.id : crypto.randomUUID(),
         noi_dung: String(o.noi_dung ?? ''),
@@ -206,6 +219,9 @@ export function parseDanhSachCongViecColumn(raw: unknown): DanhSachCongViecItem[
           ng != null && String(ng).trim() !== '' ? String(ng).trim() : null,
         ghi_chu: gc != null && String(gc).trim() !== '' ? String(gc).trim() : null,
         nhan_su_phu_trach_ids,
+        ngay_gia_han_1: pickGiaHan('ngay_gia_han_1') ?? legacyGiaHan,
+        ngay_gia_han_2: pickGiaHan('ngay_gia_han_2'),
+        ngay_gia_han_3: pickGiaHan('ngay_gia_han_3'),
       };
     });
 }

@@ -16,11 +16,24 @@ function normalizeKey(value: string | null | undefined): string {
         .replace(/\s+/g, ' ');
 }
 
+/** Nhãn cũ «Chủ đầu tư thanh toán» (và biến thể không dấu). */
+export function isLegacyChuDauTuThanhToanLabel(raw: string | null | undefined): boolean {
+    const n = normalizeKey(raw);
+    if (!n) return false;
+    return (
+        n === 'chu dau tu thanh toan' ||
+        n.includes('chu dau tu thanh toan') ||
+        n === 'chủ đầu tư thanh toán'
+    );
+}
+
 /** Chuẩn hóa nhập Excel / legacy `thanh_toan` → nhãn hiển thị. */
 export function normalizeTinhTrangPhieuInput(raw: string | null | undefined): string {
     const t = String(raw ?? '').trim();
     if (!t) return '';
     const n = normalizeKey(t);
+    if (isLegacyChuDauTuThanhToanLabel(t)) return 'Thanh toán';
+    if (n === 'cdt thanh toan' || n === 'cđt thanh toán') return 'Thanh toán';
     if (n === 'thanh_toan' || n === 'thanh toan' || n === 'thanh toán') return 'Thanh toán';
     if (n === 'tam_ung' || n === 'tam ung' || n === 'tạm ứng') return 'Tạm ứng';
     if (

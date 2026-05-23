@@ -24,6 +24,7 @@ import {
   Eye,
 } from 'lucide-react';
 import type { TaskRow } from '../../lib/services/taskService';
+import { GiaHanCell } from '../../lib/giaHanDisplay';
 import { contractService } from '../../lib/services/contractService';
 import { customerService, type Customer } from '../../lib/services/customerService';
 import { projectService, type Project } from '../../lib/services/projectService';
@@ -147,7 +148,14 @@ type ListCongViecDraftRow = {
   ghi_chu: string;
   /** Id nhân sự — chỉ chọn trong danh sách người phụ trách của công việc */
   nhan_su_phu_trach_ids: string[];
+  ngay_gia_han_1: string;
+  ngay_gia_han_2: string;
+  ngay_gia_han_3: string;
 };
+
+function isListCvTrangThaiDone(st: TrangThaiDanhSachCongViec): boolean {
+  return st === 'Hoàn thành' || st === 'Duyệt';
+}
 
 function isoToDatetimeLocal(iso: string | null | undefined): string {
   if (!iso?.trim()) return '';
@@ -178,6 +186,9 @@ function newListCongViecDraftRow(): ListCongViecDraftRow {
     ngay_gio_hoan_thanh: '',
     ghi_chu: '',
     nhan_su_phu_trach_ids: [],
+    ngay_gia_han_1: '',
+    ngay_gia_han_2: '',
+    ngay_gia_han_3: '',
   };
 }
 
@@ -260,6 +271,9 @@ function danhSachCongViecToDraft(
     nhan_su_phu_trach_ids: Array.isArray(it.nhan_su_phu_trach_ids)
       ? it.nhan_su_phu_trach_ids.map(String).filter(Boolean)
       : [],
+    ngay_gia_han_1: it.ngay_gia_han_1?.trim() ? it.ngay_gia_han_1.trim().slice(0, 10) : '',
+    ngay_gia_han_2: it.ngay_gia_han_2?.trim() ? it.ngay_gia_han_2.trim().slice(0, 10) : '',
+    ngay_gia_han_3: it.ngay_gia_han_3?.trim() ? it.ngay_gia_han_3.trim().slice(0, 10) : '',
   }));
 }
 
@@ -2646,6 +2660,15 @@ export function QuanLyCongViec() {
                                   nhan_su_phu_trach_ids: r.nhan_su_phu_trach_ids.filter((id) =>
                                     allowedNs.has(id),
                                   ),
+                                  ngay_gia_han_1: r.ngay_gia_han_1.trim()
+                                    ? r.ngay_gia_han_1.trim().slice(0, 10)
+                                    : null,
+                                  ngay_gia_han_2: r.ngay_gia_han_2.trim()
+                                    ? r.ngay_gia_han_2.trim().slice(0, 10)
+                                    : null,
+                                  ngay_gia_han_3: r.ngay_gia_han_3.trim()
+                                    ? r.ngay_gia_han_3.trim().slice(0, 10)
+                                    : null,
                                 }));
                               setListCongViecSaving(true);
                               try {
@@ -2671,8 +2694,15 @@ export function QuanLyCongViec() {
                           </button>
                         </div>
                       </div>
+                      <div className="shrink-0 hidden sm:grid grid-cols-[minmax(0,1fr)_7rem_minmax(8rem,11rem)_auto] gap-2 px-2.5 py-1.5 border-b border-slate-300 bg-slate-100/90 text-[10px] font-bold text-slate-500 uppercase tracking-wide">
+                        <span>Nội dung</span>
+                        <span>Trạng thái</span>
+                        <span>Gia hạn</span>
+                        <span className="text-right">Thao tác</span>
+                      </div>
                       <ul className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden space-y-2 pr-0.5 [scrollbar-gutter:stable]">
                         {listCongViecDraftRows.map((row, idx) => {
+                          const listCvDone = isListCvTrangThaiDone(row.trang_thai);
                           const listCvExpanded = Boolean(listCvRowExpanded[row.key]);
                           return (
                           <li
@@ -2683,7 +2713,22 @@ export function QuanLyCongViec() {
                           >
                             {!listCvExpanded ? (
                               <div className="space-y-1">
-                                <div className="flex items-center gap-2 min-w-0">
+                                <div className="flex flex-col sm:grid sm:grid-cols-[minmax(0,1fr)_7rem_minmax(8rem,11rem)_auto] sm:items-center gap-2 min-w-0">
+                                  <input
+                                    type="text"
+                                    value={row.noi_dung}
+                                    disabled={listCongViecSaving}
+                                    onChange={(e) =>
+                                      setListCongViecDraftRows((rows) =>
+                                        rows.map((r) =>
+                                          r.key === row.key ? { ...r, noi_dung: e.target.value } : r,
+                                        ),
+                                      )
+                                    }
+                                    className="w-full min-w-0 text-[11px] font-semibold text-slate-900 rounded-md border border-transparent hover:border-slate-200 focus:border-indigo-400 focus:ring-1 focus:ring-indigo-200/80 px-1.5 py-0.5 bg-white/80"
+                                    placeholder={`Dòng ${idx + 1} — nhập nội dung`}
+                                    title={row.noi_dung.trim() || undefined}
+                                  />
                                   <select
                                     value={row.trang_thai}
                                     disabled={listCongViecSaving}
@@ -2705,7 +2750,7 @@ export function QuanLyCongViec() {
                                         ),
                                       );
                                     }}
-                                    className={`shrink-0 max-w-[7rem] sm:max-w-none text-[9px] font-bold px-1.5 py-0.5 rounded border cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed ${listCvStatusBadgeClass(row.trang_thai)}`}
+                                    className={`w-full sm:w-auto shrink-0 max-w-none text-[9px] font-bold px-1.5 py-0.5 rounded border cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed ${listCvStatusBadgeClass(row.trang_thai)}`}
                                   >
                                     {LIST_CV_TRANG_THAI_OPTIONS.map((opt) => (
                                       <option key={opt} value={opt}>
@@ -2713,22 +2758,18 @@ export function QuanLyCongViec() {
                                       </option>
                                     ))}
                                   </select>
-                                  <input
-                                    type="text"
-                                    value={row.noi_dung}
-                                    disabled={listCongViecSaving}
-                                    onChange={(e) =>
-                                      setListCongViecDraftRows((rows) =>
-                                        rows.map((r) =>
-                                          r.key === row.key ? { ...r, noi_dung: e.target.value } : r,
-                                        ),
-                                      )
-                                    }
-                                    className="flex-1 min-w-0 text-[11px] font-semibold text-slate-900 rounded-md border border-transparent hover:border-slate-200 focus:border-indigo-400 focus:ring-1 focus:ring-indigo-200/80 px-1.5 py-0.5 bg-white/80"
-                                    placeholder={`Dòng ${idx + 1} — nhập nội dung`}
-                                    title={row.noi_dung.trim() || undefined}
-                                  />
-                                  <div className="hidden sm:flex items-center gap-1.5 shrink-0 text-[9px] text-slate-500 tabular-nums">
+                                  <div className="min-w-0 px-0.5">
+                                    <span className="sm:hidden text-[9px] font-bold text-slate-500 uppercase">
+                                      Gia hạn
+                                    </span>
+                                    <GiaHanCell
+                                      ngay_gia_han_1={row.ngay_gia_han_1}
+                                      ngay_gia_han_2={row.ngay_gia_han_2}
+                                      ngay_gia_han_3={row.ngay_gia_han_3}
+                                      suppressWarning={listCvDone}
+                                    />
+                                  </div>
+                                  <div className="flex items-center justify-end gap-1.5 shrink-0 text-[9px] text-slate-500 tabular-nums">
                                     {row.nhan_su_phu_trach_ids.length > 0 ? (
                                       <span title="Nhân sự phụ trách">
                                         {row.nhan_su_phu_trach_ids.length} NS
@@ -2973,6 +3014,50 @@ export function QuanLyCongViec() {
                                 </button>
                               </div>
                             ) : null}
+                            <div className="space-y-2 pt-1 border-t border-slate-100">
+                              <p className="text-[10px] font-bold text-slate-600 uppercase tracking-wide">
+                                Gia hạn (tối đa 3 lần)
+                              </p>
+                              <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                                {(
+                                  [
+                                    ['ngay_gia_han_1', 'Lần 1'],
+                                    ['ngay_gia_han_2', 'Lần 2'],
+                                    ['ngay_gia_han_3', 'Lần 3'],
+                                  ] as const
+                                ).map(([field, label]) => (
+                                  <div key={field}>
+                                    <label className="block text-[10px] font-bold text-slate-600 mb-0.5">
+                                      {label}
+                                    </label>
+                                    <input
+                                      type="date"
+                                      value={row[field]}
+                                      disabled={listCongViecSaving}
+                                      onChange={(e) =>
+                                        setListCongViecDraftRows((rows) =>
+                                          rows.map((r) =>
+                                            r.key === row.key
+                                              ? { ...r, [field]: e.target.value }
+                                              : r,
+                                          ),
+                                        )
+                                      }
+                                      className="w-full rounded-lg border border-slate-200 px-2 py-1.5 text-[11px] bg-slate-50"
+                                    />
+                                  </div>
+                                ))}
+                              </div>
+                              <div className="flex items-center gap-2 min-h-[1.25rem]">
+                                <span className="text-[10px] text-slate-500">Hiển thị:</span>
+                                <GiaHanCell
+                                  ngay_gia_han_1={row.ngay_gia_han_1}
+                                  ngay_gia_han_2={row.ngay_gia_han_2}
+                                  ngay_gia_han_3={row.ngay_gia_han_3}
+                                  suppressWarning={listCvDone}
+                                />
+                              </div>
+                            </div>
                             <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                               <div>
                                 <label className="block text-[10px] font-bold text-slate-600 mb-0.5">

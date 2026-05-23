@@ -192,6 +192,77 @@ export const thuChiService = {
     return { deleted, requested: unique.length };
   },
 
+  /**
+   * Đổi mọi «Chủ đầu tư thanh toán» → `Thanh toán` (hiển thị CĐT thanh toán) trên tinh_trang_phieu / hang_muc_thu;
+   * trong noi_dung thay bằng chuỗi «CĐT thanh toán».
+   */
+  async migrateChuDauTuThanhToan(): Promise<{
+    updated: number;
+    tinh_trang_phieu: number;
+    hang_muc_thu: number;
+    noi_dung: number;
+  }> {
+    const supabase = getSupabase();
+    const { data: rows, error } = await supabase
+      .from('thu_chi')
+      .select('id, tinh_trang_phieu, hang_muc_thu, noi_dung');
+    if (error) throw error;
+
+    const isLegacy = (v: unknown) => {
+      const n = String(v ?? '')
+        .trim()
+        .normalize('NFC')
+        .toLowerCase()
+        .replace(/\s+/g, ' ');
+      if (!n) return false;
+      return n === 'chu dau tu thanh toan' || n.includes('chu dau tu thanh toan');
+    };
+
+    const LEGACY_TEXT = 'Chủ đầu tư thanh toán';
+    const NEW_PHIEU = 'Thanh toán';
+    const NEW_NOI_DUNG = 'CĐT thanh toán';
+
+    let updated = 0;
+    let tinhTrangCount = 0;
+    let hangMucCount = 0;
+    let noiDungCount = 0;
+
+    for (const row of rows || []) {
+      const id = String((row as { id: string }).id);
+      const patch: Record<string, string> = {};
+      const tt = (row as { tinh_trang_phieu?: string | null }).tinh_trang_phieu;
+      const hm = (row as { hang_muc_thu?: string | null }).hang_muc_thu;
+      let nd = String((row as { noi_dung?: string | null }).noi_dung ?? '');
+
+      if (isLegacy(tt)) {
+        patch.tinh_trang_phieu = NEW_PHIEU;
+        tinhTrangCount += 1;
+      }
+      if (isLegacy(hm)) {
+        patch.hang_muc_thu = NEW_PHIEU;
+        hangMucCount += 1;
+      }
+      if (nd.includes(LEGACY_TEXT)) {
+        nd = nd.split(LEGACY_TEXT).join(NEW_NOI_DUNG);
+        patch.noi_dung = nd;
+        noiDungCount += 1;
+      }
+
+      if (Object.keys(patch).length === 0) continue;
+
+      const { error: upErr } = await supabase.from('thu_chi').update(patch).eq('id', id);
+      if (upErr) throw upErr;
+      updated += 1;
+    }
+
+    return {
+      updated,
+      tinh_trang_phieu: tinhTrangCount,
+      hang_muc_thu: hangMucCount,
+      noi_dung: noiDungCount,
+    };
+  },
+
   async deleteAll(): Promise<{ deleted: number }> {
     const supabase = getSupabase();
     const { data: rows, error: selErr } = await supabase.from('thu_chi').select('id');
