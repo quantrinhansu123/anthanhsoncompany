@@ -1,6 +1,6 @@
 import React, { useEffect, useState, useMemo, useRef, useDeferredValue } from 'react';
 import { createPortal } from 'react-dom';
-import { Search, Plus, Eye, Edit, Trash2, X, ChevronDown, ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, FileText, FolderOpen, PlusCircle, User, CheckCircle, BarChart3, Briefcase, Calendar, Loader2, ArrowUp, ArrowDown, ArrowUpDown, RefreshCw } from 'lucide-react';
+import { Search, Plus, Eye, Edit, Trash2, X, ChevronDown, ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, FileText, FolderOpen, PlusCircle, User, CheckCircle, BarChart3, Briefcase, Calendar, Loader2, ArrowUp, ArrowDown, ArrowUpDown, RefreshCw, MoreVertical } from 'lucide-react';
 import { useSearchParams } from 'react-router-dom';
 import { contractService, ContractRow, ContractFile } from '../../lib/services/contractService';
 import { projectService } from '../../lib/services/projectService';
@@ -1098,6 +1098,7 @@ export function HopDong() {
     const [hdDuAnFilterSearch, setHdDuAnFilterSearch] = useState('');
     const hdDuAnFilterRef = useRef<HTMLDivElement>(null);
     const hdDuAnSearchRef = useRef<HTMLInputElement>(null);
+    const [activeDropdownId, setActiveDropdownId] = useState<string | null>(null);
     const [toast, setToast] = useState<{
         message: string;
         type: 'success' | 'info' | 'warning';
@@ -3080,7 +3081,7 @@ export function HopDong() {
                     ) : null}
                 </div>
                 <div className="overflow-x-auto">
-                <table className="w-full min-w-[1820px] text-left border-collapse">
+                <table className="w-full min-w-[1920px] text-left border-collapse">
                     <thead className="bg-[#283044] border-b border-[#1c2436]">
                         <tr>
                             <th className="px-3 py-3 w-11 text-center">
@@ -3170,6 +3171,11 @@ export function HopDong() {
                                         dir={hopDongSortDir}
                                     />
                                 </button>
+                            </th>
+                            <th className="px-3 py-3 text-xs text-right">
+                                <span className="uppercase tracking-wider font-bold text-[#f2f2ff]">
+                                    CĐT tạm ứng
+                                </span>
                             </th>
                             <th className="px-3 py-3 text-xs text-right">
                                 <button
@@ -3299,6 +3305,12 @@ export function HopDong() {
                                     >
                                         {formatCurrency(c.cdtThanhToan ?? 0)}
                                     </td>
+                                    <td
+                                        className="px-4 py-4 text-right font-mono text-sm font-semibold text-amber-700"
+                                        title="Tổng Số tiền phiếu thu — tình trạng CĐT tạm ứng (khớp Số HĐ + gói thầu)"
+                                    >
+                                        {formatCurrency(c.cdtTamUng ?? 0)}
+                                    </td>
                                     <td className="px-4 py-4 text-right font-mono text-sm font-semibold text-emerald-700">
                                         {formatCurrency(c.daThu)}
                                     </td>
@@ -3336,29 +3348,84 @@ export function HopDong() {
                                         ) : null}
                                     </td>
                                     <td className="px-6 py-4 text-center">
-                                        <div className="flex justify-center gap-1">
-                                            <button type="button" onClick={() => openChiTietHopDong(c)} className="p-1.5 rounded-md text-slate-500 hover:text-blue-700 hover:bg-blue-50">
-                                                <Eye size={14} />
-                                            </button>
-                                            <button type="button" onClick={() => openThemHopDong(c)} className="p-1.5 rounded-md text-slate-500 hover:text-amber-700 hover:bg-amber-50">
-                                                <Edit size={14} />
-                                            </button>
-                                            <button type="button" onClick={() => handleExportGoogleDocs(c, group.projectName)} className="p-1.5 rounded-md text-slate-500 hover:text-emerald-700 hover:bg-emerald-50">
-                                                <FileText size={14} />
-                                            </button>
+                                        <div className="relative inline-block text-left">
                                             <button
                                                 type="button"
-                                                onClick={() =>
-                                                    openDelete({
-                                                        id: c.id,
-                                                        uuid: hopDongRowSelectId(c) || c.uuid,
-                                                        soHopDong: c.soHopDong,
-                                                    })
-                                                }
-                                                className="p-1.5 rounded-md text-slate-500 hover:text-red-700 hover:bg-red-50"
+                                                onClick={(e) => {
+                                                    e.stopPropagation();
+                                                    setActiveDropdownId(activeDropdownId === c.uuid ? null : (c.uuid || null));
+                                                }}
+                                                className="p-1.5 rounded-full text-slate-500 hover:text-slate-700 hover:bg-slate-100 transition-colors"
+                                                title="Thao tác"
                                             >
-                                                <Trash2 size={14} />
+                                                <MoreVertical size={16} />
                                             </button>
+                                            {activeDropdownId === c.uuid && (
+                                                <>
+                                                    <div
+                                                        className="fixed inset-0 z-10"
+                                                        onClick={(e) => {
+                                                            e.stopPropagation();
+                                                            setActiveDropdownId(null);
+                                                        }}
+                                                    />
+                                                    <div className="absolute right-0 mt-1 w-44 rounded-lg bg-white shadow-lg border border-slate-200 py-1 z-20 origin-top-right animate-in fade-in slide-in-from-top-1">
+                                                        <button
+                                                            type="button"
+                                                            onClick={(e) => {
+                                                                e.stopPropagation();
+                                                                setActiveDropdownId(null);
+                                                                openChiTietHopDong(c);
+                                                            }}
+                                                            className="w-full flex items-center gap-2 px-3 py-2 text-xs text-slate-700 hover:bg-slate-50 hover:text-blue-700 text-left transition-colors font-medium"
+                                                        >
+                                                            <Eye size={14} className="text-slate-400" />
+                                                            <span>Xem chi tiết</span>
+                                                        </button>
+                                                        <button
+                                                            type="button"
+                                                            onClick={(e) => {
+                                                                e.stopPropagation();
+                                                                setActiveDropdownId(null);
+                                                                openThemHopDong(c);
+                                                            }}
+                                                            className="w-full flex items-center gap-2 px-3 py-2 text-xs text-slate-700 hover:bg-slate-50 hover:text-amber-700 text-left transition-colors font-medium"
+                                                        >
+                                                            <Edit size={14} className="text-slate-400" />
+                                                            <span>Sửa hợp đồng</span>
+                                                        </button>
+                                                        <button
+                                                            type="button"
+                                                            onClick={(e) => {
+                                                                e.stopPropagation();
+                                                                setActiveDropdownId(null);
+                                                                handleExportGoogleDocs(c, group.projectName);
+                                                            }}
+                                                            className="w-full flex items-center gap-2 px-3 py-2 text-xs text-slate-700 hover:bg-slate-50 hover:text-emerald-700 text-left transition-colors font-medium"
+                                                        >
+                                                            <FileText size={14} className="text-slate-400" />
+                                                            <span>Xuất Google Docs</span>
+                                                        </button>
+                                                        <div className="h-px bg-slate-100 my-1" />
+                                                        <button
+                                                            type="button"
+                                                            onClick={(e) => {
+                                                                e.stopPropagation();
+                                                                setActiveDropdownId(null);
+                                                                openDelete({
+                                                                    id: c.id,
+                                                                    uuid: hopDongRowSelectId(c) || c.uuid,
+                                                                    soHopDong: c.soHopDong,
+                                                                });
+                                                            }}
+                                                            className="w-full flex items-center gap-2 px-3 py-2 text-xs text-red-600 hover:bg-red-50 text-left transition-colors font-bold"
+                                                        >
+                                                            <Trash2 size={14} className="text-red-500" />
+                                                            <span>Xóa</span>
+                                                        </button>
+                                                    </div>
+                                                </>
+                                            )}
                                         </div>
                                     </td>
                                 </tr>
