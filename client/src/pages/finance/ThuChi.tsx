@@ -217,19 +217,19 @@ export function ThuChi() {
         }>
     >([]);
     const [employees, setEmployees] = useState<Array<{ id: string; full_name: string; code: string }>>([]);
-    
+
     // Filter states - sử dụng mảng để có thể chọn nhiều
     const [selectedCustomerIds, setSelectedCustomerIds] = useState<string[]>([]);
     const [selectedDuAnIds, setSelectedDuAnIds] = useState<string[]>([]);
     const [selectedHopDongIds, setSelectedHopDongIds] = useState<string[]>([]);
     const [selectedNhanSuIds, setSelectedNhanSuIds] = useState<string[]>([]);
-    
+
     // Date filter states
     const [dateFrom, setDateFrom] = useState<string>('');
     const [dateTo, setDateTo] = useState<string>('');
     const [quickDateFilter, setQuickDateFilter] = useState<string>('');
     const [selectedMonth, setSelectedMonth] = useState<string>('');
-    
+
     // Column filter dropdown states
     const [openColumnFilter, setOpenColumnFilter] = useState<string | null>(null);
 
@@ -640,14 +640,14 @@ export function ThuChi() {
                         ? item.hang_muc_chi === 'chi_du_an'
                             ? 'Chi dự án'
                             : item.hang_muc_chi === 'chi_nhan_su'
-                              ? 'Chi nhân sự'
-                              : '—'
+                                ? 'Chi nhân sự'
+                                : '—'
                         : '—',
                 hang_muc_thu_display:
                     item.loai_phieu === 'Phiếu thu'
                         ? normalizeHangMucThuInput(item.hang_muc_thu) ||
-                          resolveThuChiTinhTrangDisplay(item) ||
-                          '—'
+                        resolveThuChiTinhTrangDisplay(item) ||
+                        '—'
                         : '—',
                 ten_du_an: item.ten_du_an || projInfo?.ten_du_an || '(Chưa có dự án)',
                 customer_id: customerId,
@@ -696,7 +696,7 @@ export function ThuChi() {
                 const contractsToRemove = contracts
                     .filter(c => c.du_an_id === id)
                     .map((c) => hopDongRef(c));
-                setSelectedHopDongIds(prevHd => 
+                setSelectedHopDongIds(prevHd =>
                     prevHd.filter(hdId => !contractsToRemove.includes(hdId))
                 );
             }
@@ -705,13 +705,13 @@ export function ThuChi() {
     };
 
     const toggleHopDongFilter = (id: string) => {
-        setSelectedHopDongIds(prev => 
+        setSelectedHopDongIds(prev =>
             prev.includes(id) ? prev.filter(i => i !== id) : [...prev, id]
         );
     };
 
     const toggleNhanSuFilter = (id: string) => {
-        setSelectedNhanSuIds(prev => 
+        setSelectedNhanSuIds(prev =>
             prev.includes(id) ? prev.filter(i => i !== id) : [...prev, id]
         );
     };
@@ -784,11 +784,11 @@ export function ThuChi() {
     const handleQuickDateFilter = (filter: string) => {
         setQuickDateFilter(filter);
         setSelectedMonth('');
-        
+
         const today = new Date();
         let fromDate = '';
         let toDate = '';
-        
+
         switch (filter) {
             case 'today':
                 fromDate = today.toISOString().split('T')[0];
@@ -807,7 +807,7 @@ export function ThuChi() {
             default:
                 return;
         }
-        
+
         setDateFrom(fromDate);
         setDateTo(toDate);
     };
@@ -816,7 +816,7 @@ export function ThuChi() {
     const handleMonthSelect = (month: string) => {
         setSelectedMonth(month);
         setQuickDateFilter('');
-        
+
         if (month) {
             const today = new Date();
             const year = today.getFullYear();
@@ -1120,7 +1120,7 @@ export function ThuChi() {
         if (
             !window.confirm(
                 'Đổi toàn bộ «Chủ đầu tư thanh toán» thành chuẩn «CĐT thanh toán» (cột Tình trạng) trên mọi phiếu thu chi?\n\n' +
-                    'Tình trạng / hạng mục thu được lưu «Thanh toán»; nội dung có chữ cũ được thay bằng «CĐT thanh toán».',
+                'Tình trạng / hạng mục thu được lưu «Thanh toán»; nội dung có chữ cũ được thay bằng «CĐT thanh toán».',
             )
         ) {
             return;
@@ -1606,10 +1606,10 @@ export function ThuChi() {
                     ).trim();
                     let project = tenDuAn
                         ? projects.find(
-                              (p) =>
-                                  (p.ten_du_an || '').trim().toLowerCase() ===
-                                  tenDuAn.toLowerCase(),
-                          )
+                            (p) =>
+                                (p.ten_du_an || '').trim().toLowerCase() ===
+                                tenDuAn.toLowerCase(),
+                        )
                         : undefined;
                     if (!project && soHdForProject) {
                         const cForProj = contracts.find(
@@ -1706,7 +1706,7 @@ export function ThuChi() {
                     const trangThaiHdRaw =
                         loaiPhieu === 'Phiếu thu'
                             ? normalizeTrangThaiHdInput(String(r.trang_thai_hd || '').trim()) ||
-                              TRANG_THAI_HD_PHAT_SINH
+                            TRANG_THAI_HD_PHAT_SINH
                             : '';
                     const synced = syncThuChiTrangThaiHdFields(tinhTrangPhieu, trangThaiHdRaw || null);
                     tinhTrangPhieu = synced.tinh_trang_phieu || tinhTrangPhieu;
@@ -2009,7 +2009,7 @@ export function ThuChi() {
                                 >
                                     <div className="shrink-0 border-b border-slate-200 bg-slate-50 p-2">
                                         {customerSearchInput.trim() &&
-                                        filteredCustomersPick.length > 0 ? (
+                                            filteredCustomersPick.length > 0 ? (
                                             <button
                                                 type="button"
                                                 onMouseDown={(e) => e.preventDefault()}
@@ -2216,7 +2216,7 @@ export function ThuChi() {
                                                 </button>
                                             </th>
                                             <th className="px-6 py-3.5 font-bold min-w-[9.5rem]">Mã chứng từ</th>
-                                            <th className="px-6 py-3.5 font-bold min-w-[17rem]">Đối tượng</th>
+                                            <th className="px-6 py-3.5 font-bold min-w-[17rem]">Khách Hàng</th>
                                             <th className="px-6 py-3.5 font-bold min-w-[8rem]">Số HĐ</th>
                                             <th className="px-6 py-3.5 font-bold min-w-[16rem]">Tên gói thầu</th>
                                             <th className="px-6 py-3.5 font-bold min-w-[9rem] whitespace-nowrap">Ngày chứng từ</th>
