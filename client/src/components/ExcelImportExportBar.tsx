@@ -128,6 +128,32 @@ export function ExcelImportExportBar({
         })();
     };
 
+    const handleDownloadTemplate = () => {
+        if (disabled || exportBusy) return;
+        setMsg('Đang tạo file mẫu Excel…');
+        setExportBusy(true);
+
+        void (async () => {
+            const t0 = performance.now();
+            try {
+                await downloadExcelTemplateDeferred(columns, templateFileName, sheetName);
+                setMsg('Đã gửi lệnh tải file mẫu — kiểm tra hộp thoại/hàng Tải xuống.');
+                console.log('[ExcelExport] ui_template_success', {
+                    elapsedMs: Math.round(performance.now() - t0),
+                });
+            } catch (e: unknown) {
+                console.error('[ExcelExport] ui_template_error', {
+                    elapsedMs: Math.round(performance.now() - t0),
+                    error: e instanceof Error ? { message: e.message, stack: e.stack } : e,
+                });
+                const errText = e instanceof Error ? e.message : 'Không tải được file mẫu Excel.';
+                setMsg(errText);
+            } finally {
+                setExportBusy(false);
+            }
+        })();
+    };
+
     const handleFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
         const file = e.target.files?.[0];
         e.target.value = '';
@@ -218,6 +244,18 @@ export function ExcelImportExportBar({
                         ? 'Tải file Excel'
                         : 'Tải mẫu Excel'}
                 </button>
+
+                {(fetchExportData || (data && data.length > 0)) && (
+                    <button
+                        type="button"
+                        onClick={handleDownloadTemplate}
+                        disabled={disabled || exportBusy}
+                        className={`inline-flex items-center font-semibold border border-slate-200 bg-white text-slate-700 hover:bg-slate-50 disabled:opacity-50 ${btnBase}`}
+                    >
+                        <Download size={iconSz} />
+                        Tải mẫu Excel
+                    </button>
+                )}
 
                 {/* Không dùng display:none — một số trình duyệt chặn mở hộp thoại chọn file */}
                 <input

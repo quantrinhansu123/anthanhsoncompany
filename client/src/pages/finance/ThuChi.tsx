@@ -134,6 +134,8 @@ function mapThuChiListRowToExcel(item: {
         trang_thai_hd: item.trang_thai_hd_display || item.trang_thai_hd || '',
         so_tien: Number(item.so_tien) || 0,
         noi_dung: String(item.description || item.noi_dung || '').trim(),
+        so_hop_dong_phu: String(item.so_hop_dong_display || item.so_hop_dong || '').trim(),
+        ten_kh: String(item.customer_name || '').trim(),
     };
 }
 
@@ -241,7 +243,13 @@ export function ThuChi() {
     /** Cột mẫu tải / xuất — khớp bảng Thu chi trên màn hình. */
     const thuChiExcelColumns: ExcelColumnDef[] = [
         { key: 'ma_chung_tu', header: 'Mã chứng từ', hint: 'Chỉ khi xuất dữ liệu' },
-        { key: 'doi_tuong', header: 'Đối tượng', example: 'Tên khách hàng' },
+        { key: 'doi_tuong', header: 'Đối tượng', example: 'Tên khách hàng', matchHeaders: ['Đối tượng KH', 'Khách hàng'] },
+        {
+            key: 'ten_kh',
+            header: 'Tên khách hàng',
+            hint: 'Tự động lấy từ hợp đồng/dự án, để trống nếu chưa có',
+            matchHeaders: ['Tên KH', 'ten_khach_hang', 'Khách hàng'],
+        },
         {
             key: 'ten_da',
             header: 'Tên DA',
@@ -252,15 +260,15 @@ export function ThuChi() {
         {
             key: 'so_hop_dong',
             header: 'Số HĐ',
-            matchHeaders: ['Số hợp đồng', 'Số HĐ & PLHĐ'],
+            matchHeaders: ['Số HĐ & PLHĐ'],
         },
         { key: 'ten_goi_thau', header: 'Tên gói thầu' },
         {
             key: 'ngay',
-            header: 'Ngày chứng từ',
+            header: 'Ngày chứng',
             example: '01/03/2025',
             required: true,
-            matchHeaders: ['Ngày'],
+            matchHeaders: ['Ngày chứng từ', 'Ngày'],
         },
         {
             key: 'loai_phieu',
@@ -277,11 +285,17 @@ export function ThuChi() {
         },
         {
             key: 'trang_thai_hd',
-            header: 'Trạng thái HĐ',
+            header: 'Trạng thái',
             example: 'Có hóa đơn / Phát sinh',
+            matchHeaders: ['Trạng thái HĐ'],
         },
         { key: 'so_tien', header: 'Số tiền', example: '15000000', required: true },
         { key: 'noi_dung', header: 'Nội dung', hint: 'Ghi chú / diễn giải' },
+        {
+            key: 'so_hop_dong_phu',
+            header: 'Số hợp đồng',
+            example: 'Nhập số hợp đồng nếu có',
+        },
     ];
 
     /** Cột chỉ khi nhập (file cũ / CĐT / phiếu chi) — không có trong mẫu tải về. */
@@ -590,7 +604,7 @@ export function ThuChi() {
             const hid = item.hop_dong_id ? String(item.hop_dong_id).trim() : '';
             const linkedContract = hid ? contractByHopKey.get(hid) : undefined;
             const projInfo = projectInfoMap.get(item.du_an_id || '');
-            const customerId =
+            let customerId =
                 linkedContract?.customer_id ?? projInfo?.customer_id ?? null;
             let customerName =
                 item.customer_name ||
@@ -1239,6 +1253,12 @@ export function ThuChi() {
                 totalRows,
             });
 
+            // === DEBUG: in mẫu 3 dòng đầu để kiểm tra parse ===
+            console.log('[ExcelImport] DEBUG sample_rows (3 dòng đầu):',
+                rows.slice(0, 3).map((r, i) => ({ rowIdx: i + 2, ...r }))
+            );
+            console.log('[ExcelImport] DEBUG all_keys_in_row_0:', Object.keys(rows[0] || {}));
+
             if (isCdtTemplate) {
                 type CdtAgg = {
                     ten_da: string;
@@ -1393,7 +1413,11 @@ export function ThuChi() {
                     await ensureKhachFromCdt(tn, cleanString(r.mst_kh || '') || null);
                 }
 
+                // --- PHASE 1: Parse CDT rows -> resolve contracts -> collect payloads ---
                 const denom = Math.max(rows.length + rows2.length, 1);
+                type CdtSavePayload = Parameters<typeof thuChiService.createMany>[0][number] & { _rowLabel: string };
+                const cdtPayloads: CdtSavePayload[] = [];
+
                 for (let i = 0; i < rows2.length; i++) {
                     const r = rows2[i];
                     onProgress(rows.length + i + 1, denom);
@@ -1485,29 +1509,47 @@ export function ThuChi() {
                         }
                     }
 
+                    const syncedCdt = syncThuChiTrangThaiHdFields(
+                        r.tinh_trang_phieu,
+                        r.tinh_trang_phieu === 'Xuất hóa đơn'
+                            ? TRANG_THAI_HD_CO
+                            : TRANG_THAI_HD_PHAT_SINH,
+                    );
+                    cdtPayloads.push({
+                        _rowLabel: `CDT ${i + 2}`,
+                        loai_phieu: 'Phiếu thu',
+                        so_tien: Number(r.so_tien || 0),
+                        ngay: r.ngay,
+                        du_an_id: duAnId,
+                        hop_dong_id: hopDongId,
+                        noi_dung: r.noi_dung,
+                        tinh_trang_phieu: syncedCdt.tinh_trang_phieu,
+                        trang_thai_hd: syncedCdt.trang_thai_hd,
+                        hang_muc_thu: hangMucThuForTinhTrangPhieu(syncedCdt.tinh_trang_phieu),
+                        ten_goi_thau: String(r.ten_goi_thau || '').trim() || null,
+                    });
+                }
+
+                // --- PHASE 2: Bulk-insert CDT payloads in batches of 100 ---
+                const CDT_BATCH = 100;
+                for (let b = 0; b < cdtPayloads.length; b += CDT_BATCH) {
+                    const chunk = cdtPayloads.slice(b, b + CDT_BATCH);
+                    // Strip internal _rowLabel before sending to API
+                    const apiChunk = chunk.map(({ _rowLabel: _rl, ...rest }) => rest);
+                    const fromRow = b + 2;
+                    const toRow = Math.min(b + CDT_BATCH, cdtPayloads.length) + 1;
                     try {
-                        const syncedCdt = syncThuChiTrangThaiHdFields(
-                            r.tinh_trang_phieu,
-                            r.tinh_trang_phieu === 'Xuất hóa đơn'
-                                ? TRANG_THAI_HD_CO
-                                : TRANG_THAI_HD_PHAT_SINH,
-                        );
-                        await thuChiService.create({
-                            loai_phieu: 'Phiếu thu',
-                            so_tien: Number(r.so_tien || 0),
-                            ngay: r.ngay,
-                            du_an_id: duAnId,
-                            hop_dong_id: hopDongId,
-                            noi_dung: r.noi_dung,
-                            tinh_trang_phieu: syncedCdt.tinh_trang_phieu,
-                            trang_thai_hd: syncedCdt.trang_thai_hd,
-                            hang_muc_thu: hangMucThuForTinhTrangPhieu(syncedCdt.tinh_trang_phieu),
-                            ten_goi_thau: String(r.ten_goi_thau || '').trim() || null,
-                        });
-                        ok++;
+                        const result = await thuChiService.createMany(apiChunk);
+                        ok += Array.isArray(result) ? result.length : (result as { inserted?: number }).inserted ?? apiChunk.length;
                     } catch (e: any) {
-                        errors.push(`Dòng CDT ${i + 2}: ${e?.message || 'Lỗi tạo phiếu thu'}`);
+                        errors.push(
+                            `Lỗi lưu CDT dòng ${fromRow}–${toRow}: ${e?.message || 'Không lưu được batch'}`,
+                        );
                     }
+                    onProgress(
+                        rows.length + Math.min(b + CDT_BATCH, cdtPayloads.length),
+                        denom,
+                    );
                 }
             } else {
                 const projectKhPatched = new Set<string>();
@@ -1547,6 +1589,10 @@ export function ThuChi() {
                     return project;
                 };
 
+                // --- PHASE 1: Parse all rows locally, sync project KH, collect valid payloads ---
+                type StdSavePayload = Parameters<typeof thuChiService.createMany>[0][number] & { _rowLabel: string };
+                const validPayloads: StdSavePayload[] = [];
+
                 for (let i = 0; i < rows.length; i++) {
                     const r = rows[i];
                     onProgress(i + 1, totalRows);
@@ -1556,7 +1602,7 @@ export function ThuChi() {
                         parseMoneyVi(r.so_tien) || Number(String(r.so_tien || '').replace(/[, ]/g, ''));
                     const tenDuAn = String(r.ten_da || r.ten_du_an || '').trim();
                     const soHdForProject = String(
-                        r.so_hop_dong || r.so_hd_plhd || r.so_hd || '',
+                        r.so_hop_dong || r.so_hop_dong_phu || r.so_hd_plhd || r.so_hd || r.ma_chung_tu || '',
                     ).trim();
                     let project = tenDuAn
                         ? projects.find(
@@ -1596,7 +1642,7 @@ export function ThuChi() {
                         continue;
                     }
 
-                    const doiTuongExcel = String(r.doi_tuong || '').trim();
+                    const doiTuongExcel = String(r.doi_tuong || r.ten_kh || '').trim();
                     let projectForRow = project;
                     if (doiTuongExcel) {
                         projectForRow = await syncProjectKhachHangFromExcel(
@@ -1625,7 +1671,7 @@ export function ThuChi() {
                         hangMucChi = parseHangMucChiFromExcel(r.hang_muc_chi || '');
                     }
 
-                    const soHdRaw = String(r.so_hop_dong || r.so_hd_plhd || r.so_hd || '').trim();
+                    const soHdRaw = String(r.so_hop_dong || r.so_hop_dong_phu || r.so_hd_plhd || r.so_hd || r.ma_chung_tu || '').trim();
                     let hopDongId: string | null = null;
                     if (soHdRaw) {
                         const c = contracts.find(
@@ -1634,12 +1680,14 @@ export function ThuChi() {
                                 (!x.du_an_id || String(x.du_an_id) === String(projectForRow.id)),
                         );
                         if (!c) {
+                            // Không tìm thấy hợp đồng → vẫn lưu phiếu, gắn vào dự án, cảnh báo nhẹ
                             errors.push(
-                                `Dòng ${rowLabel}: không tìm thấy hợp đồng «${soHdRaw}» thuộc dự án`,
+                                `Dòng ${rowLabel}: cảnh báo — hợp đồng «${soHdRaw}» chưa có trong hệ thống, phiếu được lưu vào dự án (không gắn HĐ)`,
                             );
-                            continue;
+                            // hopDongId vẫn là null → lưu gắn dự án
+                        } else {
+                            hopDongId = hopDongRef(c);
                         }
-                        hopDongId = hopDongRef(c);
                     }
                     if (loaiPhieu === 'Phiếu chi' && hangMucChi === 'chi_nhan_su' && !hopDongId) {
                         errors.push(`Dòng ${rowLabel}: Chi nhân sự cần Số hợp đồng (hoặc Số HĐ & PLHĐ)`);
@@ -1666,27 +1714,42 @@ export function ThuChi() {
                         loaiPhieu === 'Phiếu thu'
                             ? hangMucThuForTinhTrangPhieu(tinhTrangPhieu, hangMucThuNorm)
                             : null;
+
+                    validPayloads.push({
+                        _rowLabel: rowLabel,
+                        loai_phieu: loaiPhieu,
+                        so_tien: soTien,
+                        ngay: parseExcelDate(r.ngay) || new Date().toISOString().split('T')[0],
+                        du_an_id: projectForRow.id,
+                        hop_dong_id: hopDongId,
+                        noi_dung: String(r.noi_dung || '').trim() || null,
+                        tinh_trang_phieu: tinhTrangPhieu,
+                        trang_thai_hd: loaiPhieu === 'Phiếu thu' ? synced.trang_thai_hd : null,
+                        hang_muc_thu: hangMucThu,
+                        ten_goi_thau: String(r.ten_goi_thau || '').trim() || null,
+                        hang_muc_chi: hangMucChi,
+                        nhan_su_id: nhanSuId,
+                    });
+                }
+
+                // --- PHASE 2: Bulk-insert valid payloads in batches of 100 ---
+                const BATCH_SIZE = 100;
+                const totalValid = validPayloads.length;
+                for (let b = 0; b < totalValid; b += BATCH_SIZE) {
+                    const chunk = validPayloads.slice(b, b + BATCH_SIZE);
+                    // Strip internal _rowLabel before sending to API
+                    const apiChunk = chunk.map(({ _rowLabel: _rl, ...rest }) => rest);
+                    const fromRow = chunk[0]?._rowLabel ?? String(b + 2);
+                    const toRow = chunk[chunk.length - 1]?._rowLabel ?? String(b + BATCH_SIZE + 1);
                     try {
-                        await thuChiService.create({
-                            loai_phieu: loaiPhieu,
-                            so_tien: soTien,
-                            ngay:
-                                parseExcelDate(r.ngay) || new Date().toISOString().split('T')[0],
-                            du_an_id: projectForRow.id,
-                            hop_dong_id: hopDongId,
-                            noi_dung: String(r.noi_dung || '').trim() || null,
-                            tinh_trang_phieu: tinhTrangPhieu,
-                            trang_thai_hd:
-                                loaiPhieu === 'Phiếu thu' ? synced.trang_thai_hd : null,
-                            hang_muc_thu: hangMucThu,
-                            ten_goi_thau: String(r.ten_goi_thau || '').trim() || null,
-                            hang_muc_chi: hangMucChi,
-                            nhan_su_id: nhanSuId,
-                        });
-                        ok++;
+                        const result = await thuChiService.createMany(apiChunk);
+                        ok += Array.isArray(result) ? result.length : (result as { inserted?: number }).inserted ?? apiChunk.length;
                     } catch (e: any) {
-                        errors.push(`Dòng ${rowLabel}: ${e?.message || 'Lỗi tạo phiếu'}`);
+                        errors.push(
+                            `Lỗi lưu nhóm dòng ${fromRow}–${toRow}: ${e?.message || 'Không lưu được batch'}`,
+                        );
                     }
+                    onProgress(Math.min(b + BATCH_SIZE, totalValid), totalRows);
                 }
             }
 
@@ -1697,6 +1760,22 @@ export function ThuChi() {
             }
 
             console.log('[ExcelImport] thuChi_import_done', { ok, errorCount: errors.length });
+
+            // === DEBUG: tóm tắt nhóm lỗi để tìm ra lý do 763 dòng bị bỏ qua ===
+            if (errors.length > 0) {
+                const errorGroups: Record<string, number> = {};
+                for (const e of errors) {
+                    // Lấy phần mô tả lỗi (bỏ số dòng ở đầu)
+                    const key = e.replace(/^Dòng \S+: /, '').replace(/«[^»]+»/g, '«…»').slice(0, 80);
+                    errorGroups[key] = (errorGroups[key] ?? 0) + 1;
+                }
+                console.warn('[ExcelImport] DEBUG error_summary (nhóm lỗi):',
+                    Object.entries(errorGroups)
+                        .sort((a, b) => b[1] - a[1])
+                        .map(([msg, count]) => `${count}x → ${msg}`)
+                );
+                console.warn('[ExcelImport] DEBUG first_10_errors:', errors.slice(0, 10));
+            }
 
             return { ok, errors };
         },
