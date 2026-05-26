@@ -102,6 +102,22 @@ BEGIN
     RAISE NOTICE 'Cột con_phai_thu đã tồn tại';
   END IF;
 
+  IF NOT EXISTS (
+    SELECT FROM information_schema.columns
+    WHERE table_schema = 'public' AND table_name = 'hop_dong' AND column_name = 'cdt_thanh_toan'
+  ) THEN
+    ALTER TABLE public.hop_dong ADD COLUMN cdt_thanh_toan NUMERIC(15,2) DEFAULT 0;
+    RAISE NOTICE 'Đã thêm cột cdt_thanh_toan';
+  END IF;
+
+  IF NOT EXISTS (
+    SELECT FROM information_schema.columns
+    WHERE table_schema = 'public' AND table_name = 'hop_dong' AND column_name = 'cdt_tam_ung'
+  ) THEN
+    ALTER TABLE public.hop_dong ADD COLUMN cdt_tam_ung NUMERIC(15,2) DEFAULT 0;
+    RAISE NOTICE 'Đã thêm cột cdt_tam_ung';
+  END IF;
+
   -- Thêm cột loai_dich_vu (nếu chưa có)
   IF NOT EXISTS (
     SELECT FROM information_schema.columns 

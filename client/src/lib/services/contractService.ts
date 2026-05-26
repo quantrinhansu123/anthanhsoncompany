@@ -31,6 +31,8 @@ export interface ContractRow {
   nguong_chi_nhan_su_loai?: string | null;
   da_thu?: number | null;
   con_phai_thu?: number | null;
+  cdt_thanh_toan?: number | null;
+  cdt_tam_ung?: number | null;
   progress?: number | null;
   phan_tram_task_hoan_thanh?: number | null;
   ngay_update?: string | null;
@@ -59,6 +61,10 @@ export const contractService = {
       dateFrom?: string;
       dateTo?: string;
       trangThai?: string;
+      khachFilter?: 'none' | 'all' | 'restricted';
+      customerIds?: string[];
+      duAnIds?: string[];
+      projectName?: string;
     } = {},
   ): Promise<any> {
     const params = new URLSearchParams();
@@ -68,6 +74,14 @@ export const contractService = {
     if (options.dateFrom) params.append('dateFrom', options.dateFrom);
     if (options.dateTo) params.append('dateTo', options.dateTo);
     if (options.trangThai) params.append('trangThai', options.trangThai);
+    if (options.khachFilter) params.append('khachFilter', options.khachFilter);
+    if (options.customerIds?.length) {
+      params.append('customerIds', options.customerIds.join(','));
+    }
+    if (options.duAnIds?.length) {
+      params.append('duAnIds', options.duAnIds.join(','));
+    }
+    if (options.projectName) params.append('projectName', options.projectName);
     
     const queryString = params.toString();
     const res = await api.get(`/contracts${queryString ? `?${queryString}` : ''}`);
@@ -114,6 +128,19 @@ export const contractService = {
 
   async bulkImport(rows: any[]): Promise<{ created: number; updated: number; errors: string[] }> {
     return api.post('/contracts/bulk-import', { rows });
+  },
+
+  async syncFinancials(
+    updates: Array<{
+      id: string;
+      gia_tri_qt?: number;
+      cdt_thanh_toan?: number;
+      cdt_tam_ung?: number;
+      da_thu?: number;
+      con_phai_thu?: number;
+    }>,
+  ): Promise<{ updated: number; errors: string[] }> {
+    return api.post('/contracts/sync-financials', { updates });
   },
 };
 

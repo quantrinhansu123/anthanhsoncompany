@@ -78,6 +78,18 @@ function buildHopDongKhachDuAnSearchOr(term: string, duAnIds: string[]): string 
 /** PostgREST/Supabase thường giới hạn ~1000 dòng mỗi response nếu không dùng range lặp */
 const HOP_DONG_FETCH_CHUNK = 1000;
 
+function isMissingCdtColumnError(msg: string): boolean {
+  return (
+    /cdt_thanh_toan|cdt_tam_ung/i.test(msg) &&
+    /column|schema|does not exist|could not find/i.test(msg)
+  );
+}
+
+function withoutCdtColumns(payload: Record<string, unknown>): Record<string, unknown> {
+  const { cdt_thanh_toan: _a, cdt_tam_ung: _b, ...rest } = payload;
+  return rest;
+}
+
 function mapHopDongRows(data: any[] | null | undefined) {
   return (data || []).map((row: any) => {
     /** PK bảng hop_dong (có thể là cột id hoặc contract_id tùy migration). */
@@ -102,6 +114,54 @@ function mapHopDongRows(data: any[] | null | undefined) {
   });
 }
 
+type HopDongListKhachFilter = 'none' | 'all' | 'restricted';
+
+function applyHopDongKhachDuAnFilters(
+  query: any,
+  opts: {
+    khachFilter?: HopDongListKhachFilter;
+    customerIds?: string[];
+    duAnIds?: string[];
+    projectName?: string;
+  },
+) {
+  let q = query;
+
+  const projectName = String(opts.projectName ?? '').trim();
+  if (projectName) {
+    q = q.eq('project_name', projectName);
+  }
+
+  const duAnIds = (opts.duAnIds ?? []).map((id) => String(id).trim()).filter(Boolean);
+  const customerIds = (opts.customerIds ?? []).map((id) => String(id).trim()).filter(Boolean);
+  const khachFilter = opts.khachFilter ?? 'all';
+
+  if (khachFilter === 'none') {
+    return q.eq('id', '00000000-0000-0000-0000-000000000000');
+  }
+
+  if (khachFilter === 'restricted') {
+    const parts: string[] = [];
+    if (customerIds.length > 0) {
+      parts.push(`customer_id.in.(${customerIds.join(',')})`);
+    }
+    if (duAnIds.length > 0) {
+      parts.push(`du_an_id.in.(${duAnIds.join(',')})`);
+    }
+    if (parts.length === 0) {
+      return q.eq('id', '00000000-0000-0000-0000-000000000000');
+    }
+    q = q.or(parts.join(','));
+    return q;
+  }
+
+  // all — chỉ lọc dự án nếu có
+  if (duAnIds.length > 0) {
+    q = q.in('du_an_id', duAnIds);
+  }
+  return q;
+}
+
 export const contractService = {
   async getAll(
     options: {
@@ -111,9 +171,24 @@ export const contractService = {
       dateFrom?: string;
       dateTo?: string;
       trangThai?: string;
+      khachFilter?: HopDongListKhachFilter;
+      customerIds?: string[];
+      duAnIds?: string[];
+      projectName?: string;
     } = {},
   ) {
-    const { page, pageSize, search, dateFrom, dateTo, trangThai } = options;
+    const {
+      page,
+      pageSize,
+      search,
+      dateFrom,
+      dateTo,
+      trangThai,
+      khachFilter,
+      customerIds,
+      duAnIds,
+      projectName,
+    } = options;
     const supabase = getSupabase();
     const searchTerm = String(search ?? '').trim();
     const searchDuAnIds = searchTerm
@@ -149,6 +224,13 @@ export const contractService = {
       } else if (status === 'Hoàn thành') {
         query = query.eq('trang_thai', 'Hoàn thành');
       }
+
+      query = applyHopDongKhachDuAnFilters(query, {
+        khachFilter,
+        customerIds,
+        duAnIds,
+        projectName,
+      });
 
       return query.order('ngay_ky_hd', { ascending: false });
     };
@@ -322,6 +404,68 @@ export const contractService = {
     return { deleted };
   },
 
+  /**
+   * Cập nhật hàng loạt cột tài chính HĐ (một HTTP request — tránh hàng trăm PUT từ trình duyệt).
+   */
+  async syncFinancials(
+    updates: Array<{
+      id: string;
+      gia_tri_qt?: number;
+      cdt_thanh_toan?: number;
+      cdt_tam_ung?: number;
+      da_thu?: number;
+      con_phai_thu?: number;
+    }>,
+  ) {
+    const supabase = getSupabase();
+    let updated = 0;
+    const errors: string[] = [];
+
+    for (const row of updates) {
+      const sid = String(row.id ?? '').trim();
+      if (!sid) continue;
+
+      const fullPayload: Record<string, number> = {};
+      if (row.gia_tri_qt !== undefined) fullPayload.gia_tri_qt = Number(row.gia_tri_qt) || 0;
+      if (row.cdt_thanh_toan !== undefined) fullPayload.cdt_thanh_toan = Number(row.cdt_thanh_toan) || 0;
+      if (row.cdt_tam_ung !== undefined) fullPayload.cdt_tam_ung = Number(row.cdt_tam_ung) || 0;
+      if (row.da_thu !== undefined) fullPayload.da_thu = Number(row.da_thu) || 0;
+      if (row.con_phai_thu !== undefined) fullPayload.con_phai_thu = Number(row.con_phai_thu) || 0;
+
+      const legacyPayload = {
+        gia_tri_qt: fullPayload.gia_tri_qt,
+        da_thu: fullPayload.da_thu,
+        con_phai_thu: fullPayload.con_phai_thu,
+      };
+
+      const tryUpdate = async (payload: Record<string, number>) => {
+        let res = await supabase.from('hop_dong').update(payload).eq('id', sid).select('id');
+        if (res.error) return res;
+        if (!res.data?.length) {
+          res = await supabase.from('hop_dong').update(payload).eq('contract_id', sid).select('id');
+        }
+        return res;
+      };
+
+      try {
+        let res = await tryUpdate(fullPayload);
+        if (res.error && isMissingCdtColumnError(String(res.error.message ?? ''))) {
+          res = await tryUpdate(legacyPayload as Record<string, number>);
+        }
+        if (res.error) throw res.error;
+        if (!res.data?.length) {
+          errors.push(`${sid}: Không tìm thấy HĐ để cập nhật.`);
+          continue;
+        }
+        updated += 1;
+      } catch (err: any) {
+        errors.push(`${sid}: ${err?.message || String(err)}`);
+      }
+    }
+
+    return { updated, errors };
+  },
+
   async bulkImport(rows: any[]) {
     const supabase = getSupabase();
     
@@ -427,6 +571,14 @@ export const contractService = {
             row.con_phai_thu !== undefined && row.con_phai_thu !== null
               ? Number(row.con_phai_thu)
               : null,
+          cdt_thanh_toan:
+            row.cdt_thanh_toan !== undefined && row.cdt_thanh_toan !== null
+              ? Number(row.cdt_thanh_toan)
+              : null,
+          cdt_tam_ung:
+            row.cdt_tam_ung !== undefined && row.cdt_tam_ung !== null
+              ? Number(row.cdt_tam_ung)
+              : null,
           customer_name:
             row.customer_name || row.ten_khach_hang || row.ten_day_du_chu_dau_tu || null,
           ten_day_du_chu_dau_tu: row.ten_day_du_chu_dau_tu || null,
@@ -464,10 +616,18 @@ export const contractService = {
 
           const pkCol = existing.id ? 'id' : 'contract_id';
           if (changed) {
-            const { error: updateError } = await supabase
+            let { error: updateError } = await supabase
               .from('hop_dong')
               .update(updatePayload)
               .eq(pkCol, existing[pkCol]);
+
+            if (updateError && isMissingCdtColumnError(String(updateError.message ?? ''))) {
+              const retry = await supabase
+                .from('hop_dong')
+                .update(withoutCdtColumns(updatePayload))
+                .eq(pkCol, existing[pkCol]);
+              updateError = retry.error;
+            }
 
             if (updateError) throw updateError;
             const merged = { ...existing, ...updatePayload };
@@ -476,11 +636,21 @@ export const contractService = {
           results.updated++;
           touchedKeysInBatch.add(rowKey);
         } else {
-          const { data: inserted, error: insertError } = await supabase
+          let { data: inserted, error: insertError } = await supabase
             .from('hop_dong')
             .insert([payload])
             .select('*')
             .maybeSingle();
+
+          if (insertError && isMissingCdtColumnError(String(insertError.message ?? ''))) {
+            const retry = await supabase
+              .from('hop_dong')
+              .insert([withoutCdtColumns(payload)])
+              .select('*')
+              .maybeSingle();
+            inserted = retry.data;
+            insertError = retry.error;
+          }
 
           if (insertError) throw insertError;
           results.created++;

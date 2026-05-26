@@ -3,6 +3,7 @@ import { createGenericController } from '../controllers/genericController';
 import { projectService } from '../services/projectService';
 import { taskService } from '../services/taskService';
 import { contractService } from '../services/contractService';
+import { customerService } from '../services/customerService';
 import { thuChiService } from '../services/thuChiService';
 import { aiService } from '../services/aiService';
 import employeeRoutes from './employeeRoutes';
@@ -34,6 +35,40 @@ router.use('/excel', excelRoutes);
 const projectController = createGenericController(projectService);
 const taskController = createGenericController(taskService);
 const contractController = createGenericController(contractService);
+const customerController = createGenericController(customerService);
+
+// Customers (service role — tránh RLS client trên khach_hang)
+router.get('/customers', customerController.getAll);
+router.get('/customers/:id', customerController.getById);
+router.post('/customers', customerController.create);
+router.put('/customers/:id', customerController.update);
+router.delete('/customers/all', async (req, res) => {
+  try {
+    const { deleted } = await customerService.deleteAll();
+    res.json({ deleted });
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+router.post('/customers/by-names', async (req, res) => {
+  try {
+    const { names } = req.body;
+    const data = await customerService.getByNames(Array.isArray(names) ? names : []);
+    res.json(data);
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+router.post('/customers/delete-many', async (req, res) => {
+  try {
+    const { ids } = req.body;
+    const result = await customerService.deleteMany(Array.isArray(ids) ? ids : []);
+    res.json(result);
+  } catch (err: any) {
+    res.status(500).json({ error: err.message });
+  }
+});
+router.delete('/customers/:id', customerController.delete);
 
 // Projects
 router.get('/projects', projectController.getAll);
@@ -88,6 +123,22 @@ router.post('/contracts/bulk-import', async (req, res) => {
     res.json(result);
   } catch (err: any) {
     res.status(500).json({ error: err.message });
+  }
+});
+
+router.post('/contracts/sync-financials', async (req, res) => {
+  try {
+    const updates = req.body?.updates;
+    if (!Array.isArray(updates)) {
+      return res.status(400).json({ error: 'updates must be an array' });
+    }
+    if (updates.length > 500) {
+      return res.status(400).json({ error: 'Tối đa 500 HĐ mỗi lần đồng bộ.' });
+    }
+    const result = await contractService.syncFinancials(updates);
+    res.json(result);
+  } catch (err: any) {
+    res.status(500).json({ error: err.message || 'sync-financials failed' });
   }
 });
 

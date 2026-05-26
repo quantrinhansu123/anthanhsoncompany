@@ -77,13 +77,20 @@ const THU_CHI_LIST_SELECT = `
   nhan_su:nhan_su_id(id, code, full_name, name, hoTen, anh_nhan_su)
 `;
 
-export const thuChiService = {
-  /** Danh sách thu chi (service role) — client không bị RLS chặn SELECT. */
-  async list(filterDuAnId?: string | null) {
+/** Số dòng mỗi lần gọi Supabase (PostgREST ~1000/request) — không phải giới hạn tổng. */
+const THU_CHI_FETCH_CHUNK = 1000;
+
+/** Gọi `.range` lặp đến khi hết bảng (hoặc hết bản ghi theo `du_an_id`). */
+async function fetchAllThuChiJoinedRows(filterDuAnId?: string | null): Promise<unknown[]> {
+  const allRaw: unknown[] = [];
+  let offset = 0;
+
+  for (;;) {
     let query = getSupabase()
       .from('thu_chi')
       .select(THU_CHI_LIST_SELECT)
-      .order('ngay', { ascending: false });
+      .order('ngay', { ascending: false })
+      .range(offset, offset + THU_CHI_FETCH_CHUNK - 1);
 
     if (filterDuAnId) {
       query = query.eq('du_an_id', String(filterDuAnId));
@@ -91,7 +98,23 @@ export const thuChiService = {
 
     const { data, error } = await query;
     if (error) throw error;
-    return data || [];
+
+    const batch = data ?? [];
+    if (batch.length === 0) break;
+
+    allRaw.push(...batch);
+    offset += batch.length;
+
+    if (batch.length < THU_CHI_FETCH_CHUNK) break;
+  }
+
+  return allRaw;
+}
+
+export const thuChiService = {
+  /** Danh sách thu chi đầy đủ (service role) — nhiều request nếu > THU_CHI_FETCH_CHUNK dòng. */
+  async list(filterDuAnId?: string | null) {
+    return fetchAllThuChiJoinedRows(filterDuAnId);
   },
 
   async create(payload: Record<string, unknown>) {

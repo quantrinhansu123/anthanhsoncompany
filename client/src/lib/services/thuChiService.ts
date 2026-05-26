@@ -70,6 +70,41 @@ const THU_CHI_LIST_SELECT = `
   nhan_su:nhan_su_id(id, code, full_name, name, hoTen, anh_nhan_su)
 `;
 
+/** Số dòng mỗi lần gọi Supabase — gọi lặp đến hết, không giới hạn 1000 tổng. */
+const THU_CHI_FETCH_CHUNK = 1000;
+
+async function fetchAllThuChiJoinedFromSupabase(
+  filterDuAnId?: string | null,
+): Promise<ThuChiRow[]> {
+  const allRaw: any[] = [];
+  let offset = 0;
+
+  for (;;) {
+    let query = supabase
+      .from('thu_chi')
+      .select(THU_CHI_LIST_SELECT)
+      .order('ngay', { ascending: false })
+      .range(offset, offset + THU_CHI_FETCH_CHUNK - 1);
+
+    if (filterDuAnId) {
+      query = query.eq('du_an_id', String(filterDuAnId));
+    }
+
+    const { data, error } = await query;
+    if (error) throw error;
+
+    const batch = data ?? [];
+    if (batch.length === 0) break;
+
+    allRaw.push(...batch);
+    offset += batch.length;
+
+    if (batch.length < THU_CHI_FETCH_CHUNK) break;
+  }
+
+  return allRaw.map(mapThuChiJoinedRow);
+}
+
 function mapThuChiJoinedRow(row: any): ThuChiRow {
   const duAn = row.du_an;
   const hopDong = row.hop_dong;
@@ -144,21 +179,12 @@ export const thuChiService = {
       return rows.map(mapThuChiJoinedRow);
     } catch (apiErr) {
       console.warn('[thuChiService] fetchJoinedList API failed, thử Supabase trực tiếp:', apiErr);
-      let query = supabase
-        .from('thu_chi')
-        .select(THU_CHI_LIST_SELECT)
-        .order('ngay', { ascending: false });
-
-      if (filterDuAnId) {
-        query = query.eq('du_an_id', filterDuAnId);
-      }
-
-      const { data, error } = await query;
-      if (error) {
+      try {
+        return await fetchAllThuChiJoinedFromSupabase(filterDuAnId);
+      } catch (error) {
         console.error('[thuChiService] fetchJoinedList:', error);
         throw error;
       }
-      return (data || []).map(mapThuChiJoinedRow);
     }
   },
 

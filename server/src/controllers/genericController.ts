@@ -4,6 +4,12 @@ export const createGenericController = (service: any) => ({
   async getAll(req: Request, res: Response) {
     try {
       const isPaged = req.query.page !== undefined;
+      const parseCsv = (v: unknown) =>
+        String(v ?? '')
+          .split(',')
+          .map((s) => s.trim())
+          .filter(Boolean);
+
       const options = {
         page: req.query.page ? Number(req.query.page) : undefined,
         pageSize: req.query.pageSize ? Number(req.query.pageSize) : undefined,
@@ -11,6 +17,10 @@ export const createGenericController = (service: any) => ({
         dateFrom: req.query.dateFrom as string | undefined,
         dateTo: req.query.dateTo as string | undefined,
         trangThai: req.query.trangThai as string | undefined,
+        khachFilter: req.query.khachFilter as 'none' | 'all' | 'restricted' | undefined,
+        customerIds: req.query.customerIds ? parseCsv(req.query.customerIds) : undefined,
+        duAnIds: req.query.duAnIds ? parseCsv(req.query.duAnIds) : undefined,
+        projectName: req.query.projectName as string | undefined,
       };
       const result = await service.getAll(options);
       

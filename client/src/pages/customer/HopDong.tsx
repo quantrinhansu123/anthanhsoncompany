@@ -22,11 +22,20 @@ import {
 } from '../../lib/excelTableTools';
 import { cn } from '../../lib/utils';
 import { PAGE_SIZE_OPTIONS, buildVisiblePages } from '../../lib/tablePagination';
+import { isThuChiXuatHoaDonRow } from '../../lib/thuChiTinhTrang';
 import {
-    isLegacyChuDauTuThanhToanLabel,
-    isThuChiXuatHoaDonRow,
-    resolveThuChiTinhTrangDisplay,
-} from '../../lib/thuChiTinhTrang';
+    buildThuChiHopDongAmountMaps,
+    buildThuChiSoHopDongPresence,
+    contractThuChiMatchKind,
+    enrichThuChiForHopDongMatch,
+    EMPTY_THU_CHI_SO_PRESENCE,
+    contractHopDongLookupIds,
+    hopDongHopDongNoiDungKey,
+    isThuChiCdtThanhToanRow,
+    isThuChiCdtTamUngRow,
+    resolveThuChiAmountForContractRow,
+    type ThuChiHopDongAmountMaps,
+} from '../../lib/hopDongThuChiMatch';
 
 type HopDongTienDo = 'Đang thực hiện' | 'Hoàn thành';
 
@@ -101,10 +110,9 @@ interface Contract {
     nguongChiNhanSuLoai: NguongChiNhanSuLoai;
     /** Tiền quy đổi (QT × % hoặc nhập VND) */
     nguongChiNhanSuTien: number;
+    /** CĐT thanh toán + CĐT tạm ứng. */
     daThu: number;
-    /** Tổng phiếu thu Thu chi — tình trạng / hạng mục «CĐT thanh toán» (Thanh toán). */
     cdtThanhToan: number;
-    /** Tổng phiếu thu — «CĐT tạm ứng» (dùng tính CĐT nợ). */
     cdtTamUng: number;
     conPhaiThu: number;
     ngayUpdate: string;
@@ -121,6 +129,8 @@ interface Contract {
     trangThai: HopDongTienDo;
     /** PK bảng hop_dong — dùng khi xóa (khác id logic / thu_chi). */
     hopDongRowId?: string;
+    /** `contract_id` / id logic API — khớp `thu_chi.hop_dong_id` khi khác PK. */
+    contractRefId?: string;
 }
 
 interface ProjectGroup {
@@ -149,6 +159,7 @@ type HopDongSortKey =
     | 'gia_tri_hd'
     | 'gia_tri_qt'
     | 'cdt_thanh_toan'
+    | 'cdt_tam_ung'
     | 'da_thu'
     | 'con_phai_thu'
     | 'ngay_update'
@@ -433,7 +444,20 @@ function hopDongKhachFilterMatches(
     return false;
 }
 
-/** CĐT nợ = Giá xuất HĐ − (CĐT thanh toán + CĐT tạm ứng). Mẫu Excel HĐ không có cột thu — mặc định 0; nhập thu qua module Thu chi. */
+function hopDongDaThuFromParts(cdtThanhToan: number, cdtTamUng: number): number {
+    return (Number(cdtThanhToan) || 0) + (Number(cdtTamUng) || 0);
+}
+
+/** CĐT nợ = Giá xuất HĐ − Đã thu (Đã thu = CĐT thanh toán + CĐT tạm ứng). */
+function hopDongCdtNo(giaTriQT: number, daThu: number): number {
+    return Math.max(0, (Number(giaTriQT) || 0) - daThu);
+}
+
+function hopDongCdtNoFromContract(c: Pick<Contract, 'giaTriQT' | 'cdtThanhToan' | 'cdtTamUng'>): number {
+    return hopDongCdtNo(c.giaTriQT, hopDongDaThuFromParts(c.cdtThanhToan ?? 0, c.cdtTamUng ?? 0));
+}
+
+/** Mẫu Excel HĐ không có cột thu — mặc định 0; nhập thu qua module Thu chi. */
 function recalcHopDongThuTuExcel(row: {
     gia_tri_qt?: number;
     cdt_thanh_toan?: number;
@@ -449,7 +473,7 @@ function recalcHopDongThuTuExcel(row: {
     row.cdt_tam_ung = tamUng;
     const daThu = thanhToan + tamUng;
     row.da_thu = daThu;
-    const cdtNo = Math.max(0, giaQt - daThu);
+    const cdtNo = hopDongCdtNo(giaQt, daThu);
     row.cdt_no = cdtNo;
     row.con_phai_thu = cdtNo;
 }
@@ -655,31 +679,13 @@ async function syncPhieuThuTuExcelHopDong(
     }
 }
 
-function isPhieuThuLoai(loai: string | null | undefined): boolean {
-    const n = String(loai ?? '')
-        .trim()
-        .normalize('NFC')
-        .toLowerCase();
-    return n === 'phiếu thu' || n === 'phieu thu';
-}
-
-/** Tổng tiền theo map Thu chi: `hop_dong_id` có thể là PK `hop_dong` hoặc `contract_id`. */
-function sumThuChiMapForHopDong(c: ContractRow, amountMap: Map<string, number>): number {
-    const rowPk = c.hop_dong_row_id != null ? String(c.hop_dong_row_id).trim() : '';
-    const logicalId = c.id != null ? String(c.id).trim() : '';
-    const keys = [...new Set([rowPk, logicalId].filter(Boolean))];
-    if (keys.length === 0) return 0;
-    if (keys.length === 1) return amountMap.get(keys[0]!) ?? 0;
-    const amounts = keys.map((k) => amountMap.get(k) ?? 0).filter((v) => v > 0);
-    if (amounts.length === 0) return 0;
-    if (amounts.length === 1) return amounts[0];
-    return Math.max(...amounts);
-}
-
 function contractRowFromHopDongContract(c: Contract, projectName?: string | null): ContractRow {
+    const rowPk = String(c.hopDongRowId ?? c.uuid ?? '').trim();
+    const contractRef = String(c.contractRefId ?? '').trim();
     return {
-        hop_dong_row_id: c.hopDongRowId ?? c.uuid,
-        id: c.uuid,
+        hop_dong_row_id: rowPk || contractRef || undefined,
+        id: contractRef || rowPk || undefined,
+        contract_id: contractRef || undefined,
         du_an_id: c.duAnId ?? null,
         project_name: projectName ?? undefined,
         so_hop_dong: c.soHopDong,
@@ -687,66 +693,80 @@ function contractRowFromHopDongContract(c: Contract, projectName?: string | null
     };
 }
 
-/** Gộp Số tiền Thu chi theo `hop_dong_id` hoặc khớp (Dự án + Số HĐ + gói thầu). */
-function buildThuChiAmountMaps(
-    rows: ThuChiRow[],
-    includeRow: (tc: ThuChiRow) => boolean,
-): GiaXuatHdMaps {
-    const byHopDongId = new Map<string, number>();
-    const byMatchKey = new Map<string, number>();
-    for (const tc of rows) {
-        if (!includeRow(tc)) continue;
-        const amount = Number(tc.so_tien) || 0;
-        if (amount <= 0) continue;
-        const hid = tc.hop_dong_id != null ? String(tc.hop_dong_id).trim() : '';
-        if (hid) {
-            byHopDongId.set(hid, (byHopDongId.get(hid) || 0) + amount);
-            continue;
-        }
-        const mk = giaXuatThuChiMatchKey(
-            tc.du_an_id,
-            tc.ten_du_an,
-            tc.so_hop_dong,
-            tc.ten_goi_thau,
-        );
-        if (!mk) continue;
-        byMatchKey.set(mk, (byMatchKey.get(mk) || 0) + amount);
+function resolveHopDongThuChiAmountsFromRow(
+    row: ContractRow,
+    giaXuatMaps: ThuChiHopDongAmountMaps,
+    thanhToanMaps: ThuChiHopDongAmountMaps,
+    tamUngMaps: ThuChiHopDongAmountMaps,
+): {
+    giaTriQT: number;
+    cdtThanhToan: number;
+    cdtTamUng: number;
+    daThu: number;
+    conPhaiThu: number;
+} {
+    const giaFromThuChi = resolveThuChiAmountForContractRow(row, giaXuatMaps);
+    const giaTriQT = giaFromThuChi > 0 ? giaFromThuChi : Number(row.gia_tri_qt || 0);
+
+    const mapTT = resolveThuChiAmountForContractRow(row, thanhToanMaps);
+    const mapTU = resolveThuChiAmountForContractRow(row, tamUngMaps);
+    const mapSum = mapTT + mapTU;
+
+    const dbTT = Number(row.cdt_thanh_toan ?? 0);
+    const dbTU = Number(row.cdt_tam_ung ?? 0);
+    const dbDaThu = Number(row.da_thu ?? 0);
+
+    let cdtThanhToan = mapSum > 0 ? mapTT : dbTT;
+    let cdtTamUng = mapSum > 0 ? mapTU : dbTU;
+    if (cdtThanhToan === 0 && cdtTamUng === 0 && dbDaThu > 0) {
+        cdtThanhToan = dbDaThu;
     }
-    return { byHopDongId, byMatchKey };
+
+    const daThu = hopDongDaThuFromParts(cdtThanhToan, cdtTamUng);
+    const conPhaiThu = hopDongCdtNo(giaTriQT, daThu);
+    return { giaTriQT, cdtThanhToan, cdtTamUng, daThu, conPhaiThu };
 }
+
+const EMPTY_THU_CHI_MAPS: ThuChiHopDongAmountMaps = {
+    byHopDongId: new Map(),
+    bySoDuAn: new Map(),
+    byDuAnGoiThau: new Map(),
+};
 
 function applyPhieuThuToHopDongContract(
     c: Contract,
-    phieuThuMap: Map<string, number>,
-    thanhToanMaps: GiaXuatHdMaps,
-    tamUngMaps: GiaXuatHdMaps,
+    thanhToanMaps: ThuChiHopDongAmountMaps,
+    tamUngMaps: ThuChiHopDongAmountMaps,
     projectName?: string | null,
+    sourceRow?: ContractRow,
+    giaXuatMaps: ThuChiHopDongAmountMaps = EMPTY_THU_CHI_MAPS,
 ): Contract {
-    const row = contractRowFromHopDongContract(c, projectName);
-    const daThu = sumThuChiMapForHopDong(row, phieuThuMap);
-    const cdtThanhToan = resolveGiaXuatHdForContractRow(row, thanhToanMaps);
-    const cdtTamUng = resolveGiaXuatHdForContractRow(row, tamUngMaps);
-    const giaTriQT = Number(c.giaTriQT || 0);
-    const daThuCdt = cdtThanhToan + cdtTamUng;
+    const row: ContractRow = sourceRow
+        ? {
+              ...sourceRow,
+              project_name: sourceRow.project_name || projectName || undefined,
+          }
+        : contractRowFromHopDongContract(c, projectName);
+    const amounts = resolveHopDongThuChiAmountsFromRow(
+        row,
+        giaXuatMaps,
+        thanhToanMaps,
+        tamUngMaps,
+    );
     return {
         ...c,
-        daThu,
-        cdtThanhToan,
-        cdtTamUng,
-        conPhaiThu: Math.max(0, giaTriQT - (daThuCdt > 0 ? daThuCdt : daThu)),
+        giaTriQT: amounts.giaTriQT,
+        daThu: amounts.daThu,
+        cdtThanhToan: amounts.cdtThanhToan,
+        cdtTamUng: amounts.cdtTamUng,
+        conPhaiThu: amounts.conPhaiThu,
     };
 }
 
-/** Khóa trùng đúng cột «Hợp đồng / Nội dung» trên bảng: dòng Số HĐ + dòng tên gói thầu. */
-function hopDongHopDongNoiDungKey(
-    soHopDong: string | null | undefined,
-    tenGoiThau: string | null | undefined,
-): string {
-    return `${normalizeKey(soHopDong || '')}|${normalizeKey(tenGoiThau || '')}`;
-}
-
 function contractRowPk(row: ContractRow): string {
-    return String(row.hop_dong_row_id ?? row.id ?? '').trim();
+    const rowPk = String(row.hop_dong_row_id ?? '').trim();
+    if (rowPk) return rowPk;
+    return String(row.id ?? row.contract_id ?? '').trim();
 }
 
 function contractRowPassesHopDongFilters(
@@ -842,145 +862,107 @@ function hopDongGroupCustomerKey(
     return 'empty:';
 }
 
-function normalizeHangMucThuLabel(value: string | null | undefined): string {
-    return String(value ?? '')
-        .trim()
-        .normalize('NFC')
-        .toLowerCase()
-        .replace(/\s+/g, ' ');
-}
-
-function isTamUngHangMucThu(value: string | null | undefined): boolean {
-    const normalized = normalizeHangMucThuLabel(value);
-    return normalized === 'tạm ứng' || normalized === 'tam ung';
-}
-
-/** Phiếu thu tạm ứng — hạng mục thu hoặc tình trạng phiếu (dữ liệu Thu chi). */
-function isThuChiTamUngRow(tc: ThuChiRow): boolean {
-    if (!isPhieuThuLoai(tc.loai_phieu)) return false;
-    if (isThuChiXuatHoaDonRow(tc)) return false;
-    if (resolveThuChiTinhTrangDisplay(tc) === 'Tạm ứng') return true;
-    if (isTamUngHangMucThu(tc.hang_muc_thu)) return true;
-    const st = normalizeHangMucThuLabel(tc.tinh_trang_phieu);
-    return st === 'tạm ứng' || st === 'tam ung';
-}
-
-/** Phiếu thu CĐT thanh toán — tình trạng «Thanh toán» / nhãn legacy / nội dung. */
-function isThuChiThanhToanRow(tc: ThuChiRow): boolean {
-    if (!isPhieuThuLoai(tc.loai_phieu)) return false;
-    if (isThuChiXuatHoaDonRow(tc)) return false;
-    if (resolveThuChiTinhTrangDisplay(tc) === 'Thanh toán') return true;
-    if (isLegacyChuDauTuThanhToanLabel(tc.tinh_trang_phieu)) return true;
-    if (isLegacyChuDauTuThanhToanLabel(tc.hang_muc_thu)) return true;
-    if (isThanhToanHangMucThu(tc.hang_muc_thu)) return true;
-    const st = normalizeHangMucThuLabel(tc.tinh_trang_phieu);
-    if (st === 'thanh toán' || st === 'thanh toan') return true;
-    const nd = normalizeHangMucThuLabel(tc.noi_dung);
-    return nd.includes('cđt thanh toán') || nd.includes('cdt thanh toan');
-}
-
-/** Tổng «Đã thu» = cộng cột Số tiền khi Loại = Phiếu thu (giống trang Thu chi). */
-function buildThuChiPhieuThuMap(rows: ThuChiRow[]): Map<string, number> {
-    const map = new Map<string, number>();
-    for (const tc of rows) {
-        if (!isPhieuThuLoai(tc.loai_phieu)) continue;
-        if (isThuChiXuatHoaDonRow(tc)) continue;
-        const hid = tc.hop_dong_id != null ? String(tc.hop_dong_id).trim() : '';
-        if (!hid) continue;
-        const amount = Number(tc.so_tien) || 0;
-        map.set(hid, (map.get(hid) || 0) + amount);
-    }
-    return map;
-}
-
-/** Khóa khớp HĐ: cùng dự án + Số HĐ (+ tên gói thầu nếu có) — dùng khi Thu chi chưa gắn `hop_dong_id`. */
-function giaXuatThuChiMatchKey(
-    duAnId: string | null | undefined,
-    projectName: string | null | undefined,
-    soHopDong: string | null | undefined,
-    tenGoiThau: string | null | undefined,
-): string {
-    const so = normalizeKey(soHopDong || '');
-    if (!so) return '';
-    const du = String(duAnId ?? '').trim();
-    const pn = normalizeKey(projectName || '');
-    const proj = du ? `id:${du}` : pn ? `name:${pn}` : 'name:';
-    return `${proj}|${so}|${normalizeKey(tenGoiThau || '')}`;
-}
-
-type GiaXuatHdMaps = {
-    byHopDongId: Map<string, number>;
-    byMatchKey: Map<string, number>;
-};
-
-/** Tổng Số tiền phiếu thu «Có hóa đơn» — theo HĐ hoặc theo (Dự án + Số HĐ + gói thầu). */
-function buildGiaXuatHdFromThuChiMaps(rows: ThuChiRow[]): GiaXuatHdMaps {
-    const byHopDongId = new Map<string, number>();
-    const byMatchKey = new Map<string, number>();
-    for (const tc of rows) {
-        if (!isThuChiXuatHoaDonRow(tc)) continue;
-        const amount = Number(tc.so_tien) || 0;
-        if (amount <= 0) continue;
-        const hid = tc.hop_dong_id != null ? String(tc.hop_dong_id).trim() : '';
-        if (hid) {
-            byHopDongId.set(hid, (byHopDongId.get(hid) || 0) + amount);
-            continue;
-        }
-        const mk = giaXuatThuChiMatchKey(
-            tc.du_an_id,
-            tc.ten_du_an,
-            tc.so_hop_dong,
-            tc.ten_goi_thau,
-        );
-        if (!mk) continue;
-        byMatchKey.set(mk, (byMatchKey.get(mk) || 0) + amount);
-    }
-    return { byHopDongId, byMatchKey };
-}
-
-function resolveGiaXuatHdForContractRow(c: ContractRow, maps: GiaXuatHdMaps): number {
-    const rowPk = contractRowPk(c);
-    const logicalId = c.id != null ? String(c.id).trim() : '';
-    const ids = [...new Set([rowPk, logicalId].filter(Boolean))];
-    let fromHopDong = 0;
-    for (const id of ids) {
-        fromHopDong = Math.max(fromHopDong, maps.byHopDongId.get(id) || 0);
-    }
-    if (fromHopDong > 0) return fromHopDong;
-    const mk = giaXuatThuChiMatchKey(
-        c.du_an_id,
-        c.project_name,
-        c.so_hop_dong,
-        c.ten_goi_thau,
+function buildGiaXuatHdFromThuChiMaps(
+    rows: ThuChiRow[],
+    contracts: ContractRow[] = [],
+    preEnrichedRows?: ThuChiRow[],
+): ThuChiHopDongAmountMaps {
+    return buildThuChiHopDongAmountMaps(
+        rows,
+        isThuChiXuatHoaDonRow,
+        contracts,
+        preEnrichedRows,
     );
-    return mk ? maps.byMatchKey.get(mk) || 0 : 0;
 }
 
-async function persistGiaXuatHdFromThuChi(
+function resolveGiaXuatHdForContractRow(
+    c: ContractRow,
+    maps: ThuChiHopDongAmountMaps,
+): number {
+    return resolveThuChiAmountForContractRow(c, maps);
+}
+
+function formatHopDongApiError(err: unknown): string {
+    if (err instanceof Error && err.message.trim()) return err.message.trim();
+    if (typeof err === 'string' && err.trim()) return err.trim();
+    return 'Lỗi kết nối server — kiểm tra server đang chạy (npm run dev trong thư mục server).';
+}
+
+const HOP_DONG_SYNC_FINANCIALS_CHUNK = 80;
+
+/** Ghi Giá xuất HĐ + CĐT thanh toán / tạm ứng + Đã thu + CĐT nợ xuống DB `hop_dong` (theo lô, một request/lô). */
+async function persistHopDongThuChiSync(
     contracts: ContractRow[],
-    maps: GiaXuatHdMaps,
-): Promise<number> {
-    let updated = 0;
+    giaXuatMaps: ThuChiHopDongAmountMaps,
+    thanhToanMaps: ThuChiHopDongAmountMaps,
+    tamUngMaps: ThuChiHopDongAmountMaps,
+): Promise<{ updated: number; errors: number; errorMessages: string[] }> {
+    const pending: Array<{
+        id: string;
+        gia_tri_qt: number;
+        cdt_thanh_toan: number;
+        cdt_tam_ung: number;
+        da_thu: number;
+        con_phai_thu: number;
+        row: ContractRow;
+    }> = [];
+
     for (const c of contracts) {
-        const newQt = resolveGiaXuatHdForContractRow(c, maps);
-        const oldQt = Number(c.gia_tri_qt || 0);
-        if (newQt === oldQt) continue;
+        const amounts = resolveHopDongThuChiAmountsFromRow(
+            c,
+            giaXuatMaps,
+            thanhToanMaps,
+            tamUngMaps,
+        );
         const id = contractRowPk(c);
         if (!id) continue;
+
+        const unchanged =
+            Number(c.gia_tri_qt || 0) === amounts.giaTriQT &&
+            Number(c.cdt_thanh_toan ?? 0) === amounts.cdtThanhToan &&
+            Number(c.cdt_tam_ung ?? 0) === amounts.cdtTamUng &&
+            Number(c.da_thu ?? 0) === amounts.daThu &&
+            Number(c.con_phai_thu ?? 0) === amounts.conPhaiThu;
+        if (unchanged) continue;
+
+        pending.push({
+            id,
+            gia_tri_qt: amounts.giaTriQT,
+            cdt_thanh_toan: amounts.cdtThanhToan,
+            cdt_tam_ung: amounts.cdtTamUng,
+            da_thu: amounts.daThu,
+            con_phai_thu: amounts.conPhaiThu,
+            row: c,
+        });
+    }
+
+    let updated = 0;
+    const errorMessages: string[] = [];
+
+    for (let i = 0; i < pending.length; i += HOP_DONG_SYNC_FINANCIALS_CHUNK) {
+        const chunk = pending.slice(i, i + HOP_DONG_SYNC_FINANCIALS_CHUNK);
         try {
-            await contractService.update(id, { gia_tri_qt: newQt });
-            c.gia_tri_qt = newQt;
-            updated += 1;
+            const res = await contractService.syncFinancials(
+                chunk.map(({ row: _r, ...payload }) => payload),
+            );
+            updated += res.updated || 0;
+            if (res.errors?.length) errorMessages.push(...res.errors);
+            for (const item of chunk) {
+                Object.assign(item.row, {
+                    gia_tri_qt: item.gia_tri_qt,
+                    cdt_thanh_toan: item.cdt_thanh_toan,
+                    cdt_tam_ung: item.cdt_tam_ung,
+                    da_thu: item.da_thu,
+                    con_phai_thu: item.con_phai_thu,
+                });
+            }
         } catch (err) {
-            console.warn('[HopDong] sync gia_tri_qt:', id, err);
+            errorMessages.push(formatHopDongApiError(err));
+            break;
         }
     }
-    return updated;
-}
 
-function isThanhToanHangMucThu(value: string | null | undefined): boolean {
-    const normalized = normalizeHangMucThuLabel(value);
-    return normalized === 'thanh toán' || normalized === 'thanh toan';
+    return { updated, errors: errorMessages.length, errorMessages };
 }
 
 function Toast({ message, type, onClose, action }: {
@@ -1046,6 +1028,95 @@ function isHopDongKhachFilterRestricted(keys: string[]): boolean {
     return keys.length > 0 && !isHopDongKhachFilterNone(keys);
 }
 
+/** Chuyển bộ lọc khách checkbox → tham số API (lọc trước khi phân trang). */
+function resolveHopDongKhachFilterForServer(
+    keys: string[],
+    projectsMeta: ProjectMetaRow[],
+): {
+    khachFilter: 'none' | 'all' | 'restricted';
+    customerIds: string[];
+    duAnIdsFromKhach: string[];
+} {
+    if (isHopDongKhachFilterNone(keys)) {
+        return { khachFilter: 'none', customerIds: [], duAnIdsFromKhach: [] };
+    }
+    if (isHopDongKhachFilterAll(keys)) {
+        return { khachFilter: 'all', customerIds: [], duAnIdsFromKhach: [] };
+    }
+
+    const customerIds = new Set<string>();
+    const duAnIdsFromKhach = new Set<string>();
+
+    for (const sk of keys) {
+        if (sk.startsWith('id:')) {
+            customerIds.add(sk.slice(3));
+            continue;
+        }
+        if (sk.startsWith('name:')) {
+            for (const p of projectsMeta) {
+                const label = resolveHopDongKhachHangDisplay({
+                    projectCustomerName: p.customer_name,
+                    projectTenKhachHang: p.ten_khach_hang,
+                });
+                if (label && hopDongKhachHangNameKey(label) === sk) {
+                    duAnIdsFromKhach.add(String(p.id));
+                    if (p.customer_id) customerIds.add(String(p.customer_id).trim());
+                }
+            }
+        }
+    }
+
+    for (const cid of customerIds) {
+        for (const p of projectsMeta) {
+            if (String(p.customer_id ?? '').trim() === cid) {
+                duAnIdsFromKhach.add(String(p.id));
+            }
+        }
+    }
+
+    return {
+        khachFilter: 'restricted',
+        customerIds: [...customerIds],
+        duAnIdsFromKhach: [...duAnIdsFromKhach],
+    };
+}
+
+function buildHopDongContractsListQuery(
+    filterHopDongKhachKeys: string[],
+    filterHopDongDuAnIds: string[],
+    filterFromUrl: string | null,
+    projectsMeta: ProjectMetaRow[],
+) {
+    const khach = resolveHopDongKhachFilterForServer(filterHopDongKhachKeys, projectsMeta);
+    let duAnIds = filterHopDongDuAnIds.map((id) => String(id).trim()).filter(Boolean);
+
+    if (khach.khachFilter === 'restricted') {
+        if (duAnIds.length > 0 && khach.duAnIdsFromKhach.length > 0) {
+            const allow = new Set(khach.duAnIdsFromKhach);
+            duAnIds = duAnIds.filter((id) => allow.has(id));
+        } else if (duAnIds.length === 0) {
+            duAnIds = khach.duAnIdsFromKhach;
+        }
+    }
+
+    const out: {
+        khachFilter: 'none' | 'all' | 'restricted';
+        customerIds?: string[];
+        duAnIds?: string[];
+        projectName?: string;
+    } = {
+        khachFilter: khach.khachFilter,
+        projectName: filterFromUrl?.trim() || undefined,
+    };
+    if (khach.khachFilter === 'restricted' && khach.customerIds.length > 0) {
+        out.customerIds = khach.customerIds;
+    }
+    if (duAnIds.length > 0) {
+        out.duAnIds = duAnIds;
+    }
+    return out;
+}
+
 export function HopDong() {
     const [searchParams] = useSearchParams();
     const filterFromUrl = searchParams.get('project');
@@ -1075,8 +1146,10 @@ export function HopDong() {
     const [isListFetching, setIsListFetching] = useState(false);
     const contractsFetchIdRef = useRef(0);
     const allThuChiRef = useRef<ThuChiRow[]>([]);
+    const allContractsRef = useRef<ContractRow[]>([]);
+    /** Tăng khi danh mục HĐ tải xong — buộc build lại map khớp Thu chi. */
+    const [contractCatalogTick, setContractCatalogTick] = useState(0);
     const [totalGiaTriQT, setTotalGiaTriQT] = useState(0);
-    const [totalDaThu, setTotalDaThu] = useState(0);
     const [deletingAllContracts, setDeletingAllContracts] = useState(false);
     const [allThuChi, setAllThuChi] = useState<ThuChiRow[]>([]);
     const [dongBoThuChiBusy, setDongBoThuChiBusy] = useState(false);
@@ -1170,6 +1243,10 @@ export function HopDong() {
     useEffect(() => {
         setPage(1);
     }, [filterHopDongTrangThai]);
+
+    useEffect(() => {
+        setPage(1);
+    }, [filterHopDongKhachKeys, filterHopDongDuAnIds, filterFromUrl]);
 
     useEffect(() => {
         setSelectedHopDongUuids([]);
@@ -1359,6 +1436,24 @@ export function HopDong() {
         })();
     }, []);
 
+    // Danh mục HĐ đầy đủ — khớp Thu chi theo hop_dong_id / Số HĐ
+    useEffect(() => {
+        let cancelled = false;
+        (async () => {
+            try {
+                const res = await contractService.getAll();
+                if (cancelled) return;
+                allContractsRef.current = normalizeContractGetAllRows(res);
+                setContractCatalogTick((t) => t + 1);
+            } catch (error) {
+                console.error('[HopDong] Error loading contracts for thu chi match:', error);
+            }
+        })();
+        return () => {
+            cancelled = true;
+        };
+    }, [reloadKey]);
+
     // Thu chi — chỉ tải lại khi đồng bộ / import, không gắn vào mỗi lần gõ tìm kiếm
     useEffect(() => {
         let cancelled = false;
@@ -1427,6 +1522,12 @@ export function HopDong() {
                 setIsListFetching(true);
                 if (items.length === 0) setIsLoading(true);
 
+                const listQuery = buildHopDongContractsListQuery(
+                    filterHopDongKhachKeys,
+                    filterHopDongDuAnIds,
+                    filterFromUrl,
+                    projectsMeta,
+                );
                 const response = await contractService.getAll({
                     page,
                     pageSize,
@@ -1434,14 +1535,38 @@ export function HopDong() {
                     dateFrom: dateFrom || undefined,
                     dateTo: dateTo || undefined,
                     trangThai: filterHopDongTrangThai || undefined,
+                    ...listQuery,
                 });
 
                 if (fetchId !== contractsFetchIdRef.current) return;
 
                 const thuChiRows = allThuChiRef.current;
-                const thuChiPhieuThuMap = buildThuChiPhieuThuMap(thuChiRows);
-                const thuChiThanhToanMaps = buildThuChiAmountMaps(thuChiRows, isThuChiThanhToanRow);
-                const thuChiTamUngMaps = buildThuChiAmountMaps(thuChiRows, isThuChiTamUngRow);
+                const contractCatalog = allContractsRef.current;
+                let enrichedTc = thuChiRows;
+                try {
+                    if (thuChiRows.length > 0 && contractCatalog.length > 0) {
+                        enrichedTc = enrichThuChiForHopDongMatch(thuChiRows, contractCatalog);
+                    }
+                } catch (enrichErr) {
+                    console.error('[HopDong] enrich on page fetch:', enrichErr);
+                }
+                const giaXuatMaps = buildGiaXuatHdFromThuChiMaps(
+                    thuChiRows,
+                    [],
+                    enrichedTc,
+                );
+                const thuChiThanhToanMaps = buildThuChiHopDongAmountMaps(
+                    thuChiRows,
+                    isThuChiCdtThanhToanRow,
+                    [],
+                    enrichedTc,
+                );
+                const thuChiTamUngMaps = buildThuChiHopDongAmountMaps(
+                    thuChiRows,
+                    isThuChiCdtTamUngRow,
+                    [],
+                    enrichedTc,
+                );
 
                 const contractRows = response.data || [];
                 const total = response.total || 0;
@@ -1470,20 +1595,29 @@ export function HopDong() {
                     duAnId,
                     customerLabel,
                     contracts: contracts.map((c, idx) => {
+                        const rowPk = String(c.hop_dong_row_id ?? '').trim();
+                        const contractRef = String(c.id ?? c.contract_id ?? '').trim();
                         const contractUi: Contract = {
                             id: idx + 1,
-                            uuid: String(c.hop_dong_row_id ?? c.id ?? '').trim() || undefined,
-                            hopDongRowId: String(c.hop_dong_row_id ?? c.id ?? '').trim() || undefined,
+                            uuid: rowPk || contractRef || undefined,
+                            hopDongRowId: rowPk || contractRef || undefined,
+                            contractRefId:
+                                contractRef && contractRef !== rowPk ? contractRef : undefined,
                             giaTriQT: Number(c.gia_tri_qt || 0),
                         } as Contract;
+                        const sourceRow: ContractRow = {
+                            ...c,
+                            project_name: projectName,
+                        };
                         const withThu = applyPhieuThuToHopDongContract(
                             contractUi,
-                            thuChiPhieuThuMap,
                             thuChiThanhToanMaps,
                             thuChiTamUngMaps,
                             projectName,
+                            sourceRow,
+                            giaXuatMaps,
                         );
-                        const giaTriQT = Number(c.gia_tri_qt || 0);
+                        const giaTriQT = withThu.giaTriQT ?? Number(c.gia_tri_qt || 0);
                         const loaiNs = normalizeNguongLoai(c.nguong_chi_nhan_su_loai);
                         const rawNguong = Number(c.nguong_chi_nhan_su ?? 0);
                         return {
@@ -1491,6 +1625,7 @@ export function HopDong() {
                             id: idx + 1,
                             uuid: contractUi.uuid,
                             hopDongRowId: contractUi.hopDongRowId,
+                            contractRefId: contractUi.contractRefId,
                             duAnId: c.du_an_id || null,
                             fileStatus: c.file_status || 'Chưa có file',
                             files: c.files || [],
@@ -1523,18 +1658,17 @@ export function HopDong() {
                 setItems(projectGroups);
                 setExpandedProjects(projectGroups.map(p => p.id));
 
-                // Tổng QT / đã thu chỉ cho các HĐ trên trang hiện tại (tránh nhầm với toàn hệ thống khi phân trang)
+                // Tổng QT chỉ cho các HĐ trên trang hiện tại (tránh nhầm với toàn hệ thống khi phân trang)
                 setTotalGiaTriQT(contractRows.reduce((s: number, c: any) => s + Number(c.gia_tri_qt || 0), 0));
-                setTotalDaThu(
-                    contractRows.reduce(
-                        (s: number, c: ContractRow) =>
-                            s + sumThuChiMapForHopDong(c, thuChiPhieuThuMap),
-                        0,
-                    ),
-                );
 
             } catch (error) {
                 console.error("[HopDong] Error loading paged data:", error);
+                if (fetchId === contractsFetchIdRef.current) {
+                    setToast({
+                        type: 'warning',
+                        message: formatHopDongApiError(error),
+                    });
+                }
             } finally {
                 if (fetchId === contractsFetchIdRef.current) {
                     setIsListFetching(false);
@@ -1542,30 +1676,74 @@ export function HopDong() {
                 }
             }
         })();
-    }, [page, pageSize, debouncedSearch, dateFrom, dateTo, filterHopDongTrangThai, reloadKey, projectsMeta]);
+    }, [
+        page,
+        pageSize,
+        debouncedSearch,
+        dateFrom,
+        dateTo,
+        filterHopDongTrangThai,
+        reloadKey,
+        projectsMeta,
+        filterHopDongKhachKeys,
+        filterHopDongDuAnIds,
+        filterFromUrl,
+    ]);
 
     /** Cập nhật cột thu từ Thu chi khi danh sách phiếu tải xong (không cần bấm Đồng bộ). */
     useEffect(() => {
-        if (allThuChi.length === 0 || items.length === 0) return;
-        const phieuThuMap = buildThuChiPhieuThuMap(allThuChi);
-        const thanhToanMaps = buildThuChiAmountMaps(allThuChi, isThuChiThanhToanRow);
-        const tamUngMaps = buildThuChiAmountMaps(allThuChi, isThuChiTamUngRow);
+        if (allThuChi.length === 0 || items.length === 0 || contractCatalogTick === 0) return;
+        const contractCatalog = allContractsRef.current;
+        let enrichedTc = allThuChi;
+        try {
+            enrichedTc = enrichThuChiForHopDongMatch(allThuChi, contractCatalog);
+        } catch (enrichErr) {
+            console.error('[HopDong] enrich on items update:', enrichErr);
+        }
+        const giaXuatMaps = buildGiaXuatHdFromThuChiMaps(allThuChi, [], enrichedTc);
+        const thanhToanMaps = buildThuChiHopDongAmountMaps(
+            allThuChi,
+            isThuChiCdtThanhToanRow,
+            [],
+            enrichedTc,
+        );
+        const tamUngMaps = buildThuChiHopDongAmountMaps(
+            allThuChi,
+            isThuChiCdtTamUngRow,
+            [],
+            enrichedTc,
+        );
         setItems((prev) =>
             prev.map((g) => ({
                 ...g,
-                contracts: g.contracts.map((c) =>
-                    applyPhieuThuToHopDongContract(
+                contracts: g.contracts.map((c) => {
+                    const sourceRow: ContractRow = {
+                        hop_dong_row_id: c.hopDongRowId ?? c.uuid,
+                        id: c.contractRefId ?? c.uuid,
+                        contract_id: c.contractRefId,
+                        du_an_id: c.duAnId ?? null,
+                        project_name: g.projectName,
+                        so_hop_dong: c.soHopDong,
+                        ten_goi_thau: c.tenGoiThau,
+                        gia_tri_qt: c.giaTriQT,
+                        cdt_thanh_toan: c.cdtThanhToan,
+                        cdt_tam_ung: c.cdtTamUng,
+                        da_thu: c.daThu,
+                        con_phai_thu: c.conPhaiThu,
+                    };
+                    return applyPhieuThuToHopDongContract(
                         c,
-                        phieuThuMap,
                         thanhToanMaps,
                         tamUngMaps,
                         g.projectName,
-                    ),
-                ),
+                        sourceRow,
+                        giaXuatMaps,
+                    );
+                }),
             })),
         );
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- chỉ khi nguồn Thu chi đổi
-    }, [allThuChi]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- chỉ khi nguồn Thu chi / HĐ đổi
+    }, [allThuChi, contractCatalogTick]);
 
     useEffect(() => {
         const onAccess = (ev: Event) => {
@@ -1632,28 +1810,12 @@ export function HopDong() {
     // eslint-disable-next-line react-hooks/exhaustive-deps -- chỉ mở modal một lần khi tìm thấy hàng trong `items`
     }, [items, searchParams]);
 
+    /** Khách / dự án / dự án URL đã lọc trên server — chỉ lọc tiến độ client nếu cần. */
     const filteredItems = useMemo(() => {
+        if (isHopDongKhachFilterNone(filterHopDongKhachKeys)) {
+            return [];
+        }
         return items
-            .filter((group) => {
-                if (filterFromUrl && group.projectName !== filterFromUrl) return false;
-
-                if (isHopDongKhachFilterNone(filterHopDongKhachKeys)) {
-                    return false;
-                }
-                if (
-                    isHopDongKhachFilterRestricted(filterHopDongKhachKeys) &&
-                    !hopDongKhachFilterMatches(filterHopDongKhachKeys, group, projectsMeta)
-                ) {
-                    return false;
-                }
-                if (filterHopDongDuAnIds.length > 0) {
-                    const pid =
-                        group.duAnId ||
-                        projectsMeta.find((p) => p.ten_du_an === group.projectName)?.id;
-                    if (!pid || !filterHopDongDuAnIds.includes(String(pid))) return false;
-                }
-                return true;
-            })
             .map((project) => ({
                 ...project,
                 contracts: project.contracts.filter(
@@ -1661,7 +1823,7 @@ export function HopDong() {
                 ),
             }))
             .filter((project) => project.contracts.length > 0);
-    }, [items, filterFromUrl, filterHopDongKhachKeys, filterHopDongDuAnIds, filterHopDongTrangThai, projectsMeta]);
+    }, [items, filterHopDongKhachKeys, filterHopDongTrangThai]);
 
     /** Nhóm HĐ như bảng (trừ lọc khách) — nguồn gợi ý khớp cột «Khách hàng». */
     const itemsForKhachFilterOptions = useMemo(() => {
@@ -1737,20 +1899,77 @@ export function HopDong() {
     /** Trì hoãn render bảng khi đang gõ / đang fetch — ô tìm vẫn mượt. */
     const deferredFilteredItems = useDeferredValue(filteredItems);
 
-    const thuChiThanhToanMaps = useMemo(
-        () => buildThuChiAmountMaps(allThuChi, isThuChiThanhToanRow),
-        [allThuChi],
-    );
-    const thuChiTamUngMaps = useMemo(
-        () => buildThuChiAmountMaps(allThuChi, isThuChiTamUngRow),
-        [allThuChi],
-    );
+    const enrichedAllThuChi = useMemo(() => {
+        if (allThuChi.length === 0 || contractCatalogTick === 0) return [];
+        try {
+            return enrichThuChiForHopDongMatch(allThuChi, allContractsRef.current);
+        } catch (err) {
+            console.error('[HopDong] enrichThuChiForHopDongMatch:', err);
+            return allThuChi;
+        }
+    }, [allThuChi, contractCatalogTick]);
+
+    const thuChiGiaXuatMaps = useMemo(() => {
+        if (enrichedAllThuChi.length === 0) return EMPTY_THU_CHI_MAPS;
+        try {
+            return buildGiaXuatHdFromThuChiMaps(
+                allThuChi,
+                [],
+                enrichedAllThuChi,
+            );
+        } catch (err) {
+            console.error('[HopDong] thuChiGiaXuatMaps:', err);
+            return EMPTY_THU_CHI_MAPS;
+        }
+    }, [enrichedAllThuChi, contractCatalogTick]);
+
+    const thuChiThanhToanMaps = useMemo(() => {
+        if (enrichedAllThuChi.length === 0) return EMPTY_THU_CHI_MAPS;
+        try {
+            return buildThuChiHopDongAmountMaps(
+                allThuChi,
+                isThuChiCdtThanhToanRow,
+                [],
+                enrichedAllThuChi,
+            );
+        } catch (err) {
+            console.error('[HopDong] thuChiThanhToanMaps:', err);
+            return EMPTY_THU_CHI_MAPS;
+        }
+    }, [allThuChi, enrichedAllThuChi]);
+
+    const thuChiTamUngMaps = useMemo(() => {
+        if (enrichedAllThuChi.length === 0) return EMPTY_THU_CHI_MAPS;
+        try {
+            return buildThuChiHopDongAmountMaps(
+                allThuChi,
+                isThuChiCdtTamUngRow,
+                [],
+                enrichedAllThuChi,
+            );
+        } catch (err) {
+            console.error('[HopDong] thuChiTamUngMaps:', err);
+            return EMPTY_THU_CHI_MAPS;
+        }
+    }, [allThuChi, enrichedAllThuChi]);
+
+    const thuChiSoHopDongPresence = useMemo(() => {
+        if (enrichedAllThuChi.length === 0) return EMPTY_THU_CHI_SO_PRESENCE;
+        try {
+            return buildThuChiSoHopDongPresence(allThuChi, [], enrichedAllThuChi);
+        } catch (err) {
+            console.error('[HopDong] thuChiSoHopDongPresence:', err);
+            return EMPTY_THU_CHI_SO_PRESENCE;
+        }
+    }, [allThuChi, enrichedAllThuChi]);
+
+    const thuChiMatchIndexReady = allThuChi.length > 0 && contractCatalogTick > 0;
 
     const totalTamUng = useMemo(() => {
         let sum = 0;
         for (const group of filteredItems) {
             for (const c of group.contracts) {
-                sum += resolveGiaXuatHdForContractRow(
+                sum += resolveThuChiAmountForContractRow(
                     contractRowFromHopDongContract(c, group.projectName),
                     thuChiTamUngMaps,
                 );
@@ -1763,7 +1982,7 @@ export function HopDong() {
         let sum = 0;
         for (const group of filteredItems) {
             for (const c of group.contracts) {
-                sum += resolveGiaXuatHdForContractRow(
+                sum += resolveThuChiAmountForContractRow(
                     contractRowFromHopDongContract(c, group.projectName),
                     thuChiThanhToanMaps,
                 );
@@ -1772,6 +1991,11 @@ export function HopDong() {
         return sum;
     }, [filteredItems, thuChiThanhToanMaps]);
 
+    const totalDaThu = useMemo(
+        () => totalDaThanhToan + totalTamUng,
+        [totalDaThanhToan, totalTamUng],
+    );
+
     const { totalCongNo, demHopDongCongNo, demHopDongHienThi } = useMemo(() => {
         let sum = 0;
         let count = 0;
@@ -1779,7 +2003,7 @@ export function HopDong() {
         for (const group of filteredItems) {
             for (const c of group.contracts) {
                 shown += 1;
-                const no = Math.max(0, Number(c.conPhaiThu ?? 0));
+                const no = hopDongCdtNoFromContract(c);
                 sum += no;
                 if (no > 0) count += 1;
             }
@@ -1885,11 +2109,14 @@ export function HopDong() {
                 case 'cdt_thanh_toan':
                     cmp = (a.c.cdtThanhToan ?? 0) - (b.c.cdtThanhToan ?? 0);
                     break;
+                case 'cdt_tam_ung':
+                    cmp = (a.c.cdtTamUng ?? 0) - (b.c.cdtTamUng ?? 0);
+                    break;
                 case 'da_thu':
                     cmp = a.c.daThu - b.c.daThu;
                     break;
                 case 'con_phai_thu':
-                    cmp = a.c.conPhaiThu - b.c.conPhaiThu;
+                    cmp = hopDongCdtNoFromContract(a.c) - hopDongCdtNoFromContract(b.c);
                     break;
                 case 'ngay_update':
                     cmp = parseViDateToTs(a.c.ngayUpdate) - parseViDateToTs(b.c.ngayUpdate);
@@ -1959,8 +2186,29 @@ export function HopDong() {
             setAllThuChi(thuChiRows);
 
             const allContractRows = normalizeContractGetAllRows(allContractsRes);
-            const giaXuatMaps = buildGiaXuatHdFromThuChiMaps(thuChiRows);
-            const giaXuatUpdated = await persistGiaXuatHdFromThuChi(allContractRows, giaXuatMaps);
+            allContractsRef.current = allContractRows;
+            setContractCatalogTick((t) => t + 1);
+            const giaXuatMaps = buildGiaXuatHdFromThuChiMaps(thuChiRows, allContractRows);
+            const thanhToanMapsAll = buildThuChiHopDongAmountMaps(
+                thuChiRows,
+                isThuChiCdtThanhToanRow,
+                allContractRows,
+            );
+            const tamUngMapsAll = buildThuChiHopDongAmountMaps(
+                thuChiRows,
+                isThuChiCdtTamUngRow,
+                allContractRows,
+            );
+            const {
+                updated: persistedCount,
+                errors: persistErrors,
+                errorMessages: persistErrorMessages,
+            } = await persistHopDongThuChiSync(
+                allContractRows,
+                giaXuatMaps,
+                thanhToanMapsAll,
+                tamUngMapsAll,
+            );
 
             const contracts = normalizeContractGetAllRows(res).filter((row) =>
                 contractRowPassesHopDongFilters(row, projectsMeta, {
@@ -1970,46 +2218,24 @@ export function HopDong() {
                     filterHopDongTrangThai,
                 }),
             );
-            const phieuThuMap = buildThuChiPhieuThuMap(thuChiRows);
-            const thanhToanMaps = buildThuChiAmountMaps(thuChiRows, isThuChiThanhToanRow);
-            const tamUngMaps = buildThuChiAmountMaps(thuChiRows, isThuChiTamUngRow);
+            const thanhToanMaps = thanhToanMapsAll;
+            const tamUngMaps = tamUngMapsAll;
 
-            let tongDaThu = 0;
             let tongQt = 0;
             let tongTamUng = 0;
             let tongCdtThanhToan = 0;
+            let tongCongNo = 0;
             for (const c of contracts) {
-                tongDaThu += sumThuChiMapForHopDong(c, phieuThuMap);
-                tongQt += resolveGiaXuatHdForContractRow(c, giaXuatMaps);
-                tongTamUng += resolveGiaXuatHdForContractRow(c, tamUngMaps);
-                tongCdtThanhToan += resolveGiaXuatHdForContractRow(c, thanhToanMaps);
+                const giaTriQT = resolveGiaXuatHdForContractRow(c, giaXuatMaps);
+                const cdtTT = resolveThuChiAmountForContractRow(c, thanhToanMaps);
+                const cdtTU = resolveThuChiAmountForContractRow(c, tamUngMaps);
+                tongQt += giaTriQT;
+                tongTamUng += cdtTU;
+                tongCdtThanhToan += cdtTT;
+                tongCongNo += hopDongCdtNo(giaTriQT, hopDongDaThuFromParts(cdtTT, cdtTU));
             }
 
-            let phieuThuCount = 0;
-            for (const tc of thuChiRows) {
-                if (!isPhieuThuLoai(tc.loai_phieu)) continue;
-                if (isThuChiXuatHoaDonRow(tc)) continue;
-                const hid = String(tc.hop_dong_id || '').trim();
-                const mk = !hid
-                    ? giaXuatThuChiMatchKey(tc.du_an_id, tc.ten_du_an, tc.so_hop_dong, tc.ten_goi_thau)
-                    : '';
-                const matched = contracts.some((c) => {
-                    if (hid) {
-                        const rowPk = contractRowPk(c);
-                        const logicalId = c.id != null ? String(c.id).trim() : '';
-                        return hid === rowPk || hid === logicalId;
-                    }
-                    if (!mk) return false;
-                    return (
-                        giaXuatThuChiMatchKey(c.du_an_id, c.project_name, c.so_hop_dong, c.ten_goi_thau) ===
-                        mk
-                    );
-                });
-                if (!matched) continue;
-                phieuThuCount += 1;
-            }
-
-            const tongCongNo = Math.max(0, tongQt - tongCdtThanhToan - tongTamUng);
+            const tongDaThu = tongCdtThanhToan + tongTamUng;
 
             setItems((prev) =>
                 prev.map((g) => ({
@@ -2017,38 +2243,51 @@ export function HopDong() {
                     contracts: g.contracts.map((c) => {
                         const row: ContractRow = {
                             hop_dong_row_id: c.hopDongRowId ?? c.uuid,
-                            id: c.uuid,
+                            id: c.contractRefId ?? c.uuid,
+                            contract_id: c.contractRefId,
                             du_an_id: c.duAnId ?? null,
                             project_name: g.projectName,
                             so_hop_dong: c.soHopDong,
                             ten_goi_thau: c.tenGoiThau,
                         };
-                        const giaTriQT = resolveGiaXuatHdForContractRow(row, giaXuatMaps);
                         return applyPhieuThuToHopDongContract(
-                            { ...c, giaTriQT },
-                            phieuThuMap,
+                            c,
                             thanhToanMaps,
                             tamUngMaps,
                             g.projectName,
+                            row,
+                            giaXuatMaps,
                         );
                     }),
                 })),
             );
             setTotalGiaTriQT(tongQt);
-            setTotalDaThu(tongDaThu);
-            setReloadKey((k) => k + 1);
+            const noThuChiMatch =
+                thuChiRows.length > 0 &&
+                tongDaThu === 0 &&
+                tongQt === 0 &&
+                persistedCount === 0;
+            const toastType: 'success' | 'warning' =
+                persistErrors > 0 || noThuChiMatch ? 'warning' : 'success';
             setToast({
-                type: 'success',
+                type: toastType,
                 message:
-                    `Đã đồng bộ — cập nhật Giá xuất HĐ ${giaXuatUpdated} HĐ (tổng Thu chi «Có hóa đơn» theo dự án + Số HĐ). ` +
-                    `${contracts.length} HĐ trong bộ lọc: Đã thu ${formatCurrency(tongDaThu)} đ ` +
-                    `(${phieuThuCount} phiếu thu), CĐT thanh toán ${formatCurrency(tongCdtThanhToan)} đ, ` +
-                    `Tạm ứng ${formatCurrency(tongTamUng)} đ, CĐT nợ ${formatCurrency(tongCongNo)} đ.`,
+                    `Đã đồng bộ và lưu ${persistedCount} HĐ xuống DB.` +
+                    (persistErrors > 0
+                        ? ` ${persistErrors} lỗi: ${persistErrorMessages.slice(0, 2).join('; ')}`
+                        : '') +
+                    (noThuChiMatch
+                        ? ' Không khớp phiếu Thu chi (cần cùng dự án + tên gói thầu, hoặc Số HĐ / hop_dong_id).'
+                        : '') +
+                    ` ${contracts.length} HĐ trong bộ lọc: CĐT thanh toán ${formatCurrency(tongCdtThanhToan)} đ, ` +
+                    `CĐT tạm ứng ${formatCurrency(tongTamUng)} đ, ` +
+                    `Đã thu ${formatCurrency(tongDaThu)} đ, ` +
+                    `CĐT nợ ${formatCurrency(tongCongNo)} đ.`,
             });
         } catch (e: unknown) {
             setToast({
                 type: 'warning',
-                message: e instanceof Error ? e.message : 'Không đồng bộ được dữ liệu Thu chi.',
+                message: formatHopDongApiError(e),
             });
         } finally {
             setDongBoThuChiBusy(false);
@@ -2316,12 +2555,12 @@ export function HopDong() {
                         {formatCurrency(totalDaThu)} đ
                     </p>
                     <p className="text-[9px] text-slate-500 mt-1 leading-snug line-clamp-2">
-                        Tổng Số tiền — Loại Phiếu thu (Thu chi)
+                        CĐT thanh toán + CĐT tạm ứng
                     </p>
                 </div>
                 <div className="bg-white p-3 rounded-lg shadow-sm border border-slate-200 min-w-0">
                     <p className="text-[10px] uppercase tracking-wide text-slate-500 mb-0.5 font-semibold leading-tight">
-                        Tạm ứng
+                        CĐT tạm ứng
                     </p>
                     <p
                         className="text-lg font-extrabold text-amber-700 tabular-nums leading-tight truncate"
@@ -2329,7 +2568,9 @@ export function HopDong() {
                     >
                         {formatCurrency(totalTamUng)} đ
                     </p>
-                    <p className="text-[9px] text-slate-500 mt-1 leading-snug line-clamp-2">Hạng mục thu = Tạm ứng</p>
+                    <p className="text-[9px] text-slate-500 mt-1 leading-snug line-clamp-2">
+                        Tổng Thu chi — Tình trạng CĐT tạm ứng, khớp Số HĐ (+ dự án)
+                    </p>
                 </div>
                 <div className="bg-white p-3 rounded-lg shadow-sm border border-slate-200 min-w-0">
                     <p className="text-[10px] uppercase tracking-wide text-slate-500 mb-0.5 font-semibold leading-tight">
@@ -2342,7 +2583,7 @@ export function HopDong() {
                         {formatCurrency(totalDaThanhToan)} đ
                     </p>
                     <p className="text-[9px] text-slate-500 mt-1 leading-snug line-clamp-2">
-                        Tình trạng CĐT thanh toán — khớp HĐ / Nội dung
+                        Tổng Thu chi — Tình trạng CĐT thanh toán, khớp Số HĐ (+ dự án)
                     </p>
                 </div>
                 <div className="bg-white p-3 rounded-lg shadow-sm border border-rose-200 min-w-0">
@@ -2356,7 +2597,7 @@ export function HopDong() {
                         {formatCurrency(totalCongNo)} đ
                     </p>
                     <p className="text-[9px] text-slate-500 mt-1 leading-snug line-clamp-2">
-                        Giá xuất HĐ − (TT + Tạm ứng)
+                        Giá xuất HĐ − Đã thu
                     </p>
                     <p className="text-[9px] text-slate-500 leading-snug line-clamp-2">
                         {demHopDongCongNo} HĐ còn nợ
@@ -2714,7 +2955,7 @@ export function HopDong() {
                         type="button"
                         onClick={handleDongBoThuChi}
                         disabled={isLoading || dongBoThuChiBusy}
-                        title="Đồng bộ Giá xuất HĐ từ Thu chi (Có hóa đơn) và tổng CĐT thanh toán / Tạm ứng / Đã thu / CĐT nợ — khớp theo dự án + Số HĐ + gói thầu"
+                        title="Đồng bộ Giá xuất HĐ (Có hóa đơn) và CĐT thanh toán / tạm ứng từ Thu chi — khớp theo Số HĐ (+ dự án), không theo tên gói thầu"
                         className="inline-flex items-center gap-1.5 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-xs font-bold text-amber-900 shadow-sm hover:bg-amber-100 disabled:cursor-not-allowed disabled:opacity-45"
                     >
                         {dongBoThuChiBusy ? (
@@ -2770,7 +3011,7 @@ export function HopDong() {
                                     try {
                                         // Không truyền page/pageSize để server tự fetch nhiều batch (vượt giới hạn 1000 dòng/request)
                                         const allRes = await contractService.getAll();
-                                        contractCache = allRes?.data ?? [];
+                                        contractCache = normalizeContractGetAllRows(allRes);
                                     } catch {
                                         contractCache = [];
                                     } finally {
@@ -2954,9 +3195,7 @@ export function HopDong() {
                             } catch (e: unknown) {
                                 return {
                                     ok: 0,
-                                    errors: [
-                                        e instanceof Error ? e.message : 'Lỗi kết nối server',
-                                    ],
+                                    errors: [formatHopDongApiError(e)],
                                 };
                             }
                         }}
@@ -3120,7 +3359,11 @@ export function HopDong() {
                                     onClick={() => toggleHopDongSort('hop_dong')}
                                     className="w-full inline-flex items-center gap-1.5 uppercase tracking-wider font-bold text-[#f2f2ff] hover:text-white hover:bg-white/10 rounded px-1 py-0.5 -mx-1 transition-colors text-left"
                                 >
-                                    <span>Hợp đồng / Nội dung</span>
+                                    <span
+                                        title="Xanh: có phiếu Thu chi khớp Số HĐ. Đỏ: chưa có trên Thu chi."
+                                    >
+                                        Hợp đồng / Nội dung
+                                    </span>
                                     <SortIcon active={hopDongSortKey === 'hop_dong'} dir={hopDongSortDir} />
                                 </button>
                             </th>
@@ -3173,9 +3416,17 @@ export function HopDong() {
                                 </button>
                             </th>
                             <th className="px-3 py-3 text-xs text-right">
-                                <span className="uppercase tracking-wider font-bold text-[#f2f2ff]">
-                                    CĐT tạm ứng
-                                </span>
+                                <button
+                                    type="button"
+                                    onClick={() => toggleHopDongSort('cdt_tam_ung')}
+                                    className="w-full inline-flex items-center justify-end gap-1.5 uppercase tracking-wider font-bold text-[#f2f2ff] hover:text-white hover:bg-white/10 rounded px-1 py-0.5 -mx-1 transition-colors"
+                                >
+                                    <span>CĐT tạm ứng</span>
+                                    <SortIcon
+                                        active={hopDongSortKey === 'cdt_tam_ung'}
+                                        dir={hopDongSortDir}
+                                    />
+                                </button>
                             </th>
                             <th className="px-3 py-3 text-xs text-right">
                                 <button
@@ -3223,11 +3474,55 @@ export function HopDong() {
                         </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-100">
+                        {sortedHopDongRows.length === 0 && !isListFetching && (
+                            <tr>
+                                <td
+                                    colSpan={16}
+                                    className="px-6 py-12 text-center text-sm text-slate-500"
+                                >
+                                    {isHopDongKhachFilterNone(filterHopDongKhachKeys) ? (
+                                        <>
+                                            Đang ẩn toàn bộ HĐ — bỏ chọn «Không hiển thị HĐ» hoặc tick lại
+                                            khách hàng trong bộ lọc.
+                                        </>
+                                    ) : totalContracts === 0 ? (
+                                        <>
+                                            Không có HĐ khớp bộ lọc (tìm kiếm, ngày, khách, dự án).
+                                            Thử bỏ lọc khách/dự án hoặc xóa lọc ngày.
+                                        </>
+                                    ) : (
+                                        <>
+                                            Không có HĐ trên trang {page} (đã lọc còn {totalContracts} HĐ).
+                                            Thử trang khác hoặc tăng số dòng/trang.
+                                        </>
+                                    )}
+                                </td>
+                            </tr>
+                        )}
                         {sortedHopDongRows.map(({ group, c, khachDisplay, duAnDisplay }) => {
                             const taskPct = getContractProgress(c.uuid);
                             const savingTienDo = savingTienDoId === c.uuid;
                             const rowId = hopDongRowSelectId(c);
                             const rowChecked = rowId ? selectedHopDongUuids.includes(rowId) : false;
+                            const hasSoHopDong = Boolean(String(c.soHopDong || '').trim());
+                            const contractRowForThuChi: ContractRow = {
+                                hop_dong_row_id: c.hopDongRowId ?? c.uuid,
+                                id: c.contractRefId ?? c.uuid,
+                                contract_id: c.contractRefId,
+                                du_an_id: c.duAnId ?? null,
+                                project_name: group.projectName,
+                                so_hop_dong: c.soHopDong,
+                                ten_goi_thau: c.tenGoiThau,
+                            };
+                            const thuChiMatchKind =
+                                thuChiMatchIndexReady && hasSoHopDong
+                                    ? contractThuChiMatchKind(
+                                          contractRowForThuChi,
+                                          thuChiSoHopDongPresence,
+                                      )
+                                    : 'none';
+                            const hopDongThuChiMatchedSo = thuChiMatchKind === 'so';
+                            const hopDongThuChiMatchedGoi = thuChiMatchKind === 'goi';
                             return (
                                 <tr
                                     key={c.uuid || `${group.id}-${c.id}`}
@@ -3249,10 +3544,73 @@ export function HopDong() {
                                     <td className="px-4 py-3 text-sm text-slate-800 align-top border-r border-slate-50">
                                         <span className="line-clamp-2 leading-snug font-medium">{duAnDisplay}</span>
                                     </td>
-                                    <td className="px-4 py-3">
-                                        <div className="flex flex-col">
-                                            <span className="font-bold text-slate-900 text-sm">{c.soHopDong}</span>
-                                            <span className="text-xs text-slate-500 mt-1">{c.tenGoiThau}</span>
+                                    <td
+                                        className={cn(
+                                            'px-4 py-3 align-top',
+                                            thuChiMatchIndexReady &&
+                                                hasSoHopDong &&
+                                                (hopDongThuChiMatchedSo
+                                                    ? 'bg-emerald-50/80'
+                                                    : hopDongThuChiMatchedGoi
+                                                      ? 'bg-amber-50/80'
+                                                      : 'bg-red-50/80'),
+                                        )}
+                                    >
+                                        <div
+                                            className={cn(
+                                                'flex flex-col rounded-lg border px-2.5 py-1.5',
+                                                !thuChiMatchIndexReady || !hasSoHopDong
+                                                    ? 'border-transparent'
+                                                    : hopDongThuChiMatchedSo
+                                                      ? 'border-emerald-500 bg-emerald-50 shadow-sm shadow-emerald-100/80'
+                                                      : hopDongThuChiMatchedGoi
+                                                        ? 'border-amber-500 bg-amber-50 shadow-sm shadow-amber-100/80'
+                                                        : 'border-red-500 bg-red-50 shadow-sm shadow-red-100/80',
+                                            )}
+                                            title={
+                                                !hasSoHopDong
+                                                    ? 'Chưa có Số HĐ'
+                                                    : !thuChiMatchIndexReady
+                                                      ? 'Đang tải Thu chi…'
+                                                      : hopDongThuChiMatchedSo
+                                                        ? 'Có phiếu Thu chi khớp Số HĐ'
+                                                        : hopDongThuChiMatchedGoi
+                                                          ? 'Có phiếu Thu chi khớp dự án + tên gói thầu (chưa ghi Số HĐ trên phiếu)'
+                                                          : 'Chưa có phiếu Thu chi khớp trên Tài chính › Thu chi'
+                                            }
+                                        >
+                                            <span
+                                                className={cn(
+                                                    'font-bold text-sm',
+                                                    thuChiMatchIndexReady &&
+                                                        hasSoHopDong &&
+                                                        (hopDongThuChiMatchedSo
+                                                            ? 'text-emerald-900'
+                                                            : hopDongThuChiMatchedGoi
+                                                              ? 'text-amber-900'
+                                                              : 'text-red-900'),
+                                                    (!thuChiMatchIndexReady || !hasSoHopDong) &&
+                                                        'text-slate-900',
+                                                )}
+                                            >
+                                                {c.soHopDong || '—'}
+                                            </span>
+                                            <span
+                                                className={cn(
+                                                    'text-xs mt-1 line-clamp-2',
+                                                    thuChiMatchIndexReady &&
+                                                        hasSoHopDong &&
+                                                        (hopDongThuChiMatchedSo
+                                                            ? 'text-emerald-800/90'
+                                                            : hopDongThuChiMatchedGoi
+                                                              ? 'text-amber-800/90'
+                                                              : 'text-red-800/90'),
+                                                    (!thuChiMatchIndexReady || !hasSoHopDong) &&
+                                                        'text-slate-500',
+                                                )}
+                                            >
+                                                {c.tenGoiThau || '—'}
+                                            </span>
                                         </div>
                                     </td>
                                     <td className="px-3 py-3 text-center text-xs text-slate-700 font-medium whitespace-nowrap">
@@ -3301,21 +3659,29 @@ export function HopDong() {
                                     </td>
                                     <td
                                         className="px-4 py-4 text-right font-mono text-sm font-semibold text-sky-700"
-                                        title="Tổng Số tiền phiếu thu — tình trạng CĐT thanh toán (khớp Số HĐ + gói thầu)"
+                                        title="Tổng Thu chi — CĐT thanh toán, khớp Số HĐ (+ dự án)"
                                     >
                                         {formatCurrency(c.cdtThanhToan ?? 0)}
                                     </td>
                                     <td
                                         className="px-4 py-4 text-right font-mono text-sm font-semibold text-amber-700"
-                                        title="Tổng Số tiền phiếu thu — tình trạng CĐT tạm ứng (khớp Số HĐ + gói thầu)"
+                                        title="Tổng Thu chi — CĐT tạm ứng, khớp Số HĐ (+ dự án)"
                                     >
                                         {formatCurrency(c.cdtTamUng ?? 0)}
                                     </td>
-                                    <td className="px-4 py-4 text-right font-mono text-sm font-semibold text-emerald-700">
-                                        {formatCurrency(c.daThu)}
+                                    <td
+                                        className="px-4 py-4 text-right font-mono text-sm font-semibold text-emerald-700"
+                                        title="CĐT thanh toán + CĐT tạm ứng"
+                                    >
+                                        {formatCurrency(
+                                            (c.cdtThanhToan ?? 0) + (c.cdtTamUng ?? 0),
+                                        )}
                                     </td>
-                                    <td className="px-4 py-4 text-right font-mono text-sm font-semibold text-rose-700">
-                                        {formatCurrency(c.conPhaiThu)}
+                                    <td
+                                        className="px-4 py-4 text-right font-mono text-sm font-semibold text-rose-700"
+                                        title="Giá xuất HĐ − Đã thu"
+                                    >
+                                        {formatCurrency(hopDongCdtNoFromContract(c))}
                                     </td>
                                     <td className="px-4 py-4 text-center text-xs text-slate-600 font-medium">
                                         {c.ngayUpdate

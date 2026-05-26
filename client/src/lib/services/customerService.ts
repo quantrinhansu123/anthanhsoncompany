@@ -1,3 +1,4 @@
+import { api, API_BASE_URL } from '../api';
 import { supabase } from '../supabase';
 
 export interface Customer {
@@ -19,217 +20,135 @@ export interface Customer {
   updated_at?: string;
 }
 
+function normalizeCustomersList(payload: unknown): Customer[] {
+  if (Array.isArray(payload)) return payload as Customer[];
+  if (payload && typeof payload === 'object' && Array.isArray((payload as { data?: unknown }).data)) {
+    return (payload as { data: Customer[] }).data;
+  }
+  return [];
+}
+
+function isCustomersApiUnreachable(err: unknown): boolean {
+  const msg = String((err as Error)?.message ?? err ?? '').toLowerCase();
+  return (
+    msg.includes('fetch failed') ||
+    msg.includes('failed to fetch') ||
+    msg.includes('không kết nối được server') ||
+    msg.includes('network')
+  );
+}
+
+async function fetchAllCustomersFromSupabase(): Promise<Customer[]> {
+  const { data, error } = await supabase
+    .from('khach_hang')
+    .select('*')
+    .order('ten_don_vi', { ascending: true });
+  if (error) throw error;
+  return data || [];
+}
+
 export const customerService = {
-  // Lấy danh sách tất cả khách hàng
+  _cleanPayload(obj: Record<string, unknown>): Record<string, unknown> {
+    return Object.fromEntries(
+      Object.entries(obj).filter(([, v]) => v !== undefined),
+    ) as Record<string, unknown>;
+  },
+
   async getAll() {
     try {
-      const { data, error } = await supabase
-        .from('khach_hang')
-        .select('*')
-        .order('ten_don_vi', { ascending: true });
-      
-      if (error) {
-        console.error('Error fetching customers from khach_hang:', error);
-        throw error;
-      }
-      
-      return data || [];
+      const payload = await api.get('/customers');
+      return normalizeCustomersList(payload);
     } catch (err) {
-      console.error('Exception in getAll:', err);
-      // Let callers decide how to handle connection/auth/table errors.
-      throw err;
+      if (!isCustomersApiUnreachable(err)) throw err;
+      console.warn('[customerService] API /customers không khả dụng — đọc Supabase', err);
+      return fetchAllCustomersFromSupabase();
     }
   },
 
-  // Lấy khách hàng theo ID
   async getById(id: string) {
     try {
+      return (await api.get(`/customers/${encodeURIComponent(id)}`)) as Customer;
+    } catch (err) {
+      if (!isCustomersApiUnreachable(err)) throw err;
       const { data, error } = await supabase
         .from('khach_hang')
         .select('*')
         .eq('id', id)
         .single();
-      
-      if (error) {
-        console.error('Error fetching customer by id:', error);
-        throw error;
-      }
-      
+      if (error) throw error;
       return data;
-    } catch (err) {
-      console.error('Exception in getById:', err);
-      return null;
     }
   },
 
-  // Tìm kiếm khách hàng theo tên
   async search(searchTerm: string) {
     try {
+      const payload = await api.get(
+        `/customers?search=${encodeURIComponent(searchTerm)}`,
+      );
+      return normalizeCustomersList(payload);
+    } catch (err) {
+      if (!isCustomersApiUnreachable(err)) throw err;
       const { data, error } = await supabase
         .from('khach_hang')
         .select('*')
         .ilike('ten_don_vi', `%${searchTerm}%`)
         .order('ten_don_vi', { ascending: true });
-      
-      if (error) {
-        console.error('Error searching customers:', error);
-        throw error;
-      }
-      
+      if (error) throw error;
       return data || [];
-    } catch (err) {
-      console.error('Exception in search:', err);
-      return [];
     }
   },
 
-  // Loại bỏ key có giá trị undefined để tránh lỗi khi insert/update
-  _cleanPayload(obj: Record<string, unknown>): Record<string, unknown> {
-    return Object.fromEntries(
-      Object.entries(obj).filter(([, v]) => v !== undefined)
-    ) as Record<string, unknown>;
-  },
-
-  // Tạo khách hàng mới
   async create(customer: Partial<Customer>) {
-    try {
-      const payload = this._cleanPayload(customer as Record<string, unknown>);
-      const { data, error } = await supabase
-        .from('khach_hang')
-        .insert([payload])
-        .select()
-        .single();
-      
-      if (error) {
-        console.error('Error creating customer:', error);
-        throw error;
-      }
-      
-      return data;
-    } catch (err) {
-      console.error('Exception in create:', err);
-      throw err;
-    }
+    const payload = this._cleanPayload(customer as Record<string, unknown>);
+    return api.post('/customers', payload) as Promise<Customer>;
   },
 
-  // Cập nhật khách hàng
   async update(id: string, customer: Partial<Customer>) {
-    try {
-      const payload = this._cleanPayload(customer as Record<string, unknown>);
-      const { data, error } = await supabase
-        .from('khach_hang')
-        .update(payload)
-        .eq('id', id)
-        .select()
-        .single();
-      
-      if (error) {
-        console.error('Error updating customer:', error);
-        throw error;
-      }
-      
-      return data;
-    } catch (err) {
-      console.error('Exception in update:', err);
-      throw err;
-    }
+    const payload = this._cleanPayload(customer as Record<string, unknown>);
+    return api.put(`/customers/${encodeURIComponent(id)}`, payload) as Promise<Customer>;
   },
 
-  /** Xóa nhiều khách hàng theo danh sách id (theo lô). */
   async deleteMany(
     ids: string[],
   ): Promise<{ deleted: number; requested: number; error?: string }> {
     try {
-      const unique = [...new Set(ids.map((id) => String(id).trim()).filter(Boolean))];
-      if (unique.length === 0) return { deleted: 0, requested: 0 };
-
-      const chunkSize = 500;
-      let deleted = 0;
-      for (let i = 0; i < unique.length; i += chunkSize) {
-        const chunk = unique.slice(i, i + chunkSize);
-        const { error } = await supabase.from('khach_hang').delete().in('id', chunk);
-        if (error) {
-          console.error('[customerService] deleteMany chunk:', error);
-          return { deleted, requested: unique.length, error: error.message };
-        }
-        deleted += chunk.length;
-      }
-      return { deleted, requested: unique.length };
-    } catch (err: any) {
-      console.error('Exception in customerService.deleteMany:', err);
+      return (await api.post('/customers/delete-many', { ids })) as {
+        deleted: number;
+        requested: number;
+      };
+    } catch (err: unknown) {
       return {
         deleted: 0,
         requested: ids.length,
-        error: err?.message || String(err),
+        error: err instanceof Error ? err.message : String(err),
       };
     }
   },
 
-  // Xóa khách hàng
   async delete(id: string) {
-    try {
-      const { error } = await supabase
-        .from('khach_hang')
-        .delete()
-        .eq('id', id);
-      
-      if (error) {
-        console.error('Error deleting customer:', error);
-        throw error;
-      }
-      
-      return true;
-    } catch (err) {
-      console.error('Exception in delete:', err);
-      throw err;
-    }
+    await api.delete(`/customers/${encodeURIComponent(id)}`);
+    return true;
   },
 
-  /** Xóa mọi bản ghi `khach_hang` (theo lô). Cảnh báo: có thể CASCADE sang dữ liệu liên quan (ví dụ hợp đồng gắn customer_id). */
   async deleteAll(): Promise<{ ok: boolean; deleted: number; error?: string }> {
     try {
-      const { data: rows, error: selErr } = await supabase.from('khach_hang').select('id');
-      if (selErr) {
-        console.error('[customerService] deleteAll select:', selErr);
-        return { ok: false, deleted: 0, error: selErr.message };
+      const res = await fetch(`${API_BASE_URL}/customers/all`, { method: 'DELETE' });
+      const body = (await res.json().catch(() => ({}))) as { deleted?: number; error?: string };
+      if (!res.ok) {
+        return { ok: false, deleted: 0, error: body.error || res.statusText };
       }
-      const ids = (rows || []).map((r: { id: string }) => String(r.id));
-      if (ids.length === 0) return { ok: true, deleted: 0 };
-      const chunkSize = 500;
-      let deleted = 0;
-      for (let i = 0; i < ids.length; i += chunkSize) {
-        const chunk = ids.slice(i, i + chunkSize);
-        const { error } = await supabase.from('khach_hang').delete().in('id', chunk);
-        if (error) {
-          console.error('[customerService] deleteAll chunk:', error);
-          return { ok: false, deleted, error: error.message };
-        }
-        deleted += chunk.length;
-      }
-      return { ok: true, deleted };
-    } catch (err: any) {
-      console.error('Exception in customerService.deleteAll:', err);
-      return { ok: false, deleted: 0, error: err?.message || String(err) };
+      return { ok: true, deleted: Number(body.deleted) || 0 };
+    } catch (err: unknown) {
+      return {
+        ok: false,
+        deleted: 0,
+        error: err instanceof Error ? err.message : String(err),
+      };
     }
   },
 
   async getByNames(names: string[]) {
-    if (!names || names.length === 0) return [];
-    try {
-      const { data, error } = await supabase
-        .from('khach_hang')
-        .select('*')
-        .in('ten_don_vi', names);
-      
-      if (error) {
-        console.error('Error fetching customers by names:', error);
-        throw error;
-      }
-      
-      return data || [];
-    } catch (err) {
-      console.error('Exception in getByNames:', err);
-      throw err;
-    }
-  }
+    if (!names?.length) return [];
+    return api.post('/customers/by-names', { names }) as Promise<Customer[]>;
+  },
 };
