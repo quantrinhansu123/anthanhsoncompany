@@ -67,6 +67,25 @@ function buildHopDongFilterYears(anchorYear: number, span = 8): number[] {
     return years;
 }
 
+/** Không gửi `dateFrom`/`dateTo` lên API khi khu vực lọc ngày ký để trống. */
+function hopDongContractDateFilterParams(dateFrom: string, dateTo: string) {
+    const from = String(dateFrom ?? '').trim();
+    const to = String(dateTo ?? '').trim();
+    if (!from && !to) return {};
+    return {
+        dateFrom: from || undefined,
+        dateTo: to || undefined,
+    };
+}
+
+function isHopDongDateFilterActive(
+    dateFrom: string,
+    dateTo: string,
+    selectedMonth: string,
+): boolean {
+    return Boolean(dateFrom.trim() || dateTo.trim() || selectedMonth.trim());
+}
+
 function normalizeHopDongTienDo(raw: string | null | undefined): HopDongTienDo {
     const t = String(raw ?? '')
         .trim()
@@ -1011,7 +1030,7 @@ function Toast({ message, type, onClose, action }: {
 const SHOW_DELETE_ALL_HOP_DONG_BUTTON = false;
 
 /** Chờ người dùng gõ xong rồi mới gọi API — tránh lag mỗi phím. */
-const HOP_DONG_SEARCH_DEBOUNCE_MS = 320;
+const HOP_DONG_SEARCH_DEBOUNCE_MS = 280;
 
 /** Bỏ tick «Tất cả khách hàng» — ẩn mọi HĐ cho đến khi chọn lại khách cụ thể. */
 const HOP_DONG_KHACH_FILTER_NONE = '__hop_dong_khach_none__';
@@ -1188,14 +1207,15 @@ export function HopDong() {
     const [dateFrom, setDateFrom] = useState('');
     const [dateTo, setDateTo] = useState('');
     const [selectedMonth, setSelectedMonth] = useState('');
-    const [filterYear, setFilterYear] = useState(() => new Date().getFullYear());
+    /** Rỗng = không lọc theo năm; chỉ dùng khi chọn nhanh theo tháng. */
+    const [filterYear, setFilterYear] = useState<number | ''>('');
 
     const hopDongFilterYearOptions = useMemo(() => {
-        const base = buildHopDongFilterYears(new Date().getFullYear());
-        if (!base.includes(filterYear)) {
-            return [...base, filterYear].sort((a, b) => b - a);
-        }
-        return base;
+        const anchor =
+            typeof filterYear === 'number' && filterYear > 0
+                ? filterYear
+                : new Date().getFullYear();
+        return buildHopDongFilterYears(anchor);
     }, [filterYear]);
 
     const prevDebouncedSearchRef = useRef(debouncedSearch);
@@ -1270,17 +1290,29 @@ export function HopDong() {
         setDateTo(to);
     };
 
-    const handleHopDongMonthSelect = (month: string) => {
+    const handleHopDongMonthSelect = (month: string, yearOverride?: number) => {
         if (!month) {
             setSelectedMonth('');
             setDateFrom('');
             setDateTo('');
             return;
         }
-        applyHopDongMonthYearFilter(month, filterYear);
+        const year =
+            yearOverride ??
+            (typeof filterYear === 'number' && filterYear > 0
+                ? filterYear
+                : new Date().getFullYear());
+        applyHopDongMonthYearFilter(month, year);
     };
 
     const handleHopDongFilterYearChange = (yearStr: string) => {
+        if (!yearStr) {
+            setFilterYear('');
+            setSelectedMonth('');
+            setDateFrom('');
+            setDateTo('');
+            return;
+        }
         const year = Number(yearStr);
         if (!year || year < 1900 || year > 2100) return;
         setFilterYear(year);
@@ -1293,7 +1325,7 @@ export function HopDong() {
         setSelectedMonth('');
         setDateFrom('');
         setDateTo('');
-        setFilterYear(new Date().getFullYear());
+        setFilterYear('');
     };
 
     const hopDongProjectOptions = useMemo(() => {
@@ -1480,8 +1512,7 @@ export function HopDong() {
                 setKhachFilterOptionsLoading(true);
                 const res = await contractService.getAll({
                     search: debouncedSearch || undefined,
-                    dateFrom: dateFrom || undefined,
-                    dateTo: dateTo || undefined,
+                    ...hopDongContractDateFilterParams(dateFrom, dateTo),
                     trangThai: filterHopDongTrangThai || undefined,
                 });
                 if (fetchId !== khachFilterOptionsFetchRef.current) return;
@@ -1532,8 +1563,7 @@ export function HopDong() {
                     page,
                     pageSize,
                     search: debouncedSearch || undefined,
-                    dateFrom: dateFrom || undefined,
-                    dateTo: dateTo || undefined,
+                    ...hopDongContractDateFilterParams(dateFrom, dateTo),
                     trangThai: filterHopDongTrangThai || undefined,
                     ...listQuery,
                 });
@@ -2176,8 +2206,7 @@ export function HopDong() {
                 thuChiService.getAll(),
                 contractService.getAll({
                     search: debouncedSearch || undefined,
-                    dateFrom: dateFrom || undefined,
-                    dateTo: dateTo || undefined,
+                    ...hopDongContractDateFilterParams(dateFrom, dateTo),
                     trangThai: filterHopDongTrangThai || undefined,
                 }),
                 contractService.getAll(),
@@ -2300,8 +2329,7 @@ export function HopDong() {
         try {
             const res = await contractService.getAll({
                 search: debouncedSearch || undefined,
-                dateFrom: dateFrom || undefined,
-                dateTo: dateTo || undefined,
+                ...hopDongContractDateFilterParams(dateFrom, dateTo),
                 trangThai: filterHopDongTrangThai || undefined,
             });
             const allRows = normalizeContractGetAllRows(res).filter((row) =>
@@ -2529,7 +2557,7 @@ export function HopDong() {
                         Tổng hợp đồng
                     </p>
                     <p className="text-xl font-extrabold tabular-nums leading-tight">{totalContracts}</p>
-                    {dateFrom || dateTo ? (
+                    {isHopDongDateFilterActive(dateFrom, dateTo, selectedMonth) ? (
                         <p className="text-[9px] text-white/60 mt-1 leading-snug">Lọc theo ngày ký HĐ</p>
                     ) : null}
                 </div>
@@ -2612,12 +2640,14 @@ export function HopDong() {
                     <div className="relative w-full max-w-md min-w-[200px]">
                         <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
                         <input
-                            type="text"
+                            type="search"
                             value={searchTerm}
                             onChange={(e) => setSearchTerm(e.target.value)}
-                            placeholder="Tìm tên khách hàng, tên dự án…"
+                            placeholder="Tìm tên khách hàng…"
                             className="w-full pl-9 pr-9 py-2 bg-white border border-slate-200 rounded-full text-sm"
+                            aria-label="Tìm theo tên khách hàng"
                             aria-busy={isSearchPending || isListFetching}
+                            autoComplete="off"
                         />
                         {isSearchPending || isListFetching ? (
                             <Loader2
@@ -2985,8 +3015,7 @@ export function HopDong() {
                         fetchExportData={async () => {
                             const res = await contractService.getAll({
                                 search: debouncedSearch || undefined,
-                                dateFrom: dateFrom || undefined,
-                                dateTo: dateTo || undefined,
+                                ...hopDongContractDateFilterParams(dateFrom, dateTo),
                                 trangThai: filterHopDongTrangThai || undefined,
                             });
                             const list = normalizeContractGetAllRows(res);
@@ -3236,11 +3265,12 @@ export function HopDong() {
                         />
                         <span className="text-xs font-semibold text-slate-600 shrink-0">Năm</span>
                         <select
-                            value={String(filterYear)}
+                            value={filterYear === '' ? '' : String(filterYear)}
                             onChange={(e) => handleHopDongFilterYearChange(e.target.value)}
-                            className="bg-white border border-slate-200 rounded-lg text-sm py-1.5 px-2.5 min-w-[5.5rem] [color-scheme:light]"
+                            className="bg-white border border-slate-200 rounded-lg text-sm py-1.5 px-2.5 min-w-[7rem] [color-scheme:light]"
                             aria-label="Chọn năm lọc"
                         >
+                            <option value="">Tất cả năm</option>
                             {hopDongFilterYearOptions.map((y) => (
                                 <option key={y} value={y}>
                                     {y}
@@ -3270,15 +3300,18 @@ export function HopDong() {
                                 </option>
                             ))}
                         </select>
-                        {(dateFrom || dateTo) ? (
+                        {isHopDongDateFilterActive(dateFrom, dateTo, selectedMonth) ||
+                        filterYear !== '' ? (
                             <button
                                 type="button"
                                 onClick={clearHopDongDateFilters}
                                 className="text-xs font-semibold text-[#004bcb] hover:underline px-1"
                             >
-                                Xóa ngày
+                                Xóa lọc ngày
                             </button>
-                        ) : null}
+                        ) : (
+                            <span className="text-[11px] text-slate-400">Để trống = tất cả</span>
+                        )}
                 </div>
             </section>
 

@@ -19,59 +19,126 @@ function escapePostgrestOrTerm(term: string): string {
     .replace(/%/g, '\\%');
 }
 
-const HOP_DONG_SEARCH_DU_AN_CACHE_TTL_MS = 90_000;
-const hopDongSearchDuAnCache = new Map<string, { ids: string[]; at: number }>();
+function escapePostgrestIlikeTerm(term: string): string {
+  return escapePostgrestOrTerm(term).replace(/[().]/g, (ch) => `\\${ch}`);
+}
 
-/** Dự án khớp tên dự án / tên KH trên `du_an`, hoặc KH trong `khach_hang`. */
-async function resolveHopDongSearchDuAnIds(supabase: ReturnType<typeof getSupabase>, term: string): Promise<string[]> {
+/** UUID trong `.in.(...)` của PostgREST bắt buộc có dấu ngoặc kép. */
+function postgrestQuotedInList(values: string[], max: number): string {
+  const uniq = [...new Set(values.map((v) => String(v).trim()).filter(Boolean))].slice(0, max);
+  if (!uniq.length) return '';
+  return uniq.map((v) => `"${v.replace(/"/g, '')}"`).join(',');
+}
+
+const HOP_DONG_SEARCH_OR_ID_MAX = 120;
+const HOP_DONG_SCOPE_LOOKUP_CHUNK = 120;
+
+const HOP_DONG_SEARCH_DU_AN_CACHE_TTL_MS = 90_000;
+const hopDongSearchDuAnCache = new Map<
+  string,
+  { ids: string[]; customerIds?: string[]; at: number }
+>();
+
+type HopDongKhachSearchScope = { duAnIds: string[]; customerIds: string[] };
+
+/** HĐ thuộc dự án/KH khớp tên khách (không lọc theo tên dự án). */
+async function resolveHopDongKhachSearchScope(
+  supabase: ReturnType<typeof getSupabase>,
+  term: string,
+): Promise<HopDongKhachSearchScope> {
   const q = escapePostgrestOrTerm(term);
-  if (!q) return [];
+  if (!q) return { duAnIds: [], customerIds: [] };
 
   const cacheKey = q.toLowerCase();
   const cached = hopDongSearchDuAnCache.get(cacheKey);
   if (cached && Date.now() - cached.at < HOP_DONG_SEARCH_DU_AN_CACHE_TTL_MS) {
-    return cached.ids;
+    return {
+      duAnIds: cached.ids,
+      customerIds: cached.customerIds ?? [],
+    };
   }
 
-  const ids = new Set<string>();
+  const duAnIds = new Set<string>();
+  const customerIds = new Set<string>();
 
-  const [{ data: byProject }, { data: byCustomer }] = await Promise.all([
-    supabase.from('du_an').select('id').or(`ten_du_an.ilike.%${q}%,ten_khach_hang.ilike.%${q}%`),
+  const [{ data: byDuAnKhach }, { data: byCustomer }] = await Promise.all([
+    supabase.from('du_an').select('id').ilike('ten_khach_hang', `%${q}%`),
     supabase.from('khach_hang').select('id').ilike('ten_don_vi', `%${q}%`),
   ]);
 
-  for (const row of byProject || []) {
-    if (row?.id != null) ids.add(String(row.id));
+  for (const row of byDuAnKhach || []) {
+    if (row?.id != null) duAnIds.add(String(row.id));
   }
 
-  const customerIds = (byCustomer || []).map((c) => c.id).filter((id) => id != null && String(id).trim() !== '');
-  if (customerIds.length > 0) {
-    const { data: byCustomerId } = await supabase.from('du_an').select('id').in('customer_id', customerIds);
+  const khIds = (byCustomer || [])
+    .map((c) => c.id)
+    .filter((id) => id != null && String(id).trim() !== '')
+    .map((id) => String(id));
+  for (const id of khIds) customerIds.add(id);
+
+  if (khIds.length > 0) {
+    const { data: byCustomerId } = await supabase.from('du_an').select('id').in('customer_id', khIds);
     for (const row of byCustomerId || []) {
-      if (row?.id != null) ids.add(String(row.id));
+      if (row?.id != null) duAnIds.add(String(row.id));
     }
   }
 
-  const list = [...ids];
-  hopDongSearchDuAnCache.set(cacheKey, { ids: list, at: Date.now() });
+  const scope = { duAnIds: [...duAnIds], customerIds: [...customerIds] };
+  hopDongSearchDuAnCache.set(cacheKey, {
+    ids: scope.duAnIds,
+    customerIds: scope.customerIds,
+    at: Date.now(),
+  });
   if (hopDongSearchDuAnCache.size > 80) {
     const oldest = [...hopDongSearchDuAnCache.entries()].sort((a, b) => a[1].at - b[1].at)[0]?.[0];
     if (oldest) hopDongSearchDuAnCache.delete(oldest);
   }
 
-  return list;
+  return scope;
 }
 
-function buildHopDongKhachDuAnSearchOr(term: string, duAnIds: string[]): string {
-  const q = escapePostgrestOrTerm(term);
-  const parts = [
-    `project_name.ilike.%${q}%`,
-    `customer_name.ilike.%${q}%`,
-    `ten_day_du_chu_dau_tu.ilike.%${q}%`,
-  ];
-  if (duAnIds.length > 0) {
-    parts.push(`du_an_id.in.(${duAnIds.join(',')})`);
+/** HĐ khớp dự án/KH từ tra cứu tên — dùng `.in()` theo lô (tránh URL `.or()` quá dài). */
+async function resolveHopDongRowIdsForKhachScope(
+  supabase: ReturnType<typeof getSupabase>,
+  scope: HopDongKhachSearchScope,
+): Promise<string[]> {
+  const ids = new Set<string>();
+
+  const addRows = (rows: Array<{ id?: unknown; contract_id?: unknown }> | null) => {
+    for (const row of rows || []) {
+      const pk = row?.id ?? row?.contract_id;
+      if (pk != null && String(pk).trim()) ids.add(String(pk).trim());
+    }
+  };
+
+  for (let i = 0; i < scope.duAnIds.length; i += HOP_DONG_SCOPE_LOOKUP_CHUNK) {
+    const batch = scope.duAnIds.slice(i, i + HOP_DONG_SCOPE_LOOKUP_CHUNK);
+    const { data, error } = await supabase
+      .from('hop_dong')
+      .select('id, contract_id')
+      .in('du_an_id', batch);
+    if (error) throw error;
+    addRows(data);
   }
+
+  for (let i = 0; i < scope.customerIds.length; i += HOP_DONG_SCOPE_LOOKUP_CHUNK) {
+    const batch = scope.customerIds.slice(i, i + HOP_DONG_SCOPE_LOOKUP_CHUNK);
+    const { data, error } = await supabase
+      .from('hop_dong')
+      .select('id, contract_id')
+      .in('customer_id', batch);
+    if (error) throw error;
+    addRows(data);
+  }
+
+  return [...ids];
+}
+
+function buildHopDongKhachSearchOr(term: string, hopDongRowIds: string[]): string {
+  const q = escapePostgrestIlikeTerm(term);
+  const parts = [`customer_name.ilike.%${q}%`, `ten_day_du_chu_dau_tu.ilike.%${q}%`];
+  const idIn = postgrestQuotedInList(hopDongRowIds, HOP_DONG_SEARCH_OR_ID_MAX);
+  if (idIn) parts.push(`id.in.(${idIn})`);
   return parts.join(',');
 }
 
@@ -142,12 +209,10 @@ function applyHopDongKhachDuAnFilters(
 
   if (khachFilter === 'restricted') {
     const parts: string[] = [];
-    if (customerIds.length > 0) {
-      parts.push(`customer_id.in.(${customerIds.join(',')})`);
-    }
-    if (duAnIds.length > 0) {
-      parts.push(`du_an_id.in.(${duAnIds.join(',')})`);
-    }
+    const customerIn = postgrestQuotedInList(customerIds, 200);
+    if (customerIn) parts.push(`customer_id.in.(${customerIn})`);
+    const duAnIn = postgrestQuotedInList(duAnIds, 200);
+    if (duAnIn) parts.push(`du_an_id.in.(${duAnIn})`);
     if (parts.length === 0) {
       return q.eq('id', '00000000-0000-0000-0000-000000000000');
     }
@@ -191,9 +256,13 @@ export const contractService = {
     } = options;
     const supabase = getSupabase();
     const searchTerm = String(search ?? '').trim();
-    const searchDuAnIds = searchTerm
-      ? await resolveHopDongSearchDuAnIds(supabase, searchTerm)
-      : [];
+    const khachSearchScope = searchTerm
+      ? await resolveHopDongKhachSearchScope(supabase, searchTerm)
+      : { duAnIds: [], customerIds: [] };
+    const hopDongRowIdsForSearch =
+      searchTerm && (khachSearchScope.duAnIds.length > 0 || khachSearchScope.customerIds.length > 0)
+        ? await resolveHopDongRowIdsForKhachScope(supabase, khachSearchScope)
+        : [];
 
     const buildOrderedQuery = () => {
       let query = supabase
@@ -208,7 +277,7 @@ export const contractService = {
         );
 
       if (searchTerm) {
-        query = query.or(buildHopDongKhachDuAnSearchOr(searchTerm, searchDuAnIds));
+        query = query.or(buildHopDongKhachSearchOr(searchTerm, hopDongRowIdsForSearch));
       }
 
       const from = String(dateFrom ?? '').trim();
