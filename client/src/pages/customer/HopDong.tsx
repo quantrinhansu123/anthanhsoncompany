@@ -59,9 +59,9 @@ function hopDongMonthRangeIso(month: number, year: number): { from: string; to: 
     };
 }
 
-function buildHopDongFilterYears(anchorYear: number, span = 8): number[] {
+function buildHopDongFilterYears(anchorYear: number, minYear = 2000): number[] {
     const years: number[] = [];
-    for (let y = anchorYear - span; y <= anchorYear + 1; y += 1) {
+    for (let y = minYear; y <= anchorYear + 1; y += 1) {
         years.push(y);
     }
     return years;
@@ -1210,13 +1210,10 @@ export function HopDong() {
     /** Rỗng = không lọc theo năm; chỉ dùng khi chọn nhanh theo tháng. */
     const [filterYear, setFilterYear] = useState<number | ''>('');
 
-    const hopDongFilterYearOptions = useMemo(() => {
-        const anchor =
-            typeof filterYear === 'number' && filterYear > 0
-                ? filterYear
-                : new Date().getFullYear();
-        return buildHopDongFilterYears(anchor);
-    }, [filterYear]);
+    const hopDongFilterYearOptions = useMemo(
+        () => buildHopDongFilterYears(new Date().getFullYear()),
+        [],
+    );
 
     const prevDebouncedSearchRef = useRef(debouncedSearch);
 
@@ -2643,9 +2640,9 @@ export function HopDong() {
                             type="search"
                             value={searchTerm}
                             onChange={(e) => setSearchTerm(e.target.value)}
-                            placeholder="Tìm tên khách hàng…"
+                            placeholder="Tìm số hợp đồng…"
                             className="w-full pl-9 pr-9 py-2 bg-white border border-slate-200 rounded-full text-sm"
-                            aria-label="Tìm theo tên khách hàng"
+                            aria-label="Tìm theo số hợp đồng"
                             aria-busy={isSearchPending || isListFetching}
                             autoComplete="off"
                         />
