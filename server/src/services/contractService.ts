@@ -176,10 +176,10 @@ export const contractService = {
       }
 
       query = applyHopDongKhachDuAnFilters(query, {
-        khachFilter,
-        customerIds,
-        duAnIds,
-        projectName,
+        ...(khachFilter !== undefined ? { khachFilter } : {}),
+        ...(customerIds !== undefined ? { customerIds } : {}),
+        ...(duAnIds !== undefined ? { duAnIds } : {}),
+        ...(projectName !== undefined ? { projectName } : {}),
       });
 
       return query.order('ngay_ky_hd', { ascending: false });
