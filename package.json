@@ -1,0 +1,9 @@
+{
+  "name": "anthanhsoncompany",
+  "private": true,
+  "scripts": {
+    "dev": "npx --yes concurrently -k -n server,client -c blue,green \"npm run dev --prefix server\" \"npm run dev --prefix client\"",
+    "dev:server": "npm run dev --prefix server",
+    "dev:client": "npm run dev --prefix client"
+  }
+}

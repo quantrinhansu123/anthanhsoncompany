@@ -28,6 +28,8 @@ export default defineConfig(({mode}) => {
         '/api': {
           target: 'http://127.0.0.1:3000',
           changeOrigin: true,
+          timeout: 120_000,
+          proxyTimeout: 120_000,
         },
       },
       // HMR is disabled in AI Studio via DISABLE_HMR env var.

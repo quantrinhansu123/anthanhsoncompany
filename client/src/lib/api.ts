@@ -7,7 +7,7 @@ function formatFetchFailure(err: unknown): Error {
   if (err instanceof Error) {
     if (err.message === 'Failed to fetch' || err.name === 'TypeError') {
       return new Error(
-        'Không kết nối được server. Chạy «npm run dev» trong thư mục server (cổng 3000) và tải lại trang.',
+        'Không kết nối được API (cổng 3000). Mở terminal trong thư mục server → npm run dev, hoặc từ thư mục gốc dự án → npm run dev (chạy cả server + giao diện). Sau đó tải lại trang.',
       );
     }
     return err;
