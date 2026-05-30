@@ -11,6 +11,18 @@ const normalizeKey = (s: any): string => {
   return cleanString(s).toLowerCase();
 };
 
+function escapeRegexForPostgres(term: string): string {
+  return String(term ?? '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+/** Tìm số HĐ: khớp từ khóa nhưng không dính trong số khác (vd. «86» không khớp «686»). */
+function applyHopDongSoHopDongSearch(query: any, searchTerm: string) {
+  const term = String(searchTerm ?? '').trim();
+  if (!term) return query;
+  const rx = `(^|[^0-9])${escapeRegexForPostgres(term)}([^0-9]|$)`;
+  return query.filter('so_hop_dong', 'imatch', rx);
+}
+
 /** UUID trong `.in.(...)` của PostgREST bắt buộc có dấu ngoặc kép. */
 function postgrestQuotedInList(values: string[], max: number): string {
   const uniq = [...new Set(values.map((v) => String(v).trim()).filter(Boolean))].slice(0, max);
@@ -146,7 +158,7 @@ export const contractService = {
         );
 
       if (searchTerm) {
-        query = query.ilike('so_hop_dong', `%${searchTerm}%`);
+        query = applyHopDongSoHopDongSearch(query, searchTerm);
       }
 
       const from = String(dateFrom ?? '').trim();

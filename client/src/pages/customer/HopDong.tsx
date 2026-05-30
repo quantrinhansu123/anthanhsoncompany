@@ -1908,20 +1908,30 @@ export function HopDong() {
         );
     }, [hopDongCustomerOptions, hdKhachFilterSearch]);
 
+    const applyHopDongKhachFilterKeys = (keys: string[]) => {
+        setFilterHopDongKhachKeys(keys);
+        setPage(1);
+        setHdKhachFilterOpen(false);
+    };
+
     const selectAllVisibleHopDongKhach = () => {
         const keys = hopDongKhachOptionsMatching.map((o) => o.key);
         if (keys.length === 0) return;
-        setFilterHopDongKhachKeys((prev) =>
-            isHopDongKhachFilterAll(prev) || isHopDongKhachFilterNone(prev)
-                ? keys
-                : Array.from(new Set([...prev, ...keys])),
-        );
+        setFilterHopDongKhachKeys((prev) => {
+            const next =
+                isHopDongKhachFilterAll(prev) || isHopDongKhachFilterNone(prev)
+                    ? keys
+                    : Array.from(new Set([...prev, ...keys]));
+            setPage(1);
+            setHdKhachFilterOpen(false);
+            return next;
+        });
     };
 
     const allVisibleKhachSelected =
         hopDongKhachOptionsMatching.length > 0 &&
-        (isHopDongKhachFilterAll(filterHopDongKhachKeys) ||
-            hopDongKhachOptionsMatching.every((o) => filterHopDongKhachKeys.includes(o.key)));
+        isHopDongKhachFilterRestricted(filterHopDongKhachKeys) &&
+        hopDongKhachOptionsMatching.every((o) => filterHopDongKhachKeys.includes(o.key));
 
     /** Trì hoãn render bảng khi đang gõ / đang fetch — ô tìm vẫn mượt. */
     const deferredFilteredItems = useDeferredValue(filteredItems);
@@ -2710,20 +2720,16 @@ export function HopDong() {
                                                 );
                                                 if (allVisibleKhachSelected) {
                                                     setFilterHopDongKhachKeys((prev) => {
-                                                        if (isHopDongKhachFilterAll(prev)) {
-                                                            const rest = hopDongCustomerOptions
-                                                                .map((o) => o.key)
-                                                                .filter((k) => !visible.has(k));
-                                                            return rest.length === 0
-                                                                ? [HOP_DONG_KHACH_FILTER_NONE]
-                                                                : rest;
-                                                        }
                                                         const next = prev.filter(
                                                             (k) => !visible.has(k),
                                                         );
-                                                        return next.length === 0
-                                                            ? [HOP_DONG_KHACH_FILTER_NONE]
-                                                            : next;
+                                                        const resolved =
+                                                            next.length === 0
+                                                                ? [HOP_DONG_KHACH_FILTER_NONE]
+                                                                : next;
+                                                        setPage(1);
+                                                        setHdKhachFilterOpen(false);
+                                                        return resolved;
                                                     });
                                                 } else {
                                                     selectAllVisibleHopDongKhach();
@@ -2745,9 +2751,9 @@ export function HopDong() {
                                             checked={isHopDongKhachFilterAll(filterHopDongKhachKeys)}
                                             onChange={(e) => {
                                                 if (e.target.checked) {
-                                                    setFilterHopDongKhachKeys([]);
+                                                    applyHopDongKhachFilterKeys([]);
                                                 } else {
-                                                    setFilterHopDongKhachKeys([
+                                                    applyHopDongKhachFilterKeys([
                                                         HOP_DONG_KHACH_FILTER_NONE,
                                                     ]);
                                                 }
@@ -2772,11 +2778,10 @@ export function HopDong() {
                                         </p>
                                     ) : (
                                         hopDongKhachOptionsMatching.map((o) => {
-                                            const isAllKhachMode =
-                                                isHopDongKhachFilterAll(filterHopDongKhachKeys);
                                             const checked =
-                                                isAllKhachMode ||
-                                                filterHopDongKhachKeys.includes(o.key);
+                                                isHopDongKhachFilterRestricted(
+                                                    filterHopDongKhachKeys,
+                                                ) && filterHopDongKhachKeys.includes(o.key);
                                             return (
                                                 <label
                                                     key={o.key}
@@ -2788,26 +2793,27 @@ export function HopDong() {
                                                         checked={checked}
                                                         onChange={() => {
                                                             setFilterHopDongKhachKeys((prev) => {
+                                                                let next: string[];
                                                                 if (isHopDongKhachFilterNone(prev)) {
-                                                                    return [o.key];
-                                                                }
-                                                                if (isHopDongKhachFilterAll(prev)) {
-                                                                    const rest = hopDongCustomerOptions
-                                                                        .map((x) => x.key)
-                                                                        .filter((k) => k !== o.key);
-                                                                    return rest.length === 0
-                                                                        ? [HOP_DONG_KHACH_FILTER_NONE]
-                                                                        : rest;
-                                                                }
-                                                                if (prev.includes(o.key)) {
-                                                                    const next = prev.filter(
+                                                                    next = [o.key];
+                                                                } else if (isHopDongKhachFilterAll(prev)) {
+                                                                    next = [o.key];
+                                                                } else if (prev.includes(o.key)) {
+                                                                    const filtered = prev.filter(
                                                                         (x) => x !== o.key,
                                                                     );
-                                                                    return next.length === 0
-                                                                        ? [HOP_DONG_KHACH_FILTER_NONE]
-                                                                        : next;
+                                                                    next =
+                                                                        filtered.length === 0
+                                                                            ? [
+                                                                                  HOP_DONG_KHACH_FILTER_NONE,
+                                                                              ]
+                                                                            : filtered;
+                                                                } else {
+                                                                    next = [...prev, o.key];
                                                                 }
-                                                                return [...prev, o.key];
+                                                                setPage(1);
+                                                                setHdKhachFilterOpen(false);
+                                                                return next;
                                                             });
                                                         }}
                                                     />
