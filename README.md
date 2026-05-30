@@ -35,3 +35,14 @@ Frontend mặc định chạy tại: `http://localhost:5174`. Đổi cổng bằ
 - **Bảo mật**: Thông tin Service Role Key của Supabase được giữ kín ở Server.
 - **Hiệu năng**: Các phép Join dữ liệu phức tạp được thực hiện ở Server thay vì Client.
 - **Mở rộng**: Dễ dàng thêm logic nghiệp vụ, phân quyền và log mà không làm nặng Client.
+
+## Deploy lên Vercel
+
+1. **Root Directory** của project Vercel: `client` (có `vercel.json`).
+2. **Environment Variables** (Production + Preview), lấy từ `server/.env`:
+   - `SUPABASE_URL`
+   - `SUPABASE_SERVICE_ROLE_KEY`
+3. Redeploy sau khi push code (có `client/api/index.ts` — API chạy Serverless, không dùng localhost:3000).
+4. Kiểm tra: mở `https://<tên-app>.vercel.app/api/health` → phải trả `{"status":"OK",...}`.
+
+Chạy local một lệnh (từ thư mục gốc): `npm run dev`
