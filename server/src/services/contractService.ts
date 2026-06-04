@@ -1,4 +1,8 @@
 import { getSupabase } from '../config/supabase';
+import {
+  applyHopDongNgayUpdateToPayload,
+  hopDongNgayUpdateDateToday,
+} from '../utils/hopDongNgayUpdate';
 
 const cleanString = (s: any): string => {
   return String(s || '')
@@ -225,7 +229,7 @@ export const contractService = {
   },
 
   async create(payload: any) {
-    const insertPayload = { ...payload };
+    const insertPayload = applyHopDongNgayUpdateToPayload({ ...payload });
     if (Array.isArray(payload.nhan_su_ids) && payload.nhan_su_ids.length > 0) {
       insertPayload.nhan_su_ids = payload.nhan_su_ids.map((id: any) => String(id).trim()).filter(Boolean);
       insertPayload.nhan_su_id = insertPayload.nhan_su_id ?? insertPayload.nhan_su_ids[0] ?? null;
@@ -255,7 +259,7 @@ export const contractService = {
   },
 
   async update(id: string, payload: any) {
-    const updatePayload = { ...payload };
+    const updatePayload = applyHopDongNgayUpdateToPayload({ ...payload });
     if (Array.isArray(payload.nhan_su_ids) && payload.nhan_su_ids.length > 0) {
       updatePayload.nhan_su_ids = payload.nhan_su_ids.map((id: any) => String(id).trim()).filter(Boolean);
       updatePayload.nhan_su_id = updatePayload.nhan_su_id ?? updatePayload.nhan_su_ids[0] ?? null;
@@ -375,20 +379,23 @@ export const contractService = {
       const sid = String(row.id ?? '').trim();
       if (!sid) continue;
 
-      const fullPayload: Record<string, number> = {};
+      const fullPayload: Record<string, number | string> = {
+        ngay_update: hopDongNgayUpdateDateToday(),
+      };
       if (row.gia_tri_qt !== undefined) fullPayload.gia_tri_qt = Number(row.gia_tri_qt) || 0;
       if (row.cdt_thanh_toan !== undefined) fullPayload.cdt_thanh_toan = Number(row.cdt_thanh_toan) || 0;
       if (row.cdt_tam_ung !== undefined) fullPayload.cdt_tam_ung = Number(row.cdt_tam_ung) || 0;
       if (row.da_thu !== undefined) fullPayload.da_thu = Number(row.da_thu) || 0;
       if (row.con_phai_thu !== undefined) fullPayload.con_phai_thu = Number(row.con_phai_thu) || 0;
 
-      const legacyPayload = {
-        gia_tri_qt: fullPayload.gia_tri_qt,
-        da_thu: fullPayload.da_thu,
-        con_phai_thu: fullPayload.con_phai_thu,
+      const legacyPayload: Record<string, number | string> = {
+        ngay_update: hopDongNgayUpdateDateToday(),
+        gia_tri_qt: fullPayload.gia_tri_qt as number,
+        da_thu: fullPayload.da_thu as number,
+        con_phai_thu: fullPayload.con_phai_thu as number,
       };
 
-      const tryUpdate = async (payload: Record<string, number>) => {
+      const tryUpdate = async (payload: Record<string, number | string>) => {
         let res = await supabase.from('hop_dong').update(payload).eq('id', sid).select('id');
         if (res.error) return res;
         if (!res.data?.length) {
@@ -566,6 +573,7 @@ export const contractService = {
 
           const pkCol = existing.id ? 'id' : 'contract_id';
           if (changed) {
+            updatePayload.ngay_update = hopDongNgayUpdateDateToday();
             let { error: updateError } = await supabase
               .from('hop_dong')
               .update(updatePayload)

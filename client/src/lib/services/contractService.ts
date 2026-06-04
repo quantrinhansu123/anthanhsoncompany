@@ -1,4 +1,8 @@
 import { api, API_BASE_URL } from '../api';
+import {
+  emitHopDongProfileAccess,
+  hopDongNgayUpdateDateToday,
+} from '../hopDongProfileAccess';
 
 export interface ContractFile {
   file_type: string;
@@ -52,6 +56,11 @@ export interface ContractRow {
   nhan_su_code?: string | null;
 }
 
+export type ContractUpdatePayload = Partial<ContractRow> & {
+  /** Chỉ cập nhật trường khác, không đụng Lịch sử HS */
+  skipNgayUpdate?: boolean;
+};
+
 export const contractService = {
   async getAll(
     options: {
@@ -89,11 +98,28 @@ export const contractService = {
   },
 
   async create(payload: Partial<ContractRow>): Promise<ContractRow | null> {
-    return api.post('/contracts', payload);
+    const body = {
+      ...payload,
+      ngay_update: payload.ngay_update ?? hopDongNgayUpdateDateToday(),
+    };
+    const data = await api.post<ContractRow>('/contracts', body);
+    const uuid = String(data?.id ?? '').trim();
+    if (uuid) emitHopDongProfileAccess(uuid, String(body.ngay_update));
+    return data;
   },
 
-  async update(id: string, payload: Partial<ContractRow>): Promise<ContractRow | null> {
-    return api.put(`/contracts/${id}`, payload);
+  async update(id: string, payload: ContractUpdatePayload): Promise<ContractRow | null> {
+    const { skipNgayUpdate, ...rest } = payload;
+    const body: Partial<ContractRow> = skipNgayUpdate
+      ? rest
+      : { ...rest, ngay_update: rest.ngay_update ?? hopDongNgayUpdateDateToday() };
+    const encoded = encodeURIComponent(String(id).trim());
+    const data = await api.put<ContractRow>(`/contracts/${encoded}`, body);
+    if (!skipNgayUpdate) {
+      const uuid = String(data?.id ?? id).trim();
+      if (uuid) emitHopDongProfileAccess(uuid, String(body.ngay_update));
+    }
+    return data;
   },
 
   async delete(id: string): Promise<boolean> {
@@ -140,7 +166,16 @@ export const contractService = {
       con_phai_thu?: number;
     }>,
   ): Promise<{ updated: number; errors: string[] }> {
-    return api.post('/contracts/sync-financials', { updates });
+    const res = await api.post<{ updated: number; errors: string[] }>(
+      '/contracts/sync-financials',
+      { updates },
+    );
+    const today = hopDongNgayUpdateDateToday();
+    for (const row of updates) {
+      const uuid = String(row.id ?? '').trim();
+      if (uuid) emitHopDongProfileAccess(uuid, today);
+    }
+    return res;
   },
 };
 

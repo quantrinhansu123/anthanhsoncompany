@@ -10,6 +10,7 @@ import { useThuChiModal } from '../../contexts/ThuChiModalContext';
 import type { NguongChiNhanSuLoai } from '../../lib/nguongChiNhanSu';
 import { normalizeNguongLoai, tienQuyDoiNguongChiNhanSu } from '../../lib/nguongChiNhanSu';
 import { thuChiPath, duAnPath, hopDongPath } from '../../lib/customerModuleLinks';
+import { formatHopDongNgayUpdateDisplay } from '../../lib/hopDongProfileAccess';
 
 /** Chuẩn hóa tên khách để khớp dự án chỉ có ten_khach_hang (không có customer_id). */
 function normCustomerKey(s: string | null | undefined): string {
@@ -46,7 +47,7 @@ function mapContractRowToHopDong(c: ContractRow, idx: number) {
         nguongChiNhanSuTien: tienQuyDoiNguongChiNhanSu(loaiNs, giaTriQT, rawNguong),
         daThu,
         conPhaiThu: Number(c.con_phai_thu ?? giaTriQT - daThu),
-        ngayUpdate: c.ngay_update ? new Date(c.ngay_update).toLocaleDateString('vi-VN') : '',
+        ngayUpdate: formatHopDongNgayUpdateDisplay(c.ngay_update),
         nhanSuId: c.nhan_su_id || null,
         nhanSuIds: (c as any).nhan_su_ids || (c.nhan_su_id ? [c.nhan_su_id] : []),
         nhanSuTen: c.nhan_su_ten || null,
@@ -427,9 +428,9 @@ export function ChiTietKhachHangModal({ isOpen, onClose, selectedCustomer }: Pro
                                                 const giaTriQT = Number(c.gia_tri_qt || 0);
                                                 const daThu = Number(c.da_thu || 0);
                                                 const conNo = Number(c.con_phai_thu ?? giaTriQT - daThu);
-                                                const ngayCapNhat = c.ngay_update
-                                                    ? new Date(c.ngay_update).toLocaleDateString('vi-VN')
-                                                    : '—';
+                                                const ngayCapNhat = formatHopDongNgayUpdateDisplay(
+                                                    c.ngay_update,
+                                                );
                                                 return (
                                             <div className="flex items-start justify-between gap-3">
                                                 <div className="flex-1 min-w-0">
@@ -468,10 +469,8 @@ export function ChiTietKhachHangModal({ isOpen, onClose, selectedCustomer }: Pro
                                                         </div>
                                                         <div>
                                                             <span className="text-slate-400">Lịch sử HS:</span>{' '}
-                                                            <span className="font-medium text-slate-700">
-                                                                {ngayCapNhat === '—'
-                                                                    ? 'Chưa cập nhật'
-                                                                    : `Vào xem / sửa gần nhất: ${ngayCapNhat}`}
+                                                            <span className="font-medium text-slate-700 tabular-nums">
+                                                                {ngayCapNhat || 'Chưa cập nhật'}
                                                             </span>
                                                         </div>
                                                     </div>

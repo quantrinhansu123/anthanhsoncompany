@@ -24,7 +24,7 @@ import { PreviewLinkModal } from '../../components/PreviewLinkModal';
 import { FileViewerModal } from '../../components/FileViewerModal';
 import type { ContractCreatePrefill } from '../../contexts/HopDongModalContext';
 import { cn } from '../../lib/utils';
-import { emitHopDongProfileAccess } from '../../lib/hopDongProfileAccess';
+import { hopDongNgayUpdateDateToday } from '../../lib/hopDongProfileAccess';
 
 function normCustomerKey(s: string | null | undefined): string {
     return String(s || '')
@@ -160,11 +160,8 @@ export function ThemHopDongModal({ isOpen, onClose, editData, contractCreatePref
         const uuid = editData.uuid;
         (async () => {
             try {
-                const iso = new Date().toISOString().slice(0, 10);
-                await contractService.update(uuid, { ngay_update: iso });
+                await contractService.update(uuid, {});
                 if (cancelled) return;
-                const ngayUpdateVi = new Date(`${iso}T12:00:00`).toLocaleDateString('vi-VN');
-                emitHopDongProfileAccess(uuid, ngayUpdateVi);
             } catch (e) {
                 console.warn('[ThemHopDongModal] Ghi nhận truy cập hồ sơ:', e);
             }
@@ -719,7 +716,7 @@ export function ThemHopDongModal({ isOpen, onClose, editData, contractCreatePref
                 nguong_chi_nhan_su_loai: loaiNguong,
                 file_status: fileStatus,
                 files: contractFiles,
-                ngay_update: new Date().toISOString().slice(0, 10),
+                ngay_update: hopDongNgayUpdateDateToday(),
             };
 
 
@@ -732,7 +729,7 @@ export function ThemHopDongModal({ isOpen, onClose, editData, contractCreatePref
                 await contractService.update(editData.uuid, {
                     ...payload,
                     da_thu: daThu,
-                    con_phai_thu: giaTriQT - daThu
+                    con_phai_thu: giaTriQT - daThu,
                 });
             } else {
                 await contractService.create({

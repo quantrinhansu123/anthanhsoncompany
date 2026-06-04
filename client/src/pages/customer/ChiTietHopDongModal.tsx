@@ -12,7 +12,6 @@ import { useThuChiModal } from '../../contexts/ThuChiModalContext';
 import { useNavigate } from 'react-router-dom';
 import { PreviewLinkModal } from '../../components/PreviewLinkModal';
 import { thuChiService, ThuChiRow } from '../../lib/services/thuChiService';
-import { emitHopDongProfileAccess } from '../../lib/hopDongProfileAccess';
 import type { NguongChiNhanSuLoai } from '../../lib/nguongChiNhanSu';
 import { normalizeNguongLoai, tienQuyDoiNguongChiNhanSu } from '../../lib/nguongChiNhanSu';
 
@@ -159,11 +158,8 @@ export function ChiTietHopDongModal({ isOpen, onClose, contract }: ChiTietHopDon
         const uuid = contract.uuid;
         (async () => {
             try {
-                const iso = new Date().toISOString().slice(0, 10);
-                await contractService.update(uuid, { ngay_update: iso });
+                await contractService.update(uuid, {});
                 if (cancelled) return;
-                const ngayUpdateVi = new Date(`${iso}T12:00:00`).toLocaleDateString('vi-VN');
-                emitHopDongProfileAccess(uuid, ngayUpdateVi);
             } catch (e) {
                 console.warn('[ChiTietHopDongModal] Ghi nhận truy cập hồ sơ:', e);
             }

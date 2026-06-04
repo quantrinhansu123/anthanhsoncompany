@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useMemo, useEffect, useRef, useCallback } from 'react';
 import {
     Search,
     Plus,
@@ -9,10 +9,12 @@ import {
     ChevronRight,
     ChevronsLeft,
     ChevronsRight,
+    ChevronDown,
     X,
     CheckCircle,
     PlusCircle,
     Loader2,
+    FilterX,
 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { useDuAnModal } from '../../contexts/DuAnModalContext';
@@ -29,6 +31,10 @@ import { PAGE_SIZE_OPTIONS, buildVisiblePages } from '../../lib/tablePagination'
 
 /** Đặt `true` để hiện nút xóa toàn bộ khách hàng (mặc định ẩn). */
 const SHOW_DELETE_ALL_KHACH_HANG_BUTTON = false;
+
+function khachHangRowId(item: { id?: string | number }) {
+    return String(item.id ?? '').trim();
+}
 
 // Toast notification component
 function Toast({ message, type, onClose }: { message: string; type: 'success' | 'info' | 'warning'; onClose: () => void }) {
@@ -55,6 +61,14 @@ export function DanhSachKhachHang() {
     const navigate = useNavigate();
     const [items, setItems] = useState<any[]>([]);
     const [searchTerm, setSearchTerm] = useState('');
+    const [filterKhachIds, setFilterKhachIds] = useState<string[]>([]);
+    const [filterLoaiHinhKeys, setFilterLoaiHinhKeys] = useState<string[]>([]);
+    const [dsKhachFilterOpen, setDsKhachFilterOpen] = useState(false);
+    const [dsKhachFilterSearch, setDsKhachFilterSearch] = useState('');
+    const dsKhachFilterRef = useRef<HTMLDivElement>(null);
+    const [dsLoaiHinhFilterOpen, setDsLoaiHinhFilterOpen] = useState(false);
+    const [dsLoaiHinhFilterSearch, setDsLoaiHinhFilterSearch] = useState('');
+    const dsLoaiHinhFilterRef = useRef<HTMLDivElement>(null);
     const [currentPage, setCurrentPage] = useState(1);
     const [itemsPerPage, setItemsPerPage] = useState<number>(PAGE_SIZE_OPTIONS[0]);
     const [toast, setToast] = useState<{ message: string; type: 'success' | 'info' | 'warning' } | null>(null);
@@ -259,17 +273,170 @@ export function DanhSachKhachHang() {
         })();
     }, [reloadKey]);
 
-    // Filtered items by search
-    const filteredItems = useMemo(() => {
-        if (!searchTerm) return items;
-        const term = searchTerm.toLowerCase();
-        return items.filter(item =>
-            item.Ten_Don_Vi?.toLowerCase().includes(term) ||
-            item.MST?.toLowerCase().includes(term) ||
-            item.SDT_Lien_He?.toLowerCase().includes(term) ||
-            item.Nguoi_Lien_He?.toLowerCase().includes(term)
+    const dsKhachOptions = useMemo(() => {
+        return items
+            .map((it) => ({
+                id: khachHangRowId(it),
+                label: String(it.Ten_Don_Vi || '').trim() || '(Chưa có tên)',
+            }))
+            .filter((o) => o.id)
+            .sort((a, b) => a.label.localeCompare(b.label, 'vi'));
+    }, [items]);
+
+    const dsLoaiHinhOptions = useMemo(() => {
+        const set = new Set<string>();
+        for (const it of items) {
+            const lh = String(it.Loai_Hinh || '').trim();
+            if (lh) set.add(lh);
+        }
+        return Array.from(set)
+            .sort((a, b) => a.localeCompare(b, 'vi'))
+            .map((label) => ({ key: normalizeKey(label), label }));
+    }, [items]);
+
+    const dsKhachOptionsMatching = useMemo(() => {
+        const q = dsKhachFilterSearch.trim().toLowerCase();
+        if (!q) return dsKhachOptions;
+        const qNorm = normalizeKey(q);
+        return dsKhachOptions.filter(
+            (o) =>
+                o.label.toLowerCase().includes(q) ||
+                normalizeKey(o.label).includes(qNorm),
         );
-    }, [items, searchTerm]);
+    }, [dsKhachOptions, dsKhachFilterSearch]);
+
+    const dsLoaiHinhOptionsMatching = useMemo(() => {
+        const q = dsLoaiHinhFilterSearch.trim().toLowerCase();
+        if (!q) return dsLoaiHinhOptions;
+        return dsLoaiHinhOptions.filter(
+            (o) =>
+                o.label.toLowerCase().includes(q) ||
+                o.key.includes(normalizeKey(q)),
+        );
+    }, [dsLoaiHinhOptions, dsLoaiHinhFilterSearch]);
+
+    useEffect(() => {
+        if (!dsKhachFilterOpen) return;
+        const onDown = (e: MouseEvent) => {
+            const el = e.target as Node;
+            if (dsKhachFilterRef.current?.contains(el)) return;
+            setDsKhachFilterOpen(false);
+        };
+        document.addEventListener('mousedown', onDown);
+        return () => document.removeEventListener('mousedown', onDown);
+    }, [dsKhachFilterOpen]);
+
+    useEffect(() => {
+        if (!dsLoaiHinhFilterOpen) return;
+        const onDown = (e: MouseEvent) => {
+            const el = e.target as Node;
+            if (dsLoaiHinhFilterRef.current?.contains(el)) return;
+            setDsLoaiHinhFilterOpen(false);
+        };
+        document.addEventListener('mousedown', onDown);
+        return () => document.removeEventListener('mousedown', onDown);
+    }, [dsLoaiHinhFilterOpen]);
+
+    const allVisibleDsKhachSelected =
+        dsKhachOptionsMatching.length > 0 &&
+        filterKhachIds.length > 0 &&
+        dsKhachOptionsMatching.every((o) => filterKhachIds.includes(o.id));
+
+    const selectAllVisibleDsKhach = () => {
+        const ids = dsKhachOptionsMatching.map((o) => o.id);
+        if (ids.length === 0) return;
+        setFilterKhachIds(ids);
+        setCurrentPage(1);
+        setDsKhachFilterOpen(false);
+    };
+
+    const allVisibleDsLoaiHinhSelected =
+        dsLoaiHinhOptionsMatching.length > 0 &&
+        filterLoaiHinhKeys.length > 0 &&
+        dsLoaiHinhOptionsMatching.every((o) => filterLoaiHinhKeys.includes(o.key));
+
+    const selectAllVisibleDsLoaiHinh = () => {
+        const keys = dsLoaiHinhOptionsMatching.map((o) => o.key);
+        if (keys.length === 0) return;
+        setFilterLoaiHinhKeys(keys);
+        setCurrentPage(1);
+        setDsLoaiHinhFilterOpen(false);
+    };
+
+    const toggleDsKhachFilter = (id: string) => {
+        setFilterKhachIds((prev) => {
+            if (prev.length === 0) return [id];
+            if (prev.includes(id)) return prev.filter((x) => x !== id);
+            return [...prev, id];
+        });
+        setCurrentPage(1);
+        setDsKhachFilterOpen(false);
+    };
+
+    const toggleDsLoaiHinhFilter = (key: string) => {
+        setFilterLoaiHinhKeys((prev) => {
+            if (prev.length === 0) return [key];
+            if (prev.includes(key)) return prev.filter((x) => x !== key);
+            return [...prev, key];
+        });
+        setCurrentPage(1);
+        setDsLoaiHinhFilterOpen(false);
+    };
+
+    const hasActiveDsFilters = useMemo(
+        () =>
+            filterKhachIds.length > 0 ||
+            filterLoaiHinhKeys.length > 0 ||
+            Boolean(searchTerm.trim()),
+        [filterKhachIds, filterLoaiHinhKeys, searchTerm],
+    );
+
+    const clearAllDsFilters = useCallback(() => {
+        setSearchTerm('');
+        setFilterKhachIds([]);
+        setFilterLoaiHinhKeys([]);
+        setDsKhachFilterSearch('');
+        setDsLoaiHinhFilterSearch('');
+        setDsKhachFilterOpen(false);
+        setDsLoaiHinhFilterOpen(false);
+        setCurrentPage(1);
+    }, []);
+
+    // Filtered items by search + dropdowns
+    const filteredItems = useMemo(() => {
+        let list = items;
+        if (filterKhachIds.length > 0) {
+            const allow = new Set(filterKhachIds);
+            list = list.filter((it) => allow.has(khachHangRowId(it)));
+        }
+        if (filterLoaiHinhKeys.length > 0) {
+            const allow = new Set(filterLoaiHinhKeys);
+            list = list.filter((it) => {
+                const lh = String(it.Loai_Hinh || '').trim();
+                return lh && allow.has(normalizeKey(lh));
+            });
+        }
+        const term = searchTerm.trim();
+        if (!term) return list;
+        const termLower = term.toLowerCase();
+        const termNorm = normalizeKey(term);
+        return list.filter(
+            (item) =>
+                String(item.Ten_Don_Vi || '')
+                    .toLowerCase()
+                    .includes(termLower) ||
+                normalizeKey(String(item.Ten_Don_Vi || '')).includes(termNorm) ||
+                String(item.MST || '')
+                    .toLowerCase()
+                    .includes(termLower) ||
+                String(item.SDT_Lien_He || '')
+                    .toLowerCase()
+                    .includes(termLower) ||
+                String(item.Nguoi_Lien_He || '')
+                    .toLowerCase()
+                    .includes(termLower),
+        );
+    }, [items, searchTerm, filterKhachIds, filterLoaiHinhKeys]);
 
     // Pagination
     const totalPages = Math.max(1, Math.ceil(filteredItems.length / itemsPerPage) || 1);
@@ -286,9 +453,7 @@ export function DanhSachKhachHang() {
 
     useEffect(() => {
         setCurrentPage(1);
-    }, [itemsPerPage, searchTerm]);
-
-    const khachHangRowId = (item: { id?: string | number }) => String(item.id ?? '').trim();
+    }, [itemsPerPage, searchTerm, filterKhachIds, filterLoaiHinhKeys]);
 
     const isAllKhachSelected =
         filteredItems.length > 0 &&
@@ -480,22 +645,258 @@ export function DanhSachKhachHang() {
                     </div>
                 </div>
 
-                <div className="bg-[#f2f3ff] p-5 rounded-xl border border-slate-200">
-                    <div className="flex flex-wrap gap-4 items-end">
-                        <div className="flex-grow min-w-[240px]">
-                            <label className="block text-xs font-bold text-slate-600 mb-2 px-1">Tìm kiếm chi tiết</label>
-                            <div className="relative">
-                                <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+                <section className="bg-[#f2f3ff] rounded-xl p-4 border border-slate-200 space-y-3">
+                    <div className="flex flex-wrap items-center gap-2 justify-between">
+                        <div className="flex flex-wrap items-center gap-2 flex-1 min-w-0">
+                            <div className="relative w-full max-w-md min-w-[200px]">
+                                <Search
+                                    size={16}
+                                    className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"
+                                />
                                 <input
-                                    className="w-full bg-white border border-slate-200 rounded-lg pl-10 pr-4 py-2.5 text-sm focus:ring-2 focus:ring-blue-500/20"
-                                    placeholder="Tên, mã số thuế hoặc SĐT..."
-                                    type="text"
+                                    type="search"
+                                    className="w-full bg-white border border-slate-200 rounded-full pl-9 pr-4 py-2 text-sm focus:ring-2 focus:ring-[#004bcb]/20"
+                                    placeholder="Tên, MST hoặc SĐT…"
                                     value={searchTerm}
-                                    onChange={(e) => { setSearchTerm(e.target.value); setCurrentPage(1); }}
+                                    onChange={(e) => {
+                                        setSearchTerm(e.target.value);
+                                        setCurrentPage(1);
+                                    }}
+                                    autoComplete="off"
+                                    aria-label="Tìm khách hàng"
                                 />
                             </div>
+                            <div className="relative min-w-[10.5rem] max-w-[14rem]" ref={dsKhachFilterRef}>
+                                <button
+                                    type="button"
+                                    onClick={() => {
+                                        setDsKhachFilterOpen((o) => !o);
+                                        setDsLoaiHinhFilterOpen(false);
+                                    }}
+                                    className="w-full flex items-center justify-between gap-1 rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-900 shadow-sm hover:bg-slate-50"
+                                >
+                                    <span className="truncate min-w-0 text-left">
+                                        {filterKhachIds.length === 0
+                                            ? 'Tất cả khách hàng'
+                                            : filterKhachIds.length === 1
+                                              ? dsKhachOptions.find((x) => x.id === filterKhachIds[0])
+                                                    ?.label || '1 khách'
+                                              : `${filterKhachIds.length} khách đã chọn`}
+                                    </span>
+                                    <ChevronDown
+                                        className={`w-4 h-4 shrink-0 text-slate-500 ${dsKhachFilterOpen ? 'rotate-180' : ''}`}
+                                    />
+                                </button>
+                                {dsKhachFilterOpen ? (
+                                    <div className="absolute left-0 right-0 top-full z-50 mt-1 flex max-h-72 flex-col overflow-hidden rounded-lg border-2 border-slate-300 bg-white shadow-lg">
+                                        <div className="shrink-0 border-b border-slate-200 bg-slate-50 p-2">
+                                            <div className="relative">
+                                                <Search
+                                                    size={14}
+                                                    className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400"
+                                                />
+                                                <input
+                                                    type="search"
+                                                    value={dsKhachFilterSearch}
+                                                    onChange={(e) => setDsKhachFilterSearch(e.target.value)}
+                                                    placeholder="Tìm khách hàng…"
+                                                    autoComplete="off"
+                                                    className="w-full rounded-md border border-slate-200 bg-white py-1.5 pl-8 pr-2 text-xs"
+                                                />
+                                            </div>
+                                            {dsKhachFilterSearch.trim() && dsKhachOptionsMatching.length > 0 ? (
+                                                <button
+                                                    type="button"
+                                                    onClick={() => {
+                                                        if (allVisibleDsKhachSelected) {
+                                                            const visible = new Set(
+                                                                dsKhachOptionsMatching.map((o) => o.id),
+                                                            );
+                                                            setFilterKhachIds((prev) =>
+                                                                prev.filter((id) => !visible.has(id)),
+                                                            );
+                                                            setCurrentPage(1);
+                                                            setDsKhachFilterOpen(false);
+                                                        } else {
+                                                            selectAllVisibleDsKhach();
+                                                        }
+                                                    }}
+                                                    className="mt-2 w-full rounded-md border border-[#004bcb]/30 bg-[#004bcb]/5 px-2 py-1.5 text-[11px] font-bold text-[#004bcb]"
+                                                >
+                                                    {allVisibleDsKhachSelected
+                                                        ? `Bỏ chọn ${dsKhachOptionsMatching.length} kết quả`
+                                                        : `Chọn tất cả đang hiển thị (${dsKhachOptionsMatching.length})`}
+                                                </button>
+                                            ) : null}
+                                        </div>
+                                        <div className="max-h-52 overflow-y-auto py-1">
+                                            <label className="flex cursor-pointer items-center gap-2 px-3 py-2 text-xs font-bold text-slate-900 hover:bg-slate-100">
+                                                <input
+                                                    type="checkbox"
+                                                    className="h-3.5 w-3.5 rounded border-slate-300 text-[#004bcb]"
+                                                    checked={filterKhachIds.length === 0}
+                                                    onChange={(e) => {
+                                                        if (e.target.checked) {
+                                                            setFilterKhachIds([]);
+                                                            setCurrentPage(1);
+                                                            setDsKhachFilterOpen(false);
+                                                        }
+                                                    }}
+                                                />
+                                                Tất cả khách hàng
+                                            </label>
+                                            <div className="mx-2 border-t border-slate-200" />
+                                            {dsKhachOptionsMatching.length === 0 ? (
+                                                <p className="px-3 py-2 text-[11px] text-slate-500">
+                                                    {dsKhachFilterSearch.trim()
+                                                        ? `Không khớp "${dsKhachFilterSearch.trim()}".`
+                                                        : 'Không có khách hàng.'}
+                                                </p>
+                                            ) : (
+                                                dsKhachOptionsMatching.map((o) => (
+                                                    <label
+                                                        key={o.id}
+                                                        className="flex cursor-pointer items-center gap-2 px-3 py-2 text-xs text-slate-800 hover:bg-slate-100"
+                                                    >
+                                                        <input
+                                                            type="checkbox"
+                                                            className="h-3.5 w-3.5 rounded border-slate-300 text-[#004bcb]"
+                                                            checked={
+                                                                filterKhachIds.length > 0 &&
+                                                                filterKhachIds.includes(o.id)
+                                                            }
+                                                            onChange={() => toggleDsKhachFilter(o.id)}
+                                                        />
+                                                        <span className="min-w-0 break-words">{o.label}</span>
+                                                    </label>
+                                                ))
+                                            )}
+                                        </div>
+                                    </div>
+                                ) : null}
+                            </div>
+                            <div className="relative min-w-[10.5rem] max-w-[14rem]" ref={dsLoaiHinhFilterRef}>
+                                <button
+                                    type="button"
+                                    onClick={() => {
+                                        setDsLoaiHinhFilterOpen((o) => !o);
+                                        setDsKhachFilterOpen(false);
+                                    }}
+                                    disabled={dsLoaiHinhOptions.length === 0}
+                                    className="w-full flex items-center justify-between gap-1 rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-900 shadow-sm hover:bg-slate-50 disabled:opacity-55"
+                                >
+                                    <span className="truncate min-w-0 text-left">
+                                        {filterLoaiHinhKeys.length === 0
+                                            ? 'Tất cả loại hình'
+                                            : filterLoaiHinhKeys.length === 1
+                                              ? dsLoaiHinhOptions.find((x) => x.key === filterLoaiHinhKeys[0])
+                                                    ?.label || '1 loại'
+                                              : `${filterLoaiHinhKeys.length} loại đã chọn`}
+                                    </span>
+                                    <ChevronDown
+                                        className={`w-4 h-4 shrink-0 text-slate-500 ${dsLoaiHinhFilterOpen ? 'rotate-180' : ''}`}
+                                    />
+                                </button>
+                                {dsLoaiHinhFilterOpen && dsLoaiHinhOptions.length > 0 ? (
+                                    <div className="absolute left-0 right-0 top-full z-50 mt-1 flex max-h-72 flex-col overflow-hidden rounded-lg border-2 border-slate-300 bg-white shadow-lg">
+                                        <div className="shrink-0 border-b border-slate-200 bg-slate-50 p-2">
+                                            <div className="relative">
+                                                <Search
+                                                    size={14}
+                                                    className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400"
+                                                />
+                                                <input
+                                                    type="search"
+                                                    value={dsLoaiHinhFilterSearch}
+                                                    onChange={(e) => setDsLoaiHinhFilterSearch(e.target.value)}
+                                                    placeholder="Tìm loại hình…"
+                                                    autoComplete="off"
+                                                    className="w-full rounded-md border border-slate-200 bg-white py-1.5 pl-8 pr-2 text-xs"
+                                                />
+                                            </div>
+                                            {dsLoaiHinhFilterSearch.trim() &&
+                                            dsLoaiHinhOptionsMatching.length > 0 ? (
+                                                <button
+                                                    type="button"
+                                                    onClick={() => {
+                                                        if (allVisibleDsLoaiHinhSelected) {
+                                                            const visible = new Set(
+                                                                dsLoaiHinhOptionsMatching.map((o) => o.key),
+                                                            );
+                                                            setFilterLoaiHinhKeys((prev) =>
+                                                                prev.filter((k) => !visible.has(k)),
+                                                            );
+                                                            setCurrentPage(1);
+                                                            setDsLoaiHinhFilterOpen(false);
+                                                        } else {
+                                                            selectAllVisibleDsLoaiHinh();
+                                                        }
+                                                    }}
+                                                    className="mt-2 w-full rounded-md border border-[#004bcb]/30 bg-[#004bcb]/5 px-2 py-1.5 text-[11px] font-bold text-[#004bcb]"
+                                                >
+                                                    {allVisibleDsLoaiHinhSelected
+                                                        ? `Bỏ chọn ${dsLoaiHinhOptionsMatching.length} kết quả`
+                                                        : `Chọn tất cả đang hiển thị (${dsLoaiHinhOptionsMatching.length})`}
+                                                </button>
+                                            ) : null}
+                                        </div>
+                                        <div className="max-h-52 overflow-y-auto py-1">
+                                            <label className="flex cursor-pointer items-center gap-2 px-3 py-2 text-xs font-bold text-slate-900 hover:bg-slate-100">
+                                                <input
+                                                    type="checkbox"
+                                                    className="h-3.5 w-3.5 rounded border-slate-300 text-[#004bcb]"
+                                                    checked={filterLoaiHinhKeys.length === 0}
+                                                    onChange={(e) => {
+                                                        if (e.target.checked) {
+                                                            setFilterLoaiHinhKeys([]);
+                                                            setCurrentPage(1);
+                                                            setDsLoaiHinhFilterOpen(false);
+                                                        }
+                                                    }}
+                                                />
+                                                Tất cả loại hình
+                                            </label>
+                                            <div className="mx-2 border-t border-slate-200" />
+                                            {dsLoaiHinhOptionsMatching.length === 0 ? (
+                                                <p className="px-3 py-2 text-[11px] text-slate-500">
+                                                    {dsLoaiHinhFilterSearch.trim()
+                                                        ? `Không khớp "${dsLoaiHinhFilterSearch.trim()}".`
+                                                        : 'Không có loại hình.'}
+                                                </p>
+                                            ) : (
+                                                dsLoaiHinhOptionsMatching.map((o) => (
+                                                    <label
+                                                        key={o.key}
+                                                        className="flex cursor-pointer items-center gap-2 px-3 py-2 text-xs text-slate-800 hover:bg-slate-100"
+                                                    >
+                                                        <input
+                                                            type="checkbox"
+                                                            className="h-3.5 w-3.5 rounded border-slate-300 text-[#004bcb]"
+                                                            checked={
+                                                                filterLoaiHinhKeys.length > 0 &&
+                                                                filterLoaiHinhKeys.includes(o.key)
+                                                            }
+                                                            onChange={() => toggleDsLoaiHinhFilter(o.key)}
+                                                        />
+                                                        <span className="min-w-0 break-words">{o.label}</span>
+                                                    </label>
+                                                ))
+                                            )}
+                                        </div>
+                                    </div>
+                                ) : null}
+                            </div>
+                            <button
+                                type="button"
+                                onClick={clearAllDsFilters}
+                                disabled={!hasActiveDsFilters}
+                                className="inline-flex shrink-0 items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-700 shadow-sm hover:bg-slate-50 disabled:opacity-40"
+                            >
+                                <FilterX size={14} className="text-slate-500" aria-hidden />
+                                Xóa bộ lọc
+                            </button>
                         </div>
-                        <div className="flex flex-wrap items-center gap-2 ml-auto">
+                        <div className="flex flex-wrap items-center gap-2 shrink-0">
                             {SHOW_DELETE_ALL_KHACH_HANG_BUTTON ? (
                                 <button
                                     type="button"
@@ -566,7 +967,7 @@ export function DanhSachKhachHang() {
                             </button>
                         </div>
                     </div>
-                </div>
+                </section>
 
                 <div className="bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
                     <div className="flex flex-wrap items-center gap-2 px-4 py-2.5 border-b border-slate-200 bg-slate-50/90">

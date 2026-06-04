@@ -34,7 +34,7 @@ import {
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { thuChiService, ThuChiRow } from '../../lib/services/thuChiService';
 import { projectService } from '../../lib/services/projectService';
-import { contractService } from '../../lib/services/contractService';
+import { contractService, type ContractRow } from '../../lib/services/contractService';
 import { employeeService } from '../../lib/services/employeeService';
 import { customerService, type Customer } from '../../lib/services/customerService';
 import { useThuChiModal } from '../../contexts/ThuChiModalContext';
@@ -42,6 +42,10 @@ import { normalizeNguongLoai, tienQuyDoiNguongChiNhanSu } from '../../lib/nguong
 import { ExcelImportExportBar, type ExcelImportResult } from '../../components/ExcelImportExportBar';
 import type { ExcelColumnDef } from '../../lib/excelTableTools';
 import { parseMoneyVi, parseExcelDate, cleanString, normalizeKey } from '../../lib/excelTableTools';
+import {
+    enrichThuChiForHopDongMatch,
+    contractHopDongLookupIds,
+} from '../../lib/hopDongThuChiMatch';
 import { cn } from '../../lib/utils';
 import { PAGE_SIZE_OPTIONS, buildVisiblePages } from '../../lib/tablePagination';
 import {
@@ -186,6 +190,52 @@ function parseHangMucChiFromExcel(raw: string): 'chi_du_an' | 'chi_nhan_su' {
 /** Đặt `true` để hiện nút xóa toàn bộ phiếu thu chi (mặc định ẩn). */
 const SHOW_DELETE_ALL_THU_CHI_BUTTON = false;
 
+const THU_CHI_SEARCH_DEBOUNCE_MS = 280;
+
+const THU_CHI_MONTH_QUICK = Array.from({ length: 12 }, (_, i) => ({
+    value: String(i + 1),
+    label: `Tháng ${i + 1}`,
+}));
+
+function formatLocalDateIso(year: number, month1: number, day: number): string {
+    return `${year}-${String(month1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+}
+
+function thuChiMonthRangeIso(month: number, year: number): { from: string; to: string } {
+    const lastDay = new Date(year, month, 0).getDate();
+    return {
+        from: formatLocalDateIso(year, month, 1),
+        to: formatLocalDateIso(year, month, lastDay),
+    };
+}
+
+function buildThuChiFilterYears(anchorYear: number, minYear = 2000): number[] {
+    const years: number[] = [];
+    for (let y = minYear; y <= anchorYear + 1; y += 1) years.push(y);
+    return years;
+}
+
+function escapeRegexForSearch(term: string): string {
+    return String(term ?? '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+/** «86» khớp `86/2022` nhưng không khớp `686`. */
+function matchesSoHopDongSearchTerm(soHopDong: string, term: string): boolean {
+    const t = String(term ?? '').trim();
+    if (!t) return true;
+    const s = String(soHopDong ?? '').trim();
+    if (!s) return false;
+    return new RegExp(`(^|[^0-9])${escapeRegexForSearch(t)}([^0-9]|$)`, 'i').test(s);
+}
+
+function isThuChiDateFilterActive(
+    dateFrom: string,
+    dateTo: string,
+    selectedMonth: string,
+): boolean {
+    return Boolean(dateFrom.trim() || dateTo.trim() || selectedMonth.trim());
+}
+
 export function ThuChi() {
     const navigate = useNavigate();
     const [searchParams, setSearchParams] = useSearchParams();
@@ -198,6 +248,7 @@ export function ThuChi() {
     const [error, setError] = useState<string | null>(null);
     const [selectedIds, setSelectedIds] = useState<string[]>([]);
     const [searchTerm, setSearchTerm] = useState('');
+    const [debouncedSearch, setDebouncedSearch] = useState('');
     const [currentPage, setCurrentPage] = useState(1);
     const [itemsPerPage, setItemsPerPage] = useState<number>(PAGE_SIZE_OPTIONS[0]);
     const [activeTab, setActiveTab] = useState<'thu' | 'chi'>('thu'); // Tab mặc định: Phiếu thu
@@ -209,6 +260,8 @@ export function ThuChi() {
             hop_dong_row_id?: string | null;
             so_hop_dong: string | null;
             du_an_id: string | null;
+            project_name: string | null;
+            ten_goi_thau: string | null;
             customer_id: string | null;
             customer_name: string | null;
             gia_tri_qt?: number | null;
@@ -227,15 +280,21 @@ export function ThuChi() {
     // Date filter states
     const [dateFrom, setDateFrom] = useState<string>('');
     const [dateTo, setDateTo] = useState<string>('');
-    const [quickDateFilter, setQuickDateFilter] = useState<string>('');
     const [selectedMonth, setSelectedMonth] = useState<string>('');
+    const [filterYear, setFilterYear] = useState<number | ''>('');
 
-    // Column filter dropdown states
-    const [openColumnFilter, setOpenColumnFilter] = useState<string | null>(null);
+    const thuChiFilterYearOptions = useMemo(
+        () => buildThuChiFilterYears(new Date().getFullYear()),
+        [],
+    );
 
-    const [customerSearchInput, setCustomerSearchInput] = useState('');
-    const [customerPickerOpen, setCustomerPickerOpen] = useState(false);
-    const customerFilterRef = useRef<HTMLDivElement>(null);
+    const [tcKhachFilterOpen, setTcKhachFilterOpen] = useState(false);
+    const [tcKhachFilterSearch, setTcKhachFilterSearch] = useState('');
+    const tcKhachFilterRef = useRef<HTMLDivElement>(null);
+
+    const [tcDuAnFilterOpen, setTcDuAnFilterOpen] = useState(false);
+    const [tcDuAnFilterSearch, setTcDuAnFilterSearch] = useState('');
+    const tcDuAnFilterRef = useRef<HTMLDivElement>(null);
 
     const [toast, setToast] = useState<{ message: string, type: 'success' | 'error' | 'info' } | null>(null);
     const [tamUngTotalsOpen, setTamUngTotalsOpen] = useState(false);
@@ -429,6 +488,8 @@ export function ThuChi() {
                     hop_dong_row_id: c.hop_dong_row_id ?? null,
                     so_hop_dong: c.so_hop_dong,
                     du_an_id: c.du_an_id || null,
+                    project_name: c.project_name || null,
+                    ten_goi_thau: c.ten_goi_thau || null,
                     customer_id: c.customer_id || null,
                     customer_name: c.customer_name || null,
                     gia_tri_qt: c.gia_tri_qt ?? null,
@@ -453,8 +514,26 @@ export function ThuChi() {
         void reloadLookupData();
     }, [reloadLookupData]);
 
+    useEffect(() => {
+        const timer = setTimeout(() => setDebouncedSearch(searchTerm.trim()), THU_CHI_SEARCH_DEBOUNCE_MS);
+        return () => clearTimeout(timer);
+    }, [searchTerm]);
+
+    useEffect(() => {
+        setCurrentPage(1);
+    }, [
+        debouncedSearch,
+        selectedCustomerIds,
+        selectedDuAnIds,
+        selectedHopDongIds,
+        selectedNhanSuIds,
+        dateFrom,
+        dateTo,
+        activeTab,
+    ]);
+
     const filteredCustomersPick = useMemo(() => {
-        const q = customerSearchInput.trim();
+        const q = tcKhachFilterSearch.trim();
         if (!q) return customers;
         const termLower = q.toLowerCase();
         const termNorm = normalizeKey(q);
@@ -465,39 +544,72 @@ export function ThuChi() {
                 normalizeKey(name).includes(termNorm)
             );
         });
-    }, [customers, customerSearchInput]);
+    }, [customers, tcKhachFilterSearch]);
+
+    const thuChiProjectOptions = useMemo(() => {
+        if (selectedCustomerIds.length === 0) return projects;
+        return projects.filter(
+            (p) => p.customer_id && selectedCustomerIds.includes(p.customer_id),
+        );
+    }, [projects, selectedCustomerIds]);
+
+    const filteredProjectsPick = useMemo(() => {
+        const q = tcDuAnFilterSearch.trim().toLowerCase();
+        if (!q) return thuChiProjectOptions;
+        return thuChiProjectOptions.filter((p) =>
+            String(p.ten_du_an || '')
+                .toLowerCase()
+                .includes(q),
+        );
+    }, [thuChiProjectOptions, tcDuAnFilterSearch]);
 
     const allVisibleCustomersSelected =
         filteredCustomersPick.length > 0 &&
+        selectedCustomerIds.length > 0 &&
         filteredCustomersPick.every((c) => selectedCustomerIds.includes(c.id));
 
     const selectAllVisibleCustomers = () => {
         const visibleIds = filteredCustomersPick.map((c) => c.id);
-        setSelectedCustomerIds((prev) => [...new Set([...prev, ...visibleIds])]);
+        if (visibleIds.length === 0) return;
+        setSelectedCustomerIds(visibleIds);
+        setCurrentPage(1);
+        setTcKhachFilterOpen(false);
     };
 
-    const customerFilterDisplayValue = useMemo(() => {
-        if (customerPickerOpen) return customerSearchInput;
-        if (selectedCustomerIds.length === 0) return customerSearchInput;
-        if (selectedCustomerIds.length === 1) {
-            return (
-                customers.find((c) => c.id === selectedCustomerIds[0])?.ten_don_vi ||
-                customerSearchInput
-            );
-        }
-        return `${selectedCustomerIds.length} khách đã chọn`;
-    }, [customerPickerOpen, customerSearchInput, selectedCustomerIds, customers]);
+    const allVisibleDuAnSelected =
+        filteredProjectsPick.length > 0 &&
+        selectedDuAnIds.length > 0 &&
+        filteredProjectsPick.every((p) => selectedDuAnIds.includes(p.id));
+
+    const selectAllVisibleDuAn = () => {
+        const visibleIds = filteredProjectsPick.map((p) => p.id);
+        if (visibleIds.length === 0) return;
+        setSelectedDuAnIds(visibleIds);
+        setCurrentPage(1);
+        setTcDuAnFilterOpen(false);
+    };
 
     useEffect(() => {
-        if (!customerPickerOpen) return;
+        if (!tcKhachFilterOpen) return;
         const onDocMouseDown = (ev: MouseEvent) => {
             const el = ev.target as Node;
-            if (customerFilterRef.current?.contains(el)) return;
-            setCustomerPickerOpen(false);
+            if (tcKhachFilterRef.current?.contains(el)) return;
+            setTcKhachFilterOpen(false);
         };
         document.addEventListener('mousedown', onDocMouseDown);
         return () => document.removeEventListener('mousedown', onDocMouseDown);
-    }, [customerPickerOpen]);
+    }, [tcKhachFilterOpen]);
+
+    useEffect(() => {
+        if (!tcDuAnFilterOpen) return;
+        const onDocMouseDown = (ev: MouseEvent) => {
+            const el = ev.target as Node;
+            if (tcDuAnFilterRef.current?.contains(el)) return;
+            setTcDuAnFilterOpen(false);
+        };
+        document.addEventListener('mousedown', onDocMouseDown);
+        return () => document.removeEventListener('mousedown', onDocMouseDown);
+    }, [tcDuAnFilterOpen]);
 
     /** Khớp `thu_chi.hop_dong_id` (thường là PK bảng hop_dong) với bản ghi hợp đồng từ API */
     const hopDongRef = (c: (typeof contracts)[number]) => String(c.hop_dong_row_id || c.id || '').trim();
@@ -576,6 +688,26 @@ export function ThuChi() {
         loadRecords();
     }, [loadRecords]);
 
+    const contractCatalog = useMemo((): ContractRow[] => {
+        return contracts.map((c) => ({
+            id: c.id,
+            contract_id: c.id,
+            hop_dong_row_id: c.hop_dong_row_id,
+            so_hop_dong: c.so_hop_dong,
+            du_an_id: c.du_an_id,
+            project_name: c.project_name,
+            ten_goi_thau: c.ten_goi_thau,
+            customer_id: c.customer_id,
+            customer_name: c.customer_name,
+        }));
+    }, [contracts]);
+
+    /** Bổ sung Số HĐ từ danh mục HĐ — cùng logic trang Hợp đồng. */
+    const enrichedRawThuChi = useMemo(() => {
+        if (contractCatalog.length === 0) return rawThuChi;
+        return enrichThuChiForHopDongMatch(rawThuChi, contractCatalog);
+    }, [rawThuChi, contractCatalog]);
+
     const items = useMemo(() => {
         const projectInfoMap = new Map<
             string,
@@ -591,15 +723,12 @@ export function ThuChi() {
 
         const contractByHopKey = new Map<string, (typeof contracts)[number]>();
         contracts.forEach((c) => {
-            const ref = hopDongRef(c);
-            if (ref) contractByHopKey.set(ref, c);
-            const logicalId = c.id != null ? String(c.id).trim() : '';
-            const rowPk = c.hop_dong_row_id != null ? String(c.hop_dong_row_id).trim() : '';
-            if (logicalId) contractByHopKey.set(logicalId, c);
-            if (rowPk && rowPk !== logicalId) contractByHopKey.set(rowPk, c);
+            for (const id of contractHopDongLookupIds(c)) {
+                if (!contractByHopKey.has(id)) contractByHopKey.set(id, c);
+            }
         });
 
-        return rawThuChi.map((item) => {
+        return enrichedRawThuChi.map((item) => {
             const nhanSuDisplay = item.nhan_su_ten || null;
             const hid = item.hop_dong_id ? String(item.hop_dong_id).trim() : '';
             const linkedContract = hid ? contractByHopKey.get(hid) : undefined;
@@ -656,7 +785,7 @@ export function ThuChi() {
                 nhan_su_display: nhanSuDisplay,
             };
         });
-    }, [rawThuChi, projects, contracts, customers]);
+    }, [enrichedRawThuChi, projects, contracts, customers]);
 
     const handleDelete = (item: (typeof items)[0]) => {
         openDelete({ id: item.id, code: item.code });
@@ -680,28 +809,39 @@ export function ThuChi() {
     const isSelected = (id: string | number) => selectedIds.includes(thuChiRowId(id));
 
     const toggleCustomerFilter = (id: string) => {
-        setSelectedCustomerIds(prev => {
-            const newIds = prev.includes(id) ? prev.filter(i => i !== id) : [...prev, id];
-            // Khi bỏ chọn khách hàng, không cần ép các filter khác; UX ưu tiên giữ lựa chọn hiện tại
-            return newIds;
+        setSelectedCustomerIds((prev) => {
+            if (prev.length === 0) return [id];
+            if (prev.includes(id)) {
+                const next = prev.filter((i) => i !== id);
+                return next;
+            }
+            return [...prev, id];
         });
+        setCurrentPage(1);
+        setTcKhachFilterOpen(false);
     };
 
     // Filter handlers
     const toggleDuAnFilter = (id: string) => {
-        setSelectedDuAnIds(prev => {
-            const newIds = prev.includes(id) ? prev.filter(i => i !== id) : [...prev, id];
-            // Khi bỏ chọn dự án, cũng bỏ chọn các hợp đồng thuộc dự án đó
+        setSelectedDuAnIds((prev) => {
+            const newIds =
+                prev.length === 0
+                    ? [id]
+                    : prev.includes(id)
+                      ? prev.filter((i) => i !== id)
+                      : [...prev, id];
             if (!newIds.includes(id)) {
                 const contractsToRemove = contracts
-                    .filter(c => c.du_an_id === id)
+                    .filter((c) => c.du_an_id === id)
                     .map((c) => hopDongRef(c));
-                setSelectedHopDongIds(prevHd =>
-                    prevHd.filter(hdId => !contractsToRemove.includes(hdId))
+                setSelectedHopDongIds((prevHd) =>
+                    prevHd.filter((hdId) => !contractsToRemove.includes(hdId)),
                 );
             }
             return newIds;
         });
+        setCurrentPage(1);
+        setTcDuAnFilterOpen(false);
     };
 
     const toggleHopDongFilter = (id: string) => {
@@ -747,9 +887,9 @@ export function ThuChi() {
             selectedNhanSuIds.length > 0 ||
             Boolean(dateFrom) ||
             Boolean(dateTo) ||
-            Boolean(quickDateFilter) ||
             Boolean(selectedMonth) ||
-            searchTerm.trim().length > 0
+            filterYear !== '' ||
+            debouncedSearch.trim().length > 0
         );
     }, [
         searchParamsStr,
@@ -759,9 +899,9 @@ export function ThuChi() {
         selectedNhanSuIds,
         dateFrom,
         dateTo,
-        quickDateFilter,
         selectedMonth,
-        searchTerm,
+        filterYear,
+        debouncedSearch,
     ]);
 
     const clearAllFilters = useCallback(() => {
@@ -771,123 +911,108 @@ export function ThuChi() {
         setSelectedNhanSuIds([]);
         setDateFrom('');
         setDateTo('');
-        setQuickDateFilter('');
         setSelectedMonth('');
+        setFilterYear('');
         setSearchTerm('');
-        setOpenColumnFilter(null);
-        setCustomerSearchInput('');
-        setCustomerPickerOpen(false);
+        setDebouncedSearch('');
+        setTcKhachFilterSearch('');
+        setTcDuAnFilterSearch('');
+        setTcKhachFilterOpen(false);
+        setTcDuAnFilterOpen(false);
         setCurrentPage(1);
         setSearchParams({}, { replace: true });
     }, [setSearchParams]);
 
-    const handleQuickDateFilter = (filter: string) => {
-        setQuickDateFilter(filter);
-        setSelectedMonth('');
-
-        const today = new Date();
-        let fromDate = '';
-        let toDate = '';
-
-        switch (filter) {
-            case 'today':
-                fromDate = today.toISOString().split('T')[0];
-                toDate = today.toISOString().split('T')[0];
-                break;
-            case 'yesterday':
-                const yesterday = new Date(today);
-                yesterday.setDate(yesterday.getDate() - 1);
-                fromDate = yesterday.toISOString().split('T')[0];
-                toDate = yesterday.toISOString().split('T')[0];
-                break;
-            case 'thisMonth':
-                fromDate = new Date(today.getFullYear(), today.getMonth(), 1).toISOString().split('T')[0];
-                toDate = new Date(today.getFullYear(), today.getMonth() + 1, 0).toISOString().split('T')[0];
-                break;
-            default:
-                return;
+    const handleMonthSelect = (month: string, yearOverride?: number) => {
+        if (!month) {
+            setSelectedMonth('');
+            setDateFrom('');
+            setDateTo('');
+            return;
         }
-
-        setDateFrom(fromDate);
-        setDateTo(toDate);
-    };
-
-    // Xử lý chọn tháng
-    const handleMonthSelect = (month: string) => {
+        const year =
+            yearOverride ??
+            (typeof filterYear === 'number' && filterYear > 0
+                ? filterYear
+                : new Date().getFullYear());
+        const monthNum = parseInt(month, 10);
+        if (!monthNum || monthNum < 1 || monthNum > 12) return;
+        const { from, to } = thuChiMonthRangeIso(monthNum, year);
         setSelectedMonth(month);
-        setQuickDateFilter('');
-
-        if (month) {
-            const today = new Date();
-            const year = today.getFullYear();
-            const monthNum = parseInt(month);
-            const fromDate = new Date(year, monthNum - 1, 1).toISOString().split('T')[0];
-            const toDate = new Date(year, monthNum, 0).toISOString().split('T')[0];
-            setDateFrom(fromDate);
-            setDateTo(toDate);
-        }
+        setDateFrom(from);
+        setDateTo(to);
+        setCurrentPage(1);
     };
 
-    /** HĐ có số khớp ô tìm kiếm — dùng khi phiếu thu/chi chưa có `so_hop_dong` join sẵn. */
+    const handleFilterYearChange = (yearStr: string) => {
+        if (!yearStr) {
+            setFilterYear('');
+            setSelectedMonth('');
+            setDateFrom('');
+            setDateTo('');
+            setCurrentPage(1);
+            return;
+        }
+        const year = Number(yearStr);
+        if (!year || year < 1900 || year > 2100) return;
+        setFilterYear(year);
+        if (selectedMonth) handleMonthSelect(selectedMonth, year);
+        else setCurrentPage(1);
+    };
+
+    const clearThuChiDateFilters = () => {
+        setSelectedMonth('');
+        setDateFrom('');
+        setDateTo('');
+        setFilterYear('');
+        setCurrentPage(1);
+    };
+
+    /** HĐ có số khớp ô tìm kiếm — dùng khi phiếu chưa có `so_hop_dong` join sẵn. */
     const hopDongIdsMatchingSearch = useMemo(() => {
-        const q = searchTerm.trim();
+        const q = debouncedSearch.trim();
         if (!q) return null;
-        const termLower = q.toLowerCase();
-        const termNorm = normalizeKey(q);
         const ids = new Set<string>();
         contracts.forEach((c) => {
             const so = String(c.so_hop_dong || '').trim();
-            if (!so) return;
-            const soLower = so.toLowerCase();
-            const soNorm = normalizeKey(so);
-            if (!soLower.includes(termLower) && !soNorm.includes(termNorm)) return;
-            const ref = hopDongRef(c);
-            if (ref) ids.add(ref);
-            if (c.id) ids.add(String(c.id));
-            if (c.hop_dong_row_id) ids.add(String(c.hop_dong_row_id));
+            if (!so || !matchesSoHopDongSearchTerm(so, q)) return;
+            for (const id of contractHopDongLookupIds(c)) {
+                ids.add(id);
+            }
         });
         return ids.size > 0 ? ids : null;
-    }, [contracts, searchTerm]);
+    }, [contracts, debouncedSearch]);
 
     const matchesThuChiSearch = (item: (typeof items)[number], q: string): boolean => {
         if (!q.trim()) return true;
-        const termLower = q.trim().toLowerCase();
-        const termNorm = normalizeKey(q);
-        const fields = [
-            item.code,
-            item.description,
-            item.noi_dung,
-            (item as { ten_du_an?: string }).ten_du_an,
-            (item as { customer_name?: string }).customer_name,
-            (item as { so_hop_dong_display?: string | null }).so_hop_dong_display,
-            item.so_hop_dong,
-            (item as { ten_goi_thau?: string | null }).ten_goi_thau,
-            item.id,
-        ];
-        if (
-            fields.some((f) => {
-                const raw = String(f ?? '').trim();
-                if (!raw) return false;
-                return (
-                    raw.toLowerCase().includes(termLower) ||
-                    normalizeKey(raw).includes(termNorm)
-                );
-            })
-        ) {
-            return true;
-        }
+        const so = String(
+            (item as { so_hop_dong_display?: string | null }).so_hop_dong_display ||
+                item.so_hop_dong ||
+                '',
+        ).trim();
+        if (matchesSoHopDongSearchTerm(so, q)) return true;
         const hid = item.hop_dong_id ? String(item.hop_dong_id).trim() : '';
         return Boolean(hid && hopDongIdsMatchingSearch?.has(hid));
+    };
+
+    const matchesThuChiCustomer = (item: (typeof items)[number]): boolean => {
+        if (selectedCustomerIds.length === 0) return true;
+        const allow = new Set(selectedCustomerIds);
+        const cid = String((item as { customer_id?: string | null }).customer_id ?? '').trim();
+        if (cid && allow.has(cid)) return true;
+        const cname = normalizeKey(String((item as { customer_name?: string | null }).customer_name ?? ''));
+        if (!cname) return false;
+        return customers.some(
+            (c) => allow.has(c.id) && normalizeKey(c.ten_don_vi) === cname,
+        );
     };
 
     // Lọc chung (trừ tab) — dùng cho bộ đếm phiếu thu/chi theo bộ lọc hiện tại
     const baseFiltered = useMemo(() => {
         return items.filter((item) => {
-            const matchesSearch = matchesThuChiSearch(item, searchTerm);
+            const matchesSearch = matchesThuChiSearch(item, debouncedSearch);
 
-            const matchesCustomer =
-                selectedCustomerIds.length === 0 ||
-                ((item as any).customer_id && selectedCustomerIds.includes((item as any).customer_id));
+            const matchesCustomer = matchesThuChiCustomer(item);
 
             const matchesDuAn =
                 selectedDuAnIds.length === 0 ||
@@ -919,9 +1044,10 @@ export function ThuChi() {
         });
     }, [
         items,
-        searchTerm,
+        debouncedSearch,
         hopDongIdsMatchingSearch,
         selectedCustomerIds,
+        customers,
         selectedDuAnIds,
         selectedHopDongIds,
         selectedNhanSuIds,
@@ -1947,85 +2073,79 @@ export function ThuChi() {
                     </div>
                 </section>
 
-                <section className="bg-slate-100 rounded-xl p-6 space-y-5 border border-slate-200">
-                    <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
-                        <div>
-                            <label className="block mb-1.5 text-sm text-slate-600 font-medium">Loại phiếu</label>
-                            <select
-                                value={activeTab}
-                                onChange={(e) => {
-                                    setActiveTab(e.target.value as 'thu' | 'chi');
-                                    setCurrentPage(1);
-                                }}
-                                className="w-full bg-white border border-slate-200 rounded-lg text-sm py-2 px-3"
-                            >
-                                <option value="thu">Phiếu thu</option>
-                                <option value="chi">Phiếu chi</option>
-                            </select>
+                <section className="bg-[#f2f3ff] rounded-xl p-4 border border-slate-200 space-y-3">
+                    <div className="flex flex-wrap items-center gap-2">
+                        <div className="relative w-full max-w-md min-w-[200px]">
+                            <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+                            <input
+                                type="search"
+                                value={searchTerm}
+                                onChange={(e) => setSearchTerm(e.target.value)}
+                                placeholder="Tìm số hợp đồng…"
+                                className="w-full pl-9 pr-9 py-2 bg-white border border-slate-200 rounded-full text-sm"
+                                aria-label="Tìm theo số hợp đồng"
+                                autoComplete="off"
+                            />
+                            {searchTerm.trim() !== debouncedSearch ? (
+                                <Loader2
+                                    size={16}
+                                    className="absolute right-3 top-1/2 -translate-y-1/2 animate-spin text-blue-600"
+                                    aria-hidden
+                                />
+                            ) : null}
                         </div>
 
-                        <div className="relative z-30" ref={customerFilterRef}>
-                            <label className="block mb-1.5 text-sm text-slate-600 font-medium">Khách hàng</label>
-                            <div className="relative">
-                                <Search
-                                    size={16}
-                                    className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none"
+                        <div className="relative min-w-[10.5rem] max-w-[14rem]" ref={tcKhachFilterRef}>
+                            <button
+                                type="button"
+                                onClick={() => {
+                                    setTcKhachFilterOpen((o) => !o);
+                                    setTcDuAnFilterOpen(false);
+                                }}
+                                className="w-full flex items-center justify-between gap-1 rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-900 shadow-sm hover:bg-slate-50"
+                            >
+                                <span className="truncate min-w-0 text-left">
+                                    {selectedCustomerIds.length === 0
+                                        ? 'Tất cả khách hàng'
+                                        : selectedCustomerIds.length === 1
+                                          ? customers.find((c) => c.id === selectedCustomerIds[0])
+                                                ?.ten_don_vi || '1 khách'
+                                          : `${selectedCustomerIds.length} khách đã chọn`}
+                                </span>
+                                <ChevronDown
+                                    className={`w-4 h-4 shrink-0 text-slate-500 ${tcKhachFilterOpen ? 'rotate-180' : ''}`}
                                 />
-                                <input
-                                    type="search"
-                                    role="combobox"
-                                    aria-expanded={customerPickerOpen}
-                                    aria-autocomplete="list"
-                                    placeholder="Gõ để tìm khách hàng..."
-                                    autoComplete="off"
-                                    value={customerFilterDisplayValue}
-                                    onChange={(e) => {
-                                        setCustomerSearchInput(e.target.value);
-                                        setCustomerPickerOpen(true);
-                                    }}
-                                    onFocus={() => setCustomerPickerOpen(true)}
-                                    className="w-full pl-9 pr-9 py-2 bg-white border border-slate-200 rounded-lg text-sm text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500/25 focus:border-blue-400"
-                                />
-                                {(customerSearchInput || selectedCustomerIds.length > 0) && (
-                                    <button
-                                        type="button"
-                                        className="absolute right-2 top-1/2 -translate-y-1/2 p-1 rounded text-slate-400 hover:text-slate-600 hover:bg-slate-100"
-                                        aria-label="Xóa bộ lọc khách hàng"
-                                        onMouseDown={(e) => e.preventDefault()}
-                                        onClick={() => {
-                                            setSelectedCustomerIds([]);
-                                            setCustomerSearchInput('');
-                                            setCustomerPickerOpen(false);
-                                        }}
-                                    >
-                                        <X size={14} />
-                                    </button>
-                                )}
-                            </div>
-                            {customerPickerOpen && (
-                                <div
-                                    role="listbox"
-                                    className="absolute left-0 right-0 top-full z-40 mt-1 flex max-h-72 flex-col overflow-hidden rounded-lg border border-slate-200 bg-white shadow-lg"
-                                >
+                            </button>
+                            {tcKhachFilterOpen ? (
+                                <div className="absolute left-0 right-0 top-full z-50 mt-1 flex max-h-72 flex-col overflow-hidden rounded-lg border-2 border-slate-300 bg-white shadow-lg">
                                     <div className="shrink-0 border-b border-slate-200 bg-slate-50 p-2">
-                                        {customerSearchInput.trim() &&
-                                            filteredCustomersPick.length > 0 ? (
+                                        <div className="relative">
+                                            <Search size={14} className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400" />
+                                            <input
+                                                type="search"
+                                                value={tcKhachFilterSearch}
+                                                onChange={(e) => setTcKhachFilterSearch(e.target.value)}
+                                                placeholder="Tìm khách hàng…"
+                                                autoComplete="off"
+                                                className="w-full rounded-md border border-slate-200 bg-white py-1.5 pl-8 pr-2 text-xs"
+                                            />
+                                        </div>
+                                        {tcKhachFilterSearch.trim() && filteredCustomersPick.length > 0 ? (
                                             <button
                                                 type="button"
-                                                onMouseDown={(e) => e.preventDefault()}
                                                 onClick={() => {
                                                     if (allVisibleCustomersSelected) {
-                                                        const visible = new Set(
-                                                            filteredCustomersPick.map((c) => c.id),
-                                                        );
+                                                        const visible = new Set(filteredCustomersPick.map((c) => c.id));
                                                         setSelectedCustomerIds((prev) =>
                                                             prev.filter((id) => !visible.has(id)),
                                                         );
+                                                        setCurrentPage(1);
+                                                        setTcKhachFilterOpen(false);
                                                     } else {
                                                         selectAllVisibleCustomers();
                                                     }
                                                 }}
-                                                className="w-full rounded-md border border-blue-500/30 bg-blue-500/5 px-2 py-1.5 text-[11px] font-bold text-blue-700 hover:bg-blue-500/10"
+                                                className="mt-2 w-full rounded-md border border-blue-500/30 bg-blue-500/5 px-2 py-1.5 text-[11px] font-bold text-blue-700"
                                             >
                                                 {allVisibleCustomersSelected
                                                     ? `Bỏ chọn ${filteredCustomersPick.length} kết quả`
@@ -2033,15 +2153,17 @@ export function ThuChi() {
                                             </button>
                                         ) : null}
                                     </div>
-                                    <div className="max-h-52 overflow-y-auto py-1 [scrollbar-gutter:stable]">
-                                        <label className="flex cursor-pointer items-center gap-2 px-3 py-2 text-sm font-semibold text-slate-900 hover:bg-slate-50">
+                                    <div className="max-h-52 overflow-y-auto py-1">
+                                        <label className="flex cursor-pointer items-center gap-2 px-3 py-2 text-xs font-bold text-slate-900 hover:bg-slate-100">
                                             <input
                                                 type="checkbox"
-                                                className="h-3.5 w-3.5 rounded border-slate-300 text-blue-600 focus:ring-blue-500"
+                                                className="h-3.5 w-3.5 rounded border-slate-300 text-blue-600"
                                                 checked={selectedCustomerIds.length === 0}
                                                 onChange={(e) => {
                                                     if (e.target.checked) {
                                                         setSelectedCustomerIds([]);
+                                                        setCurrentPage(1);
+                                                        setTcKhachFilterOpen(false);
                                                     }
                                                 }}
                                             />
@@ -2049,66 +2171,230 @@ export function ThuChi() {
                                         </label>
                                         <div className="mx-2 border-t border-slate-200" />
                                         {filteredCustomersPick.length === 0 ? (
-                                            <p className="px-3 py-2 text-sm text-slate-500">
-                                                {customerSearchInput.trim()
-                                                    ? `Không khớp "${customerSearchInput.trim()}".`
+                                            <p className="px-3 py-2 text-[11px] text-slate-500">
+                                                {tcKhachFilterSearch.trim()
+                                                    ? `Không khớp "${tcKhachFilterSearch.trim()}".`
                                                     : 'Không có khách hàng.'}
                                             </p>
                                         ) : (
-                                            filteredCustomersPick.map((c) => {
-                                                const checked =
-                                                    selectedCustomerIds.length > 0 &&
-                                                    selectedCustomerIds.includes(c.id);
-                                                return (
-                                                    <label
-                                                        key={c.id}
-                                                        className="flex cursor-pointer items-center gap-2 px-3 py-2 text-sm text-slate-800 hover:bg-slate-50"
-                                                    >
-                                                        <input
-                                                            type="checkbox"
-                                                            className="h-3.5 w-3.5 rounded border-slate-300 text-blue-600 focus:ring-blue-500"
-                                                            checked={checked}
-                                                            onChange={() => toggleCustomerFilter(c.id)}
-                                                        />
-                                                        <span className="min-w-0 break-words">
-                                                            {c.ten_don_vi}
-                                                        </span>
-                                                    </label>
-                                                );
-                                            })
+                                            filteredCustomersPick.map((c) => (
+                                                <label
+                                                    key={c.id}
+                                                    className="flex cursor-pointer items-center gap-2 px-3 py-2 text-xs text-slate-800 hover:bg-slate-100"
+                                                >
+                                                    <input
+                                                        type="checkbox"
+                                                        className="h-3.5 w-3.5 rounded border-slate-300 text-blue-600"
+                                                        checked={
+                                                            selectedCustomerIds.length > 0 &&
+                                                            selectedCustomerIds.includes(c.id)
+                                                        }
+                                                        onChange={() => toggleCustomerFilter(c.id)}
+                                                    />
+                                                    <span className="min-w-0 break-words">{c.ten_don_vi}</span>
+                                                </label>
+                                            ))
                                         )}
                                     </div>
                                 </div>
-                            )}
+                            ) : null}
                         </div>
 
-                        <div className="xl:col-span-2">
-                            <label className="block mb-1.5 text-sm text-slate-600 font-medium">Khoảng thời gian</label>
-                            <div className="flex items-center gap-2">
-                                <input type="date" value={dateFrom} onChange={(e) => { setDateFrom(e.target.value); setQuickDateFilter(''); setSelectedMonth(''); }} className="bg-white border border-slate-200 rounded-lg text-sm py-2 px-3 flex-1" />
-                                <span className="text-slate-400">-&gt;</span>
-                                <input type="date" value={dateTo} onChange={(e) => { setDateTo(e.target.value); setQuickDateFilter(''); setSelectedMonth(''); }} className="bg-white border border-slate-200 rounded-lg text-sm py-2 px-3 flex-1" />
-                            </div>
+                        <div className="relative min-w-[10.5rem] max-w-[14rem]" ref={tcDuAnFilterRef}>
+                            <button
+                                type="button"
+                                onClick={() => {
+                                    setTcDuAnFilterOpen((o) => !o);
+                                    setTcKhachFilterOpen(false);
+                                }}
+                                disabled={thuChiProjectOptions.length === 0}
+                                className="w-full flex items-center justify-between gap-1 rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-900 shadow-sm hover:bg-slate-50 disabled:opacity-55"
+                            >
+                                <span className="truncate min-w-0 text-left">
+                                    {selectedDuAnIds.length === 0
+                                        ? 'Tất cả dự án'
+                                        : selectedDuAnIds.length === 1
+                                          ? thuChiProjectOptions.find((p) => p.id === selectedDuAnIds[0])
+                                                ?.ten_du_an || '1 dự án'
+                                          : `${selectedDuAnIds.length} dự án đã chọn`}
+                                </span>
+                                <ChevronDown
+                                    className={`w-4 h-4 shrink-0 text-slate-500 ${tcDuAnFilterOpen ? 'rotate-180' : ''}`}
+                                />
+                            </button>
+                            {tcDuAnFilterOpen && thuChiProjectOptions.length > 0 ? (
+                                <div className="absolute left-0 right-0 top-full z-50 mt-1 flex max-h-72 flex-col overflow-hidden rounded-lg border-2 border-slate-300 bg-white shadow-lg">
+                                    <div className="shrink-0 border-b border-slate-200 bg-slate-50 p-2">
+                                        <div className="relative">
+                                            <Search size={14} className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400" />
+                                            <input
+                                                type="search"
+                                                value={tcDuAnFilterSearch}
+                                                onChange={(e) => setTcDuAnFilterSearch(e.target.value)}
+                                                placeholder="Tìm dự án…"
+                                                autoComplete="off"
+                                                className="w-full rounded-md border border-slate-200 bg-white py-1.5 pl-8 pr-2 text-xs"
+                                            />
+                                        </div>
+                                        {tcDuAnFilterSearch.trim() && filteredProjectsPick.length > 0 ? (
+                                            <button
+                                                type="button"
+                                                onClick={() => {
+                                                    if (allVisibleDuAnSelected) {
+                                                        const visible = new Set(filteredProjectsPick.map((p) => p.id));
+                                                        setSelectedDuAnIds((prev) =>
+                                                            prev.filter((id) => !visible.has(id)),
+                                                        );
+                                                        setCurrentPage(1);
+                                                        setTcDuAnFilterOpen(false);
+                                                    } else {
+                                                        selectAllVisibleDuAn();
+                                                    }
+                                                }}
+                                                className="mt-2 w-full rounded-md border border-blue-500/30 bg-blue-500/5 px-2 py-1.5 text-[11px] font-bold text-blue-700"
+                                            >
+                                                {allVisibleDuAnSelected
+                                                    ? `Bỏ chọn ${filteredProjectsPick.length} kết quả`
+                                                    : `Chọn tất cả đang hiển thị (${filteredProjectsPick.length})`}
+                                            </button>
+                                        ) : null}
+                                    </div>
+                                    <div className="max-h-52 overflow-y-auto py-1">
+                                        <label className="flex cursor-pointer items-center gap-2 px-3 py-2 text-xs font-bold text-slate-900 hover:bg-slate-100">
+                                            <input
+                                                type="checkbox"
+                                                className="h-3.5 w-3.5 rounded border-slate-300 text-blue-600"
+                                                checked={selectedDuAnIds.length === 0}
+                                                onChange={(e) => {
+                                                    if (e.target.checked) {
+                                                        setSelectedDuAnIds([]);
+                                                        setCurrentPage(1);
+                                                        setTcDuAnFilterOpen(false);
+                                                    }
+                                                }}
+                                            />
+                                            Tất cả dự án
+                                        </label>
+                                        <div className="mx-2 border-t border-slate-200" />
+                                        {filteredProjectsPick.length === 0 ? (
+                                            <p className="px-3 py-2 text-[11px] text-slate-500">
+                                                {tcDuAnFilterSearch.trim()
+                                                    ? `Không khớp "${tcDuAnFilterSearch.trim()}".`
+                                                    : 'Không có dự án.'}
+                                            </p>
+                                        ) : (
+                                            filteredProjectsPick.map((p) => (
+                                                <label
+                                                    key={p.id}
+                                                    className="flex cursor-pointer items-center gap-2 px-3 py-2 text-xs text-slate-800 hover:bg-slate-100"
+                                                >
+                                                    <input
+                                                        type="checkbox"
+                                                        className="h-3.5 w-3.5 rounded border-slate-300 text-blue-600"
+                                                        checked={
+                                                            selectedDuAnIds.length > 0 &&
+                                                            selectedDuAnIds.includes(p.id)
+                                                        }
+                                                        onChange={() => toggleDuAnFilter(p.id)}
+                                                    />
+                                                    <span className="min-w-0 break-words">{p.ten_du_an}</span>
+                                                </label>
+                                            ))
+                                        )}
+                                    </div>
+                                </div>
+                            ) : null}
                         </div>
-                    </div>
 
-                    <div className="flex flex-wrap items-center gap-2">
-                        <button type="button" onClick={() => handleQuickDateFilter('today')} className={`px-3 py-1.5 text-xs font-semibold rounded-full border border-transparent ${quickDateFilter === 'today' ? 'bg-blue-600 text-white' : 'bg-white border-slate-200 hover:bg-slate-50 text-slate-700'}`}>Hôm nay</button>
-                        <button type="button" onClick={() => handleQuickDateFilter('thisMonth')} className={`px-3 py-1.5 text-xs font-semibold rounded-full border border-transparent ${quickDateFilter === 'thisMonth' ? 'bg-blue-600 text-white' : 'bg-white border-slate-200 hover:bg-slate-50 text-slate-700'}`}>Tháng này</button>
-                        <div className="relative flex-1 min-w-[220px]">
-                            <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
-                            <input type="text" placeholder="Tìm mã, nội dung, số HĐ..." value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} className="w-full pl-10 pr-4 py-2 bg-white border border-slate-200 rounded-lg text-sm text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500/25 focus:border-blue-400" />
-                        </div>
+                        <select
+                            value={activeTab}
+                            onChange={(e) => {
+                                setActiveTab(e.target.value as 'thu' | 'chi');
+                                setCurrentPage(1);
+                            }}
+                            className="min-w-[9rem] bg-white border border-slate-200 rounded-lg text-sm py-2 px-3"
+                            aria-label="Loại phiếu"
+                        >
+                            <option value="thu">Phiếu thu</option>
+                            <option value="chi">Phiếu chi</option>
+                        </select>
+
                         <button
                             type="button"
                             onClick={clearAllFilters}
                             disabled={!hasActiveFilters}
-                            title="Xóa khách, dự án, HĐ, nhân sự, ngày, tìm kiếm và tham số URL"
-                            className="inline-flex shrink-0 items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-700 shadow-sm hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40"
+                            className="inline-flex shrink-0 items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-700 shadow-sm hover:bg-slate-50 disabled:opacity-40"
                         >
                             <FilterX size={14} className="text-slate-500" aria-hidden />
                             Xóa bộ lọc
                         </button>
+                    </div>
+
+                    <div className="flex flex-wrap items-center gap-2 w-full">
+                        <span className="text-xs font-semibold text-slate-600 shrink-0 flex items-center gap-1">
+                            <Calendar size={14} className="text-slate-400" aria-hidden />
+                            Ngày chứng từ:
+                        </span>
+                        <input
+                            type="date"
+                            value={dateFrom}
+                            onChange={(e) => {
+                                setDateFrom(e.target.value);
+                                setSelectedMonth('');
+                                setCurrentPage(1);
+                            }}
+                            className="bg-white border border-slate-200 rounded-lg text-sm py-1.5 px-2.5 min-w-[9.5rem] [color-scheme:light]"
+                            aria-label="Từ ngày"
+                        />
+                        <span className="text-slate-400 text-xs">→</span>
+                        <input
+                            type="date"
+                            value={dateTo}
+                            onChange={(e) => {
+                                setDateTo(e.target.value);
+                                setSelectedMonth('');
+                                setCurrentPage(1);
+                            }}
+                            className="bg-white border border-slate-200 rounded-lg text-sm py-1.5 px-2.5 min-w-[9.5rem] [color-scheme:light]"
+                            aria-label="Đến ngày"
+                        />
+                        <span className="text-xs font-semibold text-slate-600 shrink-0">Năm</span>
+                        <select
+                            value={filterYear === '' ? '' : String(filterYear)}
+                            onChange={(e) => handleFilterYearChange(e.target.value)}
+                            className="bg-white border border-slate-200 rounded-lg text-sm py-1.5 px-2.5 min-w-[7rem] [color-scheme:light]"
+                        >
+                            <option value="">Tất cả năm</option>
+                            {thuChiFilterYearOptions.map((y) => (
+                                <option key={y} value={y}>
+                                    {y}
+                                </option>
+                            ))}
+                        </select>
+                        <span className="text-xs font-semibold text-slate-600 shrink-0">Tháng</span>
+                        <select
+                            value={selectedMonth}
+                            onChange={(e) => handleMonthSelect(e.target.value)}
+                            className="bg-white border border-slate-200 rounded-lg text-sm py-1.5 px-2.5 min-w-[11rem] [color-scheme:light]"
+                        >
+                            <option value="">Chọn tháng</option>
+                            {THU_CHI_MONTH_QUICK.map((m) => (
+                                <option key={m.value} value={m.value}>
+                                    {m.label}
+                                </option>
+                            ))}
+                        </select>
+                        {isThuChiDateFilterActive(dateFrom, dateTo, selectedMonth) || filterYear !== '' ? (
+                            <button
+                                type="button"
+                                onClick={clearThuChiDateFilters}
+                                className="text-xs font-semibold text-blue-700 hover:underline px-1"
+                            >
+                                Xóa lọc ngày
+                            </button>
+                        ) : (
+                            <span className="text-[11px] text-slate-400">Để trống = tất cả</span>
+                        )}
                     </div>
                 </section>
 

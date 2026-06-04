@@ -9,6 +9,7 @@ import {
     Search,
     ChevronDown,
 } from 'lucide-react';
+import { hopDongNgayUpdateDateToday } from '../../lib/hopDongProfileAccess';
 import { thuChiService } from '../../lib/services/thuChiService';
 import { projectService } from '../../lib/services/projectService';
 import { customerService } from '../../lib/services/customerService';
@@ -687,7 +688,7 @@ export function ThemThuChiModal({
                     gia_tri_qt: 0,
                     da_thu: 0,
                     con_phai_thu: 0,
-                    ngay_update: new Date().toISOString().slice(0, 10),
+                    ngay_update: hopDongNgayUpdateDateToday(),
                     file_status: 'Chưa có file',
                 });
                 if (!created) throw new Error('Không tạo được hợp đồng mới.');

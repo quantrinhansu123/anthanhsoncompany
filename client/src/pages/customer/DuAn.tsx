@@ -1,5 +1,5 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { Search, Plus, Eye, Edit, Trash2, X, Maximize2, CheckCircle, PlusCircle, User, DollarSign, ChevronDown, ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight } from 'lucide-react';
+import React, { useEffect, useMemo, useRef, useState, useCallback } from 'react';
+import { Search, Plus, Eye, Edit, Trash2, X, Maximize2, CheckCircle, PlusCircle, User, DollarSign, ChevronDown, ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, FilterX } from 'lucide-react';
 import { useLocation, useNavigate, useSearchParams } from 'react-router-dom';
 import { thuChiPath } from '../../lib/customerModuleLinks';
 import { useDuAnModal } from '../../contexts/DuAnModalContext';
@@ -48,6 +48,14 @@ function getDuAnItemCustomerKey(item: {
     return n ? `name:${n}` : 'empty:';
 }
 
+const DU_AN_STATUS_OPTIONS = [
+    'Đang thực hiện',
+    'Hoàn thành',
+    'Đang quá hạn',
+    'Tạm dừng',
+    'Từ chối',
+] as const;
+
 export function DuAn() {
     const [items, setItems] = useState<any[]>([]);
     const {
@@ -73,6 +81,7 @@ export function DuAn() {
     /** Bộ lọc checkbox: khóa từ getDuAnItemCustomerKey; rỗng = tất cả */
     const [filterDuAnKhachKeys, setFilterDuAnKhachKeys] = useState<string[]>([]);
     const [filterDuAnProjectIds, setFilterDuAnProjectIds] = useState<string[]>([]);
+    const [filterDuAnStatus, setFilterDuAnStatus] = useState<string>('');
     const [duAnKhachFilterOpen, setDuAnKhachFilterOpen] = useState(false);
     const [duAnKhachFilterSearch, setDuAnKhachFilterSearch] = useState('');
     const duAnKhachFilterRef = useRef<HTMLDivElement>(null);
@@ -191,6 +200,82 @@ export function DuAn() {
         );
     }, [duAnProjectOptions, duAnProjectFilterSearch]);
 
+    const allVisibleDuAnKhachSelected =
+        duAnKhachOptionsMatching.length > 0 &&
+        filterDuAnKhachKeys.length > 0 &&
+        duAnKhachOptionsMatching.every((o) => filterDuAnKhachKeys.includes(o.key));
+
+    const selectAllVisibleDuAnKhach = () => {
+        const keys = duAnKhachOptionsMatching.map((o) => o.key);
+        if (keys.length === 0) return;
+        setFilterDuAnKhachKeys(keys);
+        setCurrentPage(1);
+        setDuAnKhachFilterOpen(false);
+    };
+
+    const allVisibleDuAnProjectSelected =
+        duAnProjectOptionsMatching.length > 0 &&
+        filterDuAnProjectIds.length > 0 &&
+        duAnProjectOptionsMatching.every((o) => filterDuAnProjectIds.includes(o.id));
+
+    const selectAllVisibleDuAnProject = () => {
+        const ids = duAnProjectOptionsMatching.map((o) => o.id);
+        if (ids.length === 0) return;
+        setFilterDuAnProjectIds(ids);
+        setCurrentPage(1);
+        setDuAnProjectFilterOpen(false);
+    };
+
+    const toggleDuAnKhachFilter = (key: string) => {
+        setFilterDuAnKhachKeys((prev) => {
+            if (prev.length === 0) return [key];
+            if (prev.includes(key)) return prev.filter((x) => x !== key);
+            return [...prev, key];
+        });
+        setCurrentPage(1);
+        setDuAnKhachFilterOpen(false);
+    };
+
+    const toggleDuAnProjectFilter = (id: string) => {
+        setFilterDuAnProjectIds((prev) => {
+            if (prev.length === 0) return [id];
+            if (prev.includes(id)) return prev.filter((x) => x !== id);
+            return [...prev, id];
+        });
+        setCurrentPage(1);
+        setDuAnProjectFilterOpen(false);
+    };
+
+    const hasActiveDuAnFilters = useMemo(
+        () =>
+            filterDuAnKhachKeys.length > 0 ||
+            filterDuAnProjectIds.length > 0 ||
+            Boolean(filterDuAnStatus) ||
+            Boolean(searchTerm.trim()) ||
+            Boolean(urlCustomerId) ||
+            Boolean(urlDuAnId),
+        [
+            filterDuAnKhachKeys,
+            filterDuAnProjectIds,
+            filterDuAnStatus,
+            searchTerm,
+            urlCustomerId,
+            urlDuAnId,
+        ],
+    );
+
+    const clearAllDuAnFilters = useCallback(() => {
+        setSearchTerm('');
+        setFilterDuAnKhachKeys([]);
+        setFilterDuAnProjectIds([]);
+        setFilterDuAnStatus('');
+        setDuAnKhachFilterSearch('');
+        setDuAnProjectFilterSearch('');
+        setDuAnKhachFilterOpen(false);
+        setDuAnProjectFilterOpen(false);
+        setCurrentPage(1);
+    }, []);
+
     useEffect(() => {
         if (!duAnKhachFilterOpen) {
             setDuAnKhachFilterSearch('');
@@ -252,6 +337,9 @@ export function DuAn() {
             const allowP = new Set(filterDuAnProjectIds.map(String));
             list = list.filter((it) => allowP.has(String(it.id)));
         }
+        if (filterDuAnStatus) {
+            list = list.filter((it) => String(it.status || '') === filterDuAnStatus);
+        }
         if (urlCustomerId) {
             list = list.filter((item) => String(item.customer_id || '') === urlCustomerId);
         }
@@ -272,6 +360,7 @@ export function DuAn() {
         urlDuAnId,
         filterDuAnKhachKeys,
         filterDuAnProjectIds,
+        filterDuAnStatus,
     ]);
 
     const totalPages = Math.max(1, Math.ceil(filteredItems.length / itemsPerPage) || 1);
@@ -288,7 +377,7 @@ export function DuAn() {
 
     useEffect(() => {
         setCurrentPage(1);
-    }, [itemsPerPage, searchTerm, filterDuAnKhachKeys, filterDuAnProjectIds, urlCustomerId, urlDuAnId]);
+    }, [itemsPerPage, searchTerm, filterDuAnKhachKeys, filterDuAnProjectIds, filterDuAnStatus, urlCustomerId, urlDuAnId]);
 
     // Load danh sách nhân sự
     useEffect(() => {
@@ -856,17 +945,22 @@ export function DuAn() {
                 </div>
             </section>
 
-            <section className="bg-[#f2f3ff] rounded-xl p-6 space-y-5 border border-[#dae2fd]">
-                <div className="flex flex-wrap items-center gap-3 justify-between">
+            <section className="bg-[#f2f3ff] rounded-xl p-4 border border-slate-200 space-y-3">
+                <div className="flex flex-wrap items-center gap-2 justify-between">
                     <div className="flex flex-wrap items-center gap-2 flex-1 min-w-0">
                         <div className="relative w-full max-w-md min-w-[200px]">
                             <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
                             <input
-                                type="text"
+                                type="search"
                                 value={searchTerm}
-                                onChange={(e) => setSearchTerm(e.target.value)}
-                                className="w-full pl-10 pr-4 py-2 bg-white border border-slate-200 rounded-lg text-sm"
-                                placeholder="Tìm tên khách hàng hoặc dự án..."
+                                onChange={(e) => {
+                                    setSearchTerm(e.target.value);
+                                    setCurrentPage(1);
+                                }}
+                                className="w-full pl-9 pr-4 py-2 bg-white border border-slate-200 rounded-full text-sm"
+                                placeholder="Tìm khách hàng hoặc dự án…"
+                                autoComplete="off"
+                                aria-label="Tìm khách hàng hoặc dự án"
                             />
                         </div>
                         <div className="relative min-w-[10.5rem] max-w-[14rem]" ref={duAnKhachFilterRef}>
@@ -915,6 +1009,30 @@ export function DuAn() {
                                                 className="w-full rounded-md border border-slate-200 bg-white py-1.5 pl-8 pr-2 text-xs text-slate-900 placeholder:text-slate-400 focus:border-[#004bcb] focus:outline-none focus:ring-2 focus:ring-[#004bcb]/25"
                                             />
                                         </div>
+                                        {duAnKhachFilterSearch.trim() && duAnKhachOptionsMatching.length > 0 ? (
+                                            <button
+                                                type="button"
+                                                onClick={() => {
+                                                    if (allVisibleDuAnKhachSelected) {
+                                                        const visible = new Set(
+                                                            duAnKhachOptionsMatching.map((o) => o.key),
+                                                        );
+                                                        setFilterDuAnKhachKeys((prev) =>
+                                                            prev.filter((k) => !visible.has(k)),
+                                                        );
+                                                        setCurrentPage(1);
+                                                        setDuAnKhachFilterOpen(false);
+                                                    } else {
+                                                        selectAllVisibleDuAnKhach();
+                                                    }
+                                                }}
+                                                className="mt-2 w-full rounded-md border border-[#004bcb]/30 bg-[#004bcb]/5 px-2 py-1.5 text-[11px] font-bold text-[#004bcb] hover:bg-[#004bcb]/10"
+                                            >
+                                                {allVisibleDuAnKhachSelected
+                                                    ? `Bỏ chọn ${duAnKhachOptionsMatching.length} kết quả`
+                                                    : `Chọn tất cả đang hiển thị (${duAnKhachOptionsMatching.length})`}
+                                            </button>
+                                        ) : null}
                                     </div>
                                     <div className="max-h-[min(12rem,40vh)] min-h-0 flex-1 overflow-y-auto py-1 [scrollbar-gutter:stable]">
                                         <label className="flex cursor-pointer items-center gap-2 px-3 py-2 text-xs font-bold text-slate-900 hover:bg-slate-100">
@@ -923,7 +1041,11 @@ export function DuAn() {
                                                 className="h-3.5 w-3.5 rounded border-slate-300 text-[#004bcb] focus:ring-[#004bcb]"
                                                 checked={filterDuAnKhachKeys.length === 0}
                                                 onChange={(e) => {
-                                                    if (e.target.checked) setFilterDuAnKhachKeys([]);
+                                                    if (e.target.checked) {
+                                                        setFilterDuAnKhachKeys([]);
+                                                        setCurrentPage(1);
+                                                        setDuAnKhachFilterOpen(false);
+                                                    }
                                                 }}
                                             />
                                             Tất cả khách hàng
@@ -949,14 +1071,7 @@ export function DuAn() {
                                                             type="checkbox"
                                                             className="h-3.5 w-3.5 rounded border-slate-300 text-[#004bcb] focus:ring-[#004bcb]"
                                                             checked={checked}
-                                                            onChange={() => {
-                                                                setFilterDuAnKhachKeys((prev) => {
-                                                                    if (prev.length === 0) return [o.key];
-                                                                    if (prev.includes(o.key))
-                                                                        return prev.filter((x) => x !== o.key);
-                                                                    return [...prev, o.key];
-                                                                });
-                                                            }}
+                                                            onChange={() => toggleDuAnKhachFilter(o.key)}
                                                         />
                                                         <span className="min-w-0 break-words">{o.label}</span>
                                                     </label>
@@ -1014,6 +1129,30 @@ export function DuAn() {
                                                 className="w-full rounded-md border border-slate-200 bg-white py-1.5 pl-8 pr-2 text-xs text-slate-900 placeholder:text-slate-400 focus:border-[#004bcb] focus:outline-none focus:ring-2 focus:ring-[#004bcb]/25"
                                             />
                                         </div>
+                                        {duAnProjectFilterSearch.trim() && duAnProjectOptionsMatching.length > 0 ? (
+                                            <button
+                                                type="button"
+                                                onClick={() => {
+                                                    if (allVisibleDuAnProjectSelected) {
+                                                        const visible = new Set(
+                                                            duAnProjectOptionsMatching.map((o) => o.id),
+                                                        );
+                                                        setFilterDuAnProjectIds((prev) =>
+                                                            prev.filter((id) => !visible.has(id)),
+                                                        );
+                                                        setCurrentPage(1);
+                                                        setDuAnProjectFilterOpen(false);
+                                                    } else {
+                                                        selectAllVisibleDuAnProject();
+                                                    }
+                                                }}
+                                                className="mt-2 w-full rounded-md border border-[#004bcb]/30 bg-[#004bcb]/5 px-2 py-1.5 text-[11px] font-bold text-[#004bcb] hover:bg-[#004bcb]/10"
+                                            >
+                                                {allVisibleDuAnProjectSelected
+                                                    ? `Bỏ chọn ${duAnProjectOptionsMatching.length} kết quả`
+                                                    : `Chọn tất cả đang hiển thị (${duAnProjectOptionsMatching.length})`}
+                                            </button>
+                                        ) : null}
                                     </div>
                                     <div className="max-h-[min(12rem,40vh)] min-h-0 flex-1 overflow-y-auto py-1 [scrollbar-gutter:stable]">
                                         <label className="flex cursor-pointer items-center gap-2 px-3 py-2 text-xs font-bold text-slate-900 hover:bg-slate-100">
@@ -1022,7 +1161,11 @@ export function DuAn() {
                                                 className="h-3.5 w-3.5 rounded border-slate-300 text-[#004bcb] focus:ring-[#004bcb]"
                                                 checked={filterDuAnProjectIds.length === 0}
                                                 onChange={(e) => {
-                                                    if (e.target.checked) setFilterDuAnProjectIds([]);
+                                                    if (e.target.checked) {
+                                                        setFilterDuAnProjectIds([]);
+                                                        setCurrentPage(1);
+                                                        setDuAnProjectFilterOpen(false);
+                                                    }
                                                 }}
                                             />
                                             Tất cả dự án
@@ -1048,14 +1191,7 @@ export function DuAn() {
                                                             type="checkbox"
                                                             className="h-3.5 w-3.5 rounded border-slate-300 text-[#004bcb] focus:ring-[#004bcb]"
                                                             checked={checked}
-                                                            onChange={() => {
-                                                                setFilterDuAnProjectIds((prev) => {
-                                                                    if (prev.length === 0) return [o.id];
-                                                                    if (prev.includes(o.id))
-                                                                        return prev.filter((x) => x !== o.id);
-                                                                    return [...prev, o.id];
-                                                                });
-                                                            }}
+                                                            onChange={() => toggleDuAnProjectFilter(o.id)}
                                                         />
                                                         <span className="min-w-0 break-words">{o.label}</span>
                                                     </label>
@@ -1066,6 +1202,31 @@ export function DuAn() {
                                 </div>
                             ) : null}
                         </div>
+                        <select
+                            value={filterDuAnStatus}
+                            onChange={(e) => {
+                                setFilterDuAnStatus(e.target.value);
+                                setCurrentPage(1);
+                            }}
+                            className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-900 shadow-sm hover:bg-slate-50 focus:outline-none focus:ring-2 focus:ring-[#004bcb]/30 min-w-[10.5rem] max-w-[14rem]"
+                            aria-label="Lọc theo trạng thái dự án"
+                        >
+                            <option value="">Tất cả trạng thái</option>
+                            {DU_AN_STATUS_OPTIONS.map((opt) => (
+                                <option key={opt} value={opt}>
+                                    {opt}
+                                </option>
+                            ))}
+                        </select>
+                        <button
+                            type="button"
+                            onClick={clearAllDuAnFilters}
+                            disabled={!hasActiveDuAnFilters}
+                            className="inline-flex shrink-0 items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs font-semibold text-slate-700 shadow-sm hover:bg-slate-50 disabled:opacity-40"
+                        >
+                            <FilterX size={14} className="text-slate-500" aria-hidden />
+                            Xóa bộ lọc
+                        </button>
                     </div>
                     <div className="flex items-center gap-2 shrink-0">
                         <ExcelImportExportBar

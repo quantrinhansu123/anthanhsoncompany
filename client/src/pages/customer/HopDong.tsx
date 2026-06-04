@@ -11,7 +11,12 @@ import { customerService } from '../../lib/services/customerService';
 import { useHopDongModal } from '../../contexts/HopDongModalContext';
 import type { NguongChiNhanSuLoai } from '../../lib/nguongChiNhanSu';
 import { normalizeNguongLoai, tienQuyDoiNguongChiNhanSu } from '../../lib/nguongChiNhanSu';
-import { HOPDONG_PROFILE_ACCESS_EVENT, type HopDongProfileAccessDetail } from '../../lib/hopDongProfileAccess';
+import {
+    HOPDONG_PROFILE_ACCESS_EVENT,
+    type HopDongProfileAccessDetail,
+    formatHopDongNgayUpdateDisplay,
+    hopDongNgayUpdateDateToday,
+} from '../../lib/hopDongProfileAccess';
 import { ExcelImportExportBar } from '../../components/ExcelImportExportBar';
 import {
     ExcelColumnDef,
@@ -973,6 +978,7 @@ async function persistHopDongThuChiSync(
                     cdt_tam_ung: item.cdt_tam_ung,
                     da_thu: item.da_thu,
                     con_phai_thu: item.con_phai_thu,
+                    ngay_update: hopDongNgayUpdateDateToday(),
                 });
             }
         } catch (err) {
@@ -1665,7 +1671,7 @@ export function HopDong() {
                             nguongChiNhanSu: rawNguong,
                             nguongChiNhanSuLoai: loaiNs,
                             nguongChiNhanSuTien: tienQuyDoiNguongChiNhanSu(loaiNs, giaTriQT, rawNguong),
-                            ngayUpdate: c.ngay_update ? new Date(c.ngay_update).toLocaleDateString('vi-VN') : '',
+                            ngayUpdate: formatHopDongNgayUpdateDisplay(c.ngay_update),
                             nhanSuId: c.nhan_su_id || null,
                             nhanSuIds: (c as any).nhan_su_ids || (c.nhan_su_id ? [c.nhan_su_id] : []),
                             nhanSuTen: c.nhan_su_ten || null,
@@ -2062,12 +2068,12 @@ export function HopDong() {
         return Math.round((completed / tasks.length) * 100);
     };
 
-    const patchContractTienDoLocal = (contractUuid: string, trangThai: HopDongTienDo) => {
+    const patchContractLocal = (contractUuid: string, patch: Partial<Contract>) => {
         setItems((prev) =>
             prev.map((g) => ({
                 ...g,
                 contracts: g.contracts.map((row) =>
-                    row.uuid === contractUuid ? { ...row, trangThai } : row,
+                    row.uuid === contractUuid ? { ...row, ...patch } : row,
                 ),
             })),
         );
@@ -2076,14 +2082,16 @@ export function HopDong() {
     const handleHopDongTienDoChange = async (contract: Contract, value: HopDongTienDo) => {
         const id = String(contract.uuid || '').trim();
         if (!id) return;
-        const prev = contract.trangThai;
-        patchContractTienDoLocal(id, value);
+        const prevTrangThai = contract.trangThai;
+        const prevNgayUpdate = contract.ngayUpdate;
+        const ngayUpdateDisplay = formatHopDongNgayUpdateDisplay(hopDongNgayUpdateDateToday());
+        patchContractLocal(id, { trangThai: value, ngayUpdate: ngayUpdateDisplay });
         setSavingTienDoId(id);
         try {
             await contractService.update(id, { trang_thai: value });
         } catch (error) {
             console.error('[HopDong] update tien do:', error);
-            patchContractTienDoLocal(id, prev);
+            patchContractLocal(id, { trangThai: prevTrangThai, ngayUpdate: prevNgayUpdate });
             setToast({ message: 'Không lưu được tiến độ hợp đồng', type: 'warning' });
         } finally {
             setSavingTienDoId(null);
@@ -3719,10 +3727,19 @@ export function HopDong() {
                                     >
                                         {formatCurrency(hopDongCdtNoFromContract(c))}
                                     </td>
-                                    <td className="px-4 py-4 text-center text-xs text-slate-600 font-medium">
-                                        {c.ngayUpdate
-                                            ? `Vào xem / sửa gần nhất: ${c.ngayUpdate}`
-                                            : 'Chưa cập nhật'}
+                                    <td
+                                        className="px-4 py-4 text-center text-xs text-slate-600 font-medium whitespace-nowrap"
+                                        title={
+                                            c.ngayUpdate
+                                                ? 'Ngày cập nhật lần cuối (mở xem / sửa hồ sơ HĐ)'
+                                                : undefined
+                                        }
+                                    >
+                                        {c.ngayUpdate ? (
+                                            <span className="tabular-nums">{c.ngayUpdate}</span>
+                                        ) : (
+                                            <span className="text-slate-400">Chưa cập nhật</span>
+                                        )}
                                     </td>
                                     <td className="px-4 py-4 min-w-[9.5rem]">
                                         <select
