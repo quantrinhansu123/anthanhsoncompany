@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect, useMemo } from 'react';
 import { ChevronDown, User } from 'lucide-react';
-import type { NhanSuOption } from '../lib/formatNhanSu';
+import { displayNhanSuTen, type NhanSuOption } from '../lib/formatNhanSu';
 
 export function NhanSuAvatar({
     src,
@@ -89,9 +89,9 @@ export function NhanSuTenAnhPicker({
             >
                 {selected ? (
                     <>
-                        <NhanSuAvatar src={selected.anh_nhan_su} name={selected.full_name || ''} />
+                        <NhanSuAvatar src={selected.anh_nhan_su} name={displayNhanSuTen(selected)} />
                         <span className="truncate flex-1 text-sm text-slate-800 font-medium">
-                            {selected.full_name || '—'}
+                            {displayNhanSuTen(selected) || '—'}
                         </span>
                     </>
                 ) : (
@@ -115,7 +115,7 @@ export function NhanSuTenAnhPicker({
                                 value={listQuery}
                                 onChange={(e) => setListQuery(e.target.value)}
                                 onMouseDown={(e) => e.stopPropagation()}
-                                placeholder="Gõ tìm tên hoặc mã…"
+                                placeholder="Gõ tìm tên…"
                                 className="w-full px-2 py-1.5 text-sm border border-slate-200 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-400"
                             />
                         </li>
@@ -145,8 +145,8 @@ export function NhanSuTenAnhPicker({
                                         setOpen(false);
                                     }}
                                 >
-                                    <NhanSuAvatar src={emp.anh_nhan_su} name={emp.full_name || ''} />
-                                    <span className="truncate text-sm text-slate-800">{emp.full_name || '—'}</span>
+                                    <NhanSuAvatar src={emp.anh_nhan_su} name={displayNhanSuTen(emp)} />
+                                    <span className="truncate text-sm text-slate-800">{displayNhanSuTen(emp) || '—'}</span>
                                 </button>
                             </li>
                         ))

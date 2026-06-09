@@ -71,12 +71,7 @@ function formatTimeShort(t: string | null): string | null {
 
 function empDisplayName(emp: Employee | undefined): string {
   if (!emp) return '—';
-  return (
-    emp.full_name ||
-    emp.hoTen ||
-    emp.name ||
-    String(emp.code || '')
-  );
+  return (emp.full_name || emp.hoTen || emp.name || '').trim() || '—';
 }
 
 export function LichLamViec() {

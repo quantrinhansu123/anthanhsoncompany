@@ -9,6 +9,8 @@ import { aiService } from '../services/aiService';
 import employeeRoutes from './employeeRoutes';
 import workScheduleRoutes from './workScheduleRoutes';
 import excelRoutes from './excelRoutes';
+import storageRoutes from './storageRoutes';
+import certificateRoutes from './certificateRoutes';
 
 const router = Router();
 
@@ -30,6 +32,8 @@ router.post('/ai', async (req, res) => {
 router.use('/employees', employeeRoutes);
 router.use('/work-schedules', workScheduleRoutes);
 router.use('/excel', excelRoutes);
+router.use('/storage', storageRoutes);
+router.use('/certificates', certificateRoutes);
 
 // Generic CRUD routes
 const projectController = createGenericController(projectService);

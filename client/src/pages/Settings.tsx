@@ -15,7 +15,7 @@ import {
     Upload
 } from 'lucide-react';
 import { useSettings } from '../contexts/SettingsContext';
-import { supabase } from '../lib/supabase';
+import { uploadStorageFile } from '../lib/storageUpload';
 
 export function Settings() {
     const {
@@ -214,42 +214,13 @@ export function Settings() {
                                                 }
                                                 
                                                 try {
-                                                    // Upload to Supabase Storage
                                                     const timestamp = Date.now();
                                                     const fileName = `logo_${timestamp}_${file.name}`;
                                                     const filePath = `logos/${fileName}`;
-                                                    
-                                                    // Check if bucket exists
-                                                    const { data: buckets } = await supabase.storage.listBuckets();
-                                                    const bucketExists = buckets?.some(b => b.name === 'logos');
-                                                    
-                                                    if (!bucketExists) {
-                                                        alert('Bucket "logos" chưa được tạo. Vui lòng tạo bucket trong Supabase Dashboard > Storage.');
-                                                        return;
-                                                    }
-                                                    
-                                                    // Upload file
-                                                    const { data: uploadData, error: uploadError } = await supabase.storage
-                                                        .from('logos')
-                                                        .upload(filePath, file, {
-                                                            cacheControl: '3600',
-                                                            upsert: true
-                                                        });
-                                                    
-                                                    if (uploadError) {
-                                                        console.error('Error uploading logo:', uploadError);
-                                                        alert(`Lỗi khi upload ảnh: ${uploadError.message}`);
-                                                        return;
-                                                    }
-                                                    
-                                                    // Get public URL
-                                                    const { data: urlData } = supabase.storage
-                                                        .from('logos')
-                                                        .getPublicUrl(uploadData.path);
-                                                    
-                                                    // Update logo URL (sẽ tự động lưu vào database)
-                                                    setLogoUrl(urlData.publicUrl);
-                                                    
+                                                    const publicUrl = await uploadStorageFile('logos', filePath, file, {
+                                                        fallbackBuckets: ['hop_dong', 'thu-chi-files'],
+                                                    });
+                                                    setLogoUrl(publicUrl);
                                                     alert('Đã upload và lưu logo thành công!');
                                                 } catch (error: any) {
                                                     console.error('Error uploading logo:', error);

@@ -514,11 +514,6 @@ export function ThemDuAnModal({ isOpen, onClose, onSave, initialData }: Props) {
                                                                 </div>
                                                             )}
                                                             <span className="min-w-0 break-words">{emp.full_name}</span>
-                                                            {emp.code ? (
-                                                                <span className="ml-auto shrink-0 text-[11px] text-slate-400">
-                                                                    {emp.code}
-                                                                </span>
-                                                            ) : null}
                                                         </label>
                                                     );
                                                 })
@@ -620,11 +615,6 @@ export function ThemDuAnModal({ isOpen, onClose, onSave, initialData }: Props) {
                                                                 </div>
                                                             )}
                                                             <span className="min-w-0 break-words">{emp.full_name}</span>
-                                                            {emp.code ? (
-                                                                <span className="ml-auto shrink-0 text-[11px] text-slate-400">
-                                                                    {emp.code}
-                                                                </span>
-                                                            ) : null}
                                                         </label>
                                                     );
                                                 })

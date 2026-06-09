@@ -669,7 +669,7 @@ export function ChungChiHanhNghe() {
                   <option value="">Chọn nhân sự</option>
                   {employees.map(emp => (
                     <option key={emp.id} value={emp.id.toString()}>
-                      {emp.code || ''} - {emp.name || emp.hoTen || ''}
+                      {emp.full_name || emp.name || emp.hoTen || '—'}
                     </option>
                   ))}
                 </select>

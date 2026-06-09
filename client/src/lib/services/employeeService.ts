@@ -1,4 +1,3 @@
-import { supabase } from '../supabase';
 import { api } from '../api';
 
 export interface Employee {
@@ -58,20 +57,10 @@ export const employeeService = {
   // For now, keeping the uploadAvatar as is since it interacts with Supabase Storage.
   async uploadAvatar(bucket: string, path: string, file: File): Promise<string> {
     try {
-      const { data, error: uploadError } = await supabase.storage
-        .from(bucket)
-        .upload(path, file, {
-          cacheControl: '3600',
-          upsert: true
-        });
-
-      if (uploadError) throw uploadError;
-
-      const { data: urlData } = supabase.storage
-        .from(bucket)
-        .getPublicUrl(data.path);
-
-      return urlData.publicUrl;
+      const { uploadStorageFile } = await import('../storageUpload');
+      return await uploadStorageFile(bucket, path, file, {
+        fallbackBuckets: ['employee-avatars', 'hop_dong', 'thu-chi-files'],
+      });
     } catch (err: any) {
       console.error('Exception in uploadAvatar:', err);
       throw err;

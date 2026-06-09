@@ -1,4 +1,5 @@
 import { supabase } from '../supabase';
+import { sanitizeStoragePath, uploadStorageFile } from '../storageUpload';
 import { api, API_BASE_URL } from '../api';
 
 export interface ThuChiRow {
@@ -153,19 +154,7 @@ function mapThuChiJoinedRow(row: any): ThuChiRow {
 }
 
 export const thuChiService = {
-  sanitizeStoragePath(rawPath: string): string {
-    const parts = String(rawPath || '')
-      .split('/')
-      .filter(Boolean)
-      .map((part) => {
-        const normalized = part.normalize('NFD').replace(/[\u0300-\u036f]/g, '');
-        return normalized
-          .replace(/[^a-zA-Z0-9._-]+/g, '_')
-          .replace(/_+/g, '_')
-          .replace(/^_+|_+$/g, '') || 'file';
-      });
-    return parts.join('/');
-  },
+  sanitizeStoragePath,
   /**
    * Thu chi một lần truy vấn (join). Dùng cho mọi màn cần danh sách đầy đủ + tên dự án / HĐ / nhân sự.
    */
@@ -398,36 +387,9 @@ export const thuChiService = {
   // Upload ảnh chứng từ
   async uploadImage(bucket: string, path: string, file: File): Promise<string> {
     try {
-      const safePath = this.sanitizeStoragePath(path);
-      const { data, error } = await supabase.storage
-        .from(bucket)
-        .upload(safePath, file, {
-          cacheControl: '3600',
-          upsert: false
-        });
-      
-      if (error) {
-        console.error('Error uploading image:', error);
-        const msg = String(error.message || '');
-        if (msg.toLowerCase().includes('bucket') || msg.toLowerCase().includes('not found')) {
-          throw new Error(`Bucket "${bucket}" chưa tồn tại hoặc không truy cập được.`);
-        }
-        if (msg.toLowerCase().includes('policy') || msg.toLowerCase().includes('permission')) {
-          throw new Error(`Không đủ quyền upload vào bucket "${bucket}". Kiểm tra Storage policy.`);
-        }
-        throw new Error(`Lỗi khi upload ảnh: ${msg}`);
-      }
-      
-      if (!data) {
-        throw new Error('Không nhận được dữ liệu sau khi upload');
-      }
-      
-      // Get public URL
-      const { data: urlData } = supabase.storage
-        .from(bucket)
-        .getPublicUrl(data.path);
-      
-      return urlData.publicUrl;
+      return await uploadStorageFile(bucket, path, file, {
+        fallbackBuckets: bucket === 'hop_dong' ? ['thu-chi-files'] : [],
+      });
     } catch (err: any) {
       console.error('Upload image error:', err);
       throw err;
@@ -437,31 +399,9 @@ export const thuChiService = {
   // Upload file
   async uploadFile(bucket: string, path: string, file: File): Promise<string> {
     try {
-      const safePath = this.sanitizeStoragePath(path);
-      const { data, error: uploadError } = await supabase.storage
-        .from(bucket)
-        .upload(safePath, file, {
-          cacheControl: '3600',
-          upsert: true
-        });
-
-      if (uploadError) {
-        console.error('Error uploading file:', uploadError);
-        const msg = String(uploadError.message || '');
-        if (msg.toLowerCase().includes('bucket') || msg.toLowerCase().includes('not found')) {
-          throw new Error(`Bucket "${bucket}" chưa tồn tại hoặc không truy cập được.`);
-        }
-        if (msg.toLowerCase().includes('policy') || msg.toLowerCase().includes('permission')) {
-          throw new Error(`Không đủ quyền upload vào bucket "${bucket}". Kiểm tra Storage policy.`);
-        }
-        throw new Error(msg || 'Upload file thất bại');
-      }
-
-      const { data: urlData } = supabase.storage
-        .from(bucket)
-        .getPublicUrl(data.path);
-
-      return urlData.publicUrl;
+      return await uploadStorageFile(bucket, path, file, {
+        fallbackBuckets: bucket === 'hop_dong' ? ['thu-chi-files'] : [],
+      });
     } catch (err: any) {
       console.error('Exception in uploadFile:', err);
       throw err;

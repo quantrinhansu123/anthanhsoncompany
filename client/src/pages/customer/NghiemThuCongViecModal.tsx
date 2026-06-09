@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { X, Upload, CheckCircle2, Image as ImageIcon, Link as LinkIcon } from 'lucide-react';
-import { supabase } from '../../lib/supabase';
+import { uploadStorageFile } from '../../lib/storageUpload';
 import { taskService } from '../../lib/services/taskService';
 
 interface NghiemThuCongViecModalProps {
@@ -34,20 +34,14 @@ export function NghiemThuCongViecModal({ isOpen, onClose, task, onSuccess }: Ngh
             const safeName = file.name.replace(/\s+/g, '_');
             const filePath = `task-evidence/nghiem-thu/${task?.id || 'unknown'}_${timestamp}_${safeName}`;
             
-            const { data, error } = await supabase.storage
-                .from('task-evidence')
-                .upload(filePath, file);
-
-            if (error) {
+            try {
+                const publicUrl = await uploadStorageFile('task-evidence', filePath, file, {
+                    fallbackBuckets: ['thu-chi-files', 'hop_dong'],
+                });
+                if (publicUrl) urls.push(publicUrl);
+            } catch (error) {
                 console.error('Upload evidence error:', error);
-                continue;
             }
-
-            const { data: urlData } = supabase.storage
-                .from('task-evidence')
-                .getPublicUrl(data.path);
-            
-            if (urlData?.publicUrl) urls.push(urlData.publicUrl);
         }
         return urls;
     };

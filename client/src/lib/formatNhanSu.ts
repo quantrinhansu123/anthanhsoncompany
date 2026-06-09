@@ -18,6 +18,16 @@ export function tenLuuNguoiNhan(emp: NhanSuOption): string {
     return emp.full_name?.trim() || '';
 }
 
+/** Hiển thị UI: chỉ họ tên (bỏ mã / định dạng cũ "[MÃ] Tên"). */
+export function displayNhanSuTen(
+    emp: (Partial<NhanSuOption> & { name?: string; hoTen?: string }) | null | undefined,
+): string {
+    const raw = (emp?.full_name || emp?.name || emp?.hoTen || '').trim();
+    if (!raw) return '';
+    const legacy = raw.match(/^\[[^\]]+\]\s*(.+)$/);
+    return (legacy ? legacy[1] : raw).trim();
+}
+
 /** @deprecated Dùng tenLuuNguoiNhan; giữ cho chỗ còn hiển thị mã */
 export function labelNhanSu(emp: NhanSuOption): string {
     return legacyLabelWithCode(emp);

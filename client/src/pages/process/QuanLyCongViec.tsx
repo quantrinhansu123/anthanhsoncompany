@@ -44,6 +44,7 @@ import {
 } from '../../lib/services/taskDetailService';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { PreviewLinkModal } from '../../components/PreviewLinkModal';
+import { displayNhanSuTen } from '../../lib/formatNhanSu';
 
 type StatusTab = 'all' | 'doing' | 'done' | 'pending';
 
@@ -89,13 +90,13 @@ function loiViPhamSelectButtonLabel(
   if (ids.length === 0) return '— Chọn —';
   if (ids.length === 1) {
     const e = employees.find((x) => x.id === ids[0]);
-    return e?.full_name || e?.code || ids[0];
+    return displayNhanSuTen(e) || '—';
   }
   if (ids.length === 2) {
     const a = employees.find((x) => x.id === ids[0]);
     const b = employees.find((x) => x.id === ids[1]);
-    const na = a?.full_name || a?.code || ids[0];
-    const nb = b?.full_name || b?.code || ids[1];
+    const na = displayNhanSuTen(a) || '—';
+    const nb = displayNhanSuTen(b) || '—';
     return `${na} · ${nb}`;
   }
   return `${ids.length} người đã chọn`;
@@ -220,7 +221,7 @@ function listCvPhuTrachDropdownLabel(
   if (ids.length === 0) return '— Chọn nhân sự —';
   const labels = ids.map((id) => {
     const e = options.find((x) => x.id === id);
-    return e ? e.full_name || e.code || id : id;
+    return displayNhanSuTen(e) || '—';
   });
   if (labels.length === 1) return labels[0];
   if (labels.length === 2) return `${labels[0]} · ${labels[1]}`;
@@ -1178,7 +1179,7 @@ export function QuanLyCongViec() {
 
   const nhanSuLabelById = (id: string) => {
     const e = employees.find((x) => x.id === id);
-    return e ? e.full_name || e.code || id : id;
+    return displayNhanSuTen(e) || '—';
   };
 
   const projectsForTaskModal = useMemo(() => {
@@ -1931,7 +1932,7 @@ export function QuanLyCongViec() {
                     ) : (
                       nhanSuMatchingFilter.map((e) => {
                         const isNsChosen = filterNhanSuId === e.id;
-                        const lab = e.full_name || e.code || e.id;
+                        const lab = displayNhanSuTen(e) || '—';
                         return (
                           <button
                             key={e.id}
@@ -2985,7 +2986,7 @@ export function QuanLyCongViec() {
                                             className="rounded border-slate-300 text-indigo-800 focus:ring-indigo-700"
                                           />
                                           <span className="min-w-0 truncate">
-                                            {e.full_name || e.code || e.id}
+                                            {displayNhanSuTen(e) || '—'}
                                           </span>
                                         </label>
                                       );
@@ -3458,7 +3459,7 @@ export function QuanLyCongViec() {
                                         }}
                                       />
                                       <span className="min-w-0 truncate font-semibold">
-                                        {e.full_name || e.code || e.id}
+                                        {displayNhanSuTen(e) || '—'}
                                       </span>
                                     </label>
                                   );
@@ -3534,7 +3535,7 @@ export function QuanLyCongViec() {
                                 if (!emp) return null;
                                 return {
                                   id: emp.id,
-                                  ten: emp.full_name || emp.code || emp.id,
+                                  ten: displayNhanSuTen(emp) || '—',
                                 };
                               })
                               .filter(Boolean) as { id: string; ten: string }[];
@@ -4049,7 +4050,7 @@ export function QuanLyCongViec() {
                                     }}
                                   />
                                   <span className="truncate">
-                                    {emp.full_name || emp.code}
+                                    {displayNhanSuTen(emp) || '—'}
                                   </span>
                                 </li>
                               );

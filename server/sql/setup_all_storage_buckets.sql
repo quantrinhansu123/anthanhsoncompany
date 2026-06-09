@@ -11,6 +11,7 @@ DECLARE
     bucket_name TEXT;
     bucket_exists BOOLEAN;
     buckets_to_setup TEXT[] := ARRAY[
+        'hop_dong',
         'employee-avatars',
         'thu-chi-files',
         'task-evidence',
@@ -83,7 +84,7 @@ SELECT
     public as is_public,
     created_at
 FROM storage.buckets
-WHERE name IN ('employee-avatars', 'thu-chi-files', 'task-evidence', 'certificates', 'logos')
+WHERE name IN ('hop_dong', 'employee-avatars', 'thu-chi-files', 'task-evidence', 'certificates', 'logos')
 ORDER BY name;
 
 -- Xem danh sách policies đã tạo
