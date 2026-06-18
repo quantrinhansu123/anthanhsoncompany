@@ -49,6 +49,11 @@ export function mapCertificateRow(cert: Record<string, unknown>) {
   };
 }
 
+function normalizeOptionalDate(value: unknown): string | null {
+  const s = String(value ?? '').trim();
+  return s || null;
+}
+
 function toInsertRow(body: Record<string, unknown>) {
   const employeeId = String(body.employee_id ?? body.employeeId ?? body.id_nhan_su ?? '').trim();
   if (!employeeId) throw new Error('employee_id là bắt buộc để tạo chứng chỉ');
@@ -63,7 +68,7 @@ function toInsertRow(body: Record<string, unknown>) {
     ghi_chu: String(body.ghiChu ?? body.ghi_chu ?? ''),
     cchn: String(body.cchn ?? ''),
     hang_cchn: String(body.hangCCHN ?? body.hang_cchn ?? ''),
-    ngay_het_han_cc: body.ngayHetHanCC ?? body.ngay_het_han_cc ?? null,
+    ngay_het_han_cc: normalizeOptionalDate(body.ngayHetHanCC ?? body.ngay_het_han_cc),
   };
 }
 
@@ -91,7 +96,7 @@ function toUpdateRow(body: Record<string, unknown>) {
     updateData.hang_cchn = String(body.hangCCHN ?? body.hang_cchn ?? '');
   }
   if (body.ngayHetHanCC !== undefined || body.ngay_het_han_cc !== undefined) {
-    updateData.ngay_het_han_cc = body.ngayHetHanCC ?? body.ngay_het_han_cc ?? null;
+    updateData.ngay_het_han_cc = normalizeOptionalDate(body.ngayHetHanCC ?? body.ngay_het_han_cc);
   }
 
   return updateData;

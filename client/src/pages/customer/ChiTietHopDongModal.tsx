@@ -1,8 +1,8 @@
-import React, { useState, useEffect, useCallback, useMemo } from 'react';
+import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { 
     X, Edit, Trash2, FileText, FolderOpen, ClipboardList, Plus, Maximize2, 
-    Link as LinkIcon, ExternalLink, FileCheck, Image as ImageIcon,
-    CreditCard, User, Eye, Pencil
+    Link as LinkIcon, FileCheck, Image as ImageIcon,
+    CreditCard, User, Eye, Pencil, Download
 } from 'lucide-react';
 import { contractService, ContractFile } from '../../lib/services/contractService';
 import { taskService, TaskRow } from '../../lib/services/taskService';
@@ -14,6 +14,15 @@ import { PreviewLinkModal } from '../../components/PreviewLinkModal';
 import { thuChiService, ThuChiRow } from '../../lib/services/thuChiService';
 import type { NguongChiNhanSuLoai } from '../../lib/nguongChiNhanSu';
 import { normalizeNguongLoai, tienQuyDoiNguongChiNhanSu } from '../../lib/nguongChiNhanSu';
+import {
+    HOP_DONG_FILE_TYPES,
+    HOP_DONG_FILE_TYPE_LABELS,
+    hopDongFileTypeLabel,
+    normalizeHopDongFileType,
+    normalizeContractFiles,
+    calculateHopDongFileStatus,
+    downloadContractFile,
+} from '../../lib/hopDongFiles';
 
 interface Contract {
     id?: number;
@@ -44,36 +53,25 @@ interface ChiTietHopDongModalProps {
     contract: Contract | null;
 }
 
-const FILE_TYPES = [
-    'File_BBTT',
-    'File_HD',
-    'File_BBNT',
-    'File_PL3A',
-    'File_BBTL',
-    'File_PLHD',
-    'File_QD',
-    'File_Khac'
-] as const;
+const FILE_TYPES = HOP_DONG_FILE_TYPES;
+const FILE_TYPE_LABELS = HOP_DONG_FILE_TYPE_LABELS;
 
-const FILE_TYPE_LABELS: Record<string, string> = {
-    'File_BBTT': 'Biên bản thỏa thuận',
-    'File_HD': 'Hợp đồng',
-    'File_BBNT': 'Biên bản nghiệm thu',
-    'File_PL3A': 'Phụ lục 3A',
-    'File_BBTL': 'Biên bản thanh lý',
-    'File_PLHD': 'Phụ lục hợp đồng',
-    'File_QD': 'Quyết định',
-    'File_Khac': 'Tài liệu khác'
-};
-
-export function ChiTietHopDongModal({ isOpen, onClose, contract }: ChiTietHopDongModalProps) {
+export function ChiTietHopDongModal({ isOpen, onClose, contract: contractProp }: ChiTietHopDongModalProps) {
     const { 
+        contractData,
+        patchContractData,
+        isAddDocumentOpen,
         openAddDocument, 
         openAddFinance, 
         openAddTask, 
         openNghiemThu,
         openThemHopDong
     } = useHopDongModal();
+    const contract = contractData ?? contractProp;
+    const contractFiles = useMemo(
+        () => normalizeContractFiles(contract?.files),
+        [contract?.files],
+    );
     const { openThemThuChi, openDelete } = useThuChiModal();
     const navigate = useNavigate();
     
@@ -150,6 +148,34 @@ export function ChiTietHopDongModal({ isOpen, onClose, contract }: ChiTietHopDon
             loadTasks();
         }
     }, [isOpen, contract?.uuid, loadTasks]);
+
+    const refreshContractFiles = useCallback(async () => {
+        const id = String(contract?.uuid || '').trim();
+        if (!id) return;
+        try {
+            const row = await contractService.getById(id);
+            if (!row) return;
+            const files = normalizeContractFiles(row.files);
+            const fileStatus = row.file_status || calculateHopDongFileStatus(files);
+            patchContractData({ files, fileStatus });
+        } catch (e) {
+            console.error('[ChiTietHopDongModal] refreshContractFiles:', e);
+        }
+    }, [contract?.uuid, patchContractData]);
+
+    const prevAddDocumentOpen = useRef(isAddDocumentOpen);
+    useEffect(() => {
+        if (prevAddDocumentOpen.current && !isAddDocumentOpen && isOpen) {
+            void refreshContractFiles();
+        }
+        prevAddDocumentOpen.current = isAddDocumentOpen;
+    }, [isAddDocumentOpen, isOpen, refreshContractFiles]);
+
+    useEffect(() => {
+        if (isOpen && activeTab === 'documents' && contract?.uuid) {
+            void refreshContractFiles();
+        }
+    }, [isOpen, activeTab, contract?.uuid, refreshContractFiles]);
 
     /** Ghi `ngay_update` khi mở xem để cột "Lịch sử HS" trên danh sách HĐ phản ánh lần truy cập gần nhất. */
     useEffect(() => {
@@ -438,38 +464,31 @@ export function ChiTietHopDongModal({ isOpen, onClose, contract }: ChiTietHopDon
                                     <div className="flex items-center gap-2">
                                         <h3 className="text-sm font-semibold text-slate-800">Danh sách file</h3>
                                         <span className="px-1.5 py-0.5 bg-slate-100 text-slate-500 rounded text-[10px] font-bold">
-                                            {contract.files?.length || 0}
+                                            {contractFiles.length}
                                         </span>
                                     </div>
                                     <button onClick={openAddDocument} className="p-1.5 text-purple-600 hover:bg-purple-50 rounded border border-purple-100 transition-colors" title="Thêm tài liệu">
                                         <Plus size={16} />
                                     </button>
                                 </div>
-                                {contract.files && contract.files.length > 0 ? (
+                                {contractFiles.length > 0 ? (
                                     <div className="divide-y divide-slate-100">
-                                        {contract.files.map((file, index) => (
+                                        {contractFiles.map((file, index) => (
                                             <div key={index} className="px-4 py-3 hover:bg-slate-50 flex items-center justify-between gap-3">
                                                 <div className="flex items-center gap-3 flex-1 min-w-0">
                                                     <FileText size={18} className="text-slate-400 flex-shrink-0" />
                                                     <div className="flex-1 min-w-0">
-                                                        <div className="text-sm font-medium text-slate-800">{FILE_TYPE_LABELS[file.file_type] || file.file_type}</div>
+                                                        <div className="text-sm font-medium text-slate-800">{hopDongFileTypeLabel(file.file_type)}</div>
                                                         <div className="text-xs text-slate-500 truncate">{file.file_name}</div>
-                                                        <button
-                                                            type="button"
-                                                            onClick={() => setPreviewUrl(file.file_url)}
-                                                            className="text-xs text-blue-600 hover:text-blue-800 hover:underline truncate block mt-1 text-left w-full"
-                                                        >
-                                                            {file.file_url}
-                                                        </button>
                                                     </div>
                                                 </div>
                                                 <button
                                                     type="button"
-                                                    onClick={() => setPreviewUrl(file.file_url)}
-                                                    className="px-3 py-1.5 text-sm font-medium text-blue-600 bg-blue-50 hover:bg-blue-100 rounded-md flex items-center gap-2 transition-colors"
+                                                    onClick={() => downloadContractFile(file)}
+                                                    className="px-3 py-1.5 text-sm font-medium text-orange-600 bg-orange-50 hover:bg-orange-100 rounded-md flex items-center gap-2 transition-colors shrink-0"
                                                 >
-                                                    <ExternalLink size={14} />
-                                                    Xem tài liệu
+                                                    <Download size={14} />
+                                                    Tải tài liệu
                                                 </button>
                                             </div>
                                         ))}
@@ -484,9 +503,9 @@ export function ChiTietHopDongModal({ isOpen, onClose, contract }: ChiTietHopDon
                                 {/* Missing Files Warning */}
                                 {(() => {
                                     const uploadedTypes = new Set(
-                                        (contract.files || [])
+                                        contractFiles
                                             .filter(f => f.file_url && f.file_url.trim() !== '')
-                                            .map(f => f.file_type)
+                                            .map(f => normalizeHopDongFileType(f.file_type))
                                     );
                                     const mandatoryTypes = FILE_TYPES.filter(t => t !== 'File_QD' && t !== 'File_Khac');
                                     const missingFiles = mandatoryTypes.filter(type => !uploadedTypes.has(type));

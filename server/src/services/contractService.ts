@@ -228,6 +228,38 @@ export const contractService = {
     };
   },
 
+  async getById(id: string) {
+    const sid = String(id ?? '').trim();
+    if (!sid) return null;
+
+    const selectWithJoins = `
+        *,
+        du_an:du_an_id(id, ten_du_an),
+        nhan_su:nhan_su_id(id, code, full_name, name, hoTen)
+      `;
+
+    let { data, error } = await getSupabase()
+      .from('hop_dong')
+      .select(selectWithJoins)
+      .eq('id', sid)
+      .maybeSingle();
+
+    if (!data) {
+      const result = await getSupabase()
+        .from('hop_dong')
+        .select(selectWithJoins)
+        .eq('contract_id', sid)
+        .maybeSingle();
+      data = result.data;
+      error = result.error;
+    }
+
+    if (error) throw error;
+    if (!data) return null;
+
+    return mapHopDongRows([data])[0];
+  },
+
   async create(payload: any) {
     const insertPayload = applyHopDongNgayUpdateToPayload({ ...payload });
     if (Array.isArray(payload.nhan_su_ids) && payload.nhan_su_ids.length > 0) {

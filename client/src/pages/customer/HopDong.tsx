@@ -17,6 +17,7 @@ import {
     formatHopDongNgayUpdateDisplay,
     hopDongNgayUpdateDateToday,
 } from '../../lib/hopDongProfileAccess';
+import { HOP_DONG_DATA_CHANGED_EVENT, normalizeContractFiles } from '../../lib/hopDongFiles';
 import { ExcelImportExportBar } from '../../components/ExcelImportExportBar';
 import {
     ExcelColumnDef,
@@ -1661,7 +1662,7 @@ export function HopDong() {
                             contractRefId: contractUi.contractRefId,
                             duAnId: c.du_an_id || null,
                             fileStatus: c.file_status || 'Chưa có file',
-                            files: c.files || [],
+                            files: normalizeContractFiles(c.files),
                             ngayKyHD: c.ngay_ky_hd ? new Date(c.ngay_ky_hd).toLocaleDateString('vi-VN') : '',
                             soHopDong: c.so_hop_dong || '',
                             tenGoiThau: c.ten_goi_thau || '',
@@ -1793,6 +1794,32 @@ export function HopDong() {
         };
         window.addEventListener(HOPDONG_PROFILE_ACCESS_EVENT, onAccess);
         return () => window.removeEventListener(HOPDONG_PROFILE_ACCESS_EVENT, onAccess);
+    }, []);
+
+    useEffect(() => {
+        const onFilesChanged = (ev: Event) => {
+            const d = (ev as CustomEvent<{
+                contractId?: string;
+                files?: ContractFile[];
+                fileStatus?: string;
+            }>).detail;
+            const cid = String(d?.contractId || '').trim();
+            if (!cid) return;
+            const files = normalizeContractFiles(d?.files);
+            const fileStatus = d?.fileStatus || 'Chưa có file';
+            setItems((prev) =>
+                prev.map((g) => ({
+                    ...g,
+                    contracts: g.contracts.map((row) => {
+                        const rowId = hopDongRowSelectId(row);
+                        if (rowId !== cid && row.uuid !== cid) return row;
+                        return { ...row, files, fileStatus };
+                    }),
+                })),
+            );
+        };
+        window.addEventListener(HOP_DONG_DATA_CHANGED_EVENT, onFilesChanged);
+        return () => window.removeEventListener(HOP_DONG_DATA_CHANGED_EVENT, onFilesChanged);
     }, []);
 
     const openedContractFromUrlRef = useRef<string | null>(null);

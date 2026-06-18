@@ -97,6 +97,11 @@ export const contractService = {
     return res;
   },
 
+  async getById(id: string): Promise<ContractRow | null> {
+    const encoded = encodeURIComponent(String(id).trim());
+    return api.get<ContractRow>(`/contracts/${encoded}`);
+  },
+
   async create(payload: Partial<ContractRow>): Promise<ContractRow | null> {
     const body = {
       ...payload,

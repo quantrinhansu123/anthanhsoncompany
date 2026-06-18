@@ -5,13 +5,13 @@ import {
     User,
     FileText,
     Link as LinkIcon,
-    ExternalLink,
     Trash2,
     Plus,
     Info,
     ChevronDown,
     Search,
     Upload,
+    Download,
 } from 'lucide-react';
 import { contractService, ContractFile, type ContractRow } from '../../lib/services/contractService';
 import type { NguongChiNhanSuLoai } from '../../lib/nguongChiNhanSu';
@@ -25,6 +25,17 @@ import { FileViewerModal } from '../../components/FileViewerModal';
 import type { ContractCreatePrefill } from '../../contexts/HopDongModalContext';
 import { cn } from '../../lib/utils';
 import { hopDongNgayUpdateDateToday } from '../../lib/hopDongProfileAccess';
+import { useHopDongModal } from '../../contexts/HopDongModalContext';
+import {
+    HOP_DONG_FILE_TYPES,
+    HOP_DONG_FILE_TYPE_LABELS,
+    calculateHopDongFileStatus,
+    resolveHopDongFileTypeForSave,
+    hopDongFileTypeLabel,
+    normalizeContractFiles,
+    emitHopDongDataChanged,
+    downloadContractFile,
+} from '../../lib/hopDongFiles';
 
 function normCustomerKey(s: string | null | undefined): string {
     return String(s || '')
@@ -94,29 +105,11 @@ interface ThemHopDongModalProps {
     onSuccess: () => void;
 }
 
-const FILE_TYPES = [
-    'File_BBTT',
-    'File_HD',
-    'File_BBNT',
-    'File_PL3A',
-    'File_BBTL',
-    'File_PLHD',
-    'File_QD',
-    'File_Khac'
-] as const;
-
-const FILE_TYPE_LABELS: Record<string, string> = {
-    'File_BBTT': 'Biên bản thỏa thuận',
-    'File_HD': 'Hợp đồng',
-    'File_BBNT': 'Biên bản nghiệm thu',
-    'File_PL3A': 'Phụ lục 3A',
-    'File_BBTL': 'Biên bản thanh lý',
-    'File_PLHD': 'Phụ lục hợp đồng',
-    'File_QD': 'Quyết định',
-    'File_Khac': 'Tài liệu khác'
-};
+const FILE_TYPES = HOP_DONG_FILE_TYPES;
+const FILE_TYPE_LABELS = HOP_DONG_FILE_TYPE_LABELS;
 
 export function ThemHopDongModal({ isOpen, onClose, editData, contractCreatePrefill = null, onSuccess }: ThemHopDongModalProps) {
+    const { patchContractData } = useHopDongModal();
     const [projects, setProjects] = useState<Array<{ id: string; ten_du_an: string; customer_id?: string | null }>>([]);
     const [customers, setCustomers] = useState<Array<{ id: string; ten_don_vi: string }>>([]);
     const [employees, setEmployees] = useState<Array<{ id: string; full_name: string; anh_nhan_su?: string }>>([]);
@@ -148,6 +141,9 @@ export function ThemHopDongModal({ isOpen, onClose, editData, contractCreatePref
     const [quickProjectModalOpen, setQuickProjectModalOpen] = useState(false);
     const [quickProjectForm, setQuickProjectForm] = useState({ tenDuAn: '' });
     const [quickProjectError, setQuickProjectError] = useState('');
+    const formInitKeyRef = useRef<string | null>(null);
+    const filesInitKeyRef = useRef<string | null>(null);
+    const filesDirtyRef = useRef(false);
 
     useEffect(() => {
         if (!isOpen) setPreviewUrl(null);
@@ -442,6 +438,17 @@ export function ThemHopDongModal({ isOpen, onClose, editData, contractCreatePref
         (prefillHasExplicitProjectList || projects.length > 0);
 
     useEffect(() => {
+        if (!isOpen) {
+            formInitKeyRef.current = null;
+            filesInitKeyRef.current = null;
+            filesDirtyRef.current = false;
+            return;
+        }
+
+        const sessionKey = editData?.uuid ? `edit:${editData.uuid}` : 'create';
+        if (formInitKeyRef.current === sessionKey) return;
+        formInitKeyRef.current = sessionKey;
+
         if (editData) {
             setFormData({
                 soHopDong: editData.soHopDong || '',
@@ -465,9 +472,8 @@ export function ThemHopDongModal({ isOpen, onClose, editData, contractCreatePref
                 customerId: editData.customerId || '',
                 nhanSuIds: (editData.nhanSuIds || (editData.nhanSuId ? [editData.nhanSuId] : [])).map(String),
             });
-            setContractFiles(editData.files || []);
-            setCustomerSearch(''); // Will be set by next useEffect
-            setProjectSearch('');  // Will be set by next useEffect
+            setCustomerSearch('');
+            setProjectSearch('');
         } else {
             setFormData({
                 soHopDong: '',
@@ -491,6 +497,38 @@ export function ThemHopDongModal({ isOpen, onClose, editData, contractCreatePref
             );
         }
     }, [editData, isOpen, contractCreatePrefill?.customer_id, contractCreatePrefill?.ten_don_vi]);
+
+    useEffect(() => {
+        if (!isOpen) return;
+        const sessionKey = editData?.uuid ? `edit:${editData.uuid}` : 'create';
+        if (filesInitKeyRef.current === sessionKey) return;
+        filesInitKeyRef.current = sessionKey;
+        filesDirtyRef.current = false;
+
+        if (!editData?.uuid) {
+            if (!editData) setContractFiles([]);
+            return;
+        }
+
+        let cancelled = false;
+        const uuid = editData.uuid;
+        (async () => {
+            try {
+                const row = await contractService.getById(uuid);
+                if (cancelled || filesDirtyRef.current) return;
+                setContractFiles(normalizeContractFiles(row?.files ?? editData.files));
+            } catch (e) {
+                console.warn('[ThemHopDongModal] load files:', e);
+                if (!cancelled && !filesDirtyRef.current) {
+                    setContractFiles(normalizeContractFiles(editData.files));
+                }
+            }
+        })();
+
+        return () => {
+            cancelled = true;
+        };
+    }, [isOpen, editData?.uuid, editData]);
 
     /** Sửa HĐ: gắn khách từ dự án / khách có sẵn + nhãn ô. */
     useEffect(() => {
@@ -579,12 +617,10 @@ export function ThemHopDongModal({ isOpen, onClose, editData, contractCreatePref
         });
     };
 
-    const calculateFileStatus = (files: ContractFile[]): string => {
-        const uploadedTypes = new Set(files.filter(f => f.file_url && f.file_url.trim() !== '').map(f => f.file_type));
-        const mandatoryTypes = FILE_TYPES.filter(t => t !== 'File_QD' && t !== 'File_Khac');
-        const missingFiles = mandatoryTypes.filter(type => !uploadedTypes.has(type));
-        return missingFiles.length === 0 ? 'Đầy đủ file' : `Thiếu: ${missingFiles.map(t => FILE_TYPE_LABELS[t] || t).join(', ')}`;
-    };
+    const calculateFileStatus = (files: ContractFile[]): string => calculateHopDongFileStatus(files);
+
+    const resolveFileTypeForSave = () =>
+        resolveHopDongFileTypeForSave(selectedFileType, customFileTypeName);
 
     const addLoaiDichVuOption = () => {
         const v = newLoaiDichVuValue.trim();
@@ -603,9 +639,7 @@ export function ThemHopDongModal({ isOpen, onClose, editData, contractCreatePref
         if (!fileLink.trim() || isAddingLink) return;
         setIsAddingLink(true);
         try {
-            const fileTypeToUse = (selectedFileType === 'File_Khac' && customFileTypeName.trim()) 
-                ? customFileTypeName.trim() 
-                : (FILE_TYPE_LABELS[selectedFileType as any] || selectedFileType);
+            const fileTypeToUse = resolveFileTypeForSave();
 
             const newFile: ContractFile = {
                 file_type: fileTypeToUse,
@@ -614,6 +648,7 @@ export function ThemHopDongModal({ isOpen, onClose, editData, contractCreatePref
                 uploaded_at: new Date().toISOString()
             };
             setContractFiles(prev => [...prev, newFile]);
+            filesDirtyRef.current = true;
             setFileLink('');
             setCustomFileTypeName('');
         } catch (error) {
@@ -624,30 +659,32 @@ export function ThemHopDongModal({ isOpen, onClose, editData, contractCreatePref
     };
 
     const handleDeleteFile = (fileType: string, fileUrl: string) => {
+        filesDirtyRef.current = true;
         setContractFiles(prev => prev.filter(f => !(f.file_type === fileType && f.file_url === fileUrl)));
     };
 
-    const handleUploadFile = async (files: FileList | null) => {
-        if (!files || files.length === 0 || isUploadingFile) return;
+    const handleUploadFile = async (files: FileList | File | null) => {
+        const list =
+            files instanceof FileList
+                ? files
+                : files instanceof File
+                  ? (() => {
+                        const dt = new DataTransfer();
+                        dt.items.add(files);
+                        return dt.files;
+                    })()
+                  : null;
+        if (!list || list.length === 0 || isUploadingFile) return;
         setIsUploadingFile(true);
         try {
-            const fileTypeToUse = (selectedFileType === 'File_Khac' && customFileTypeName.trim())
-                ? customFileTypeName.trim()
-                : (FILE_TYPE_LABELS[selectedFileType as any] || selectedFileType);
+            const fileTypeToUse = resolveFileTypeForSave();
 
             const newFiles: ContractFile[] = [];
-            for (let i = 0; i < files.length; i++) {
-                const file = files[i];
+            for (let i = 0; i < list.length; i++) {
+                const file = list[i];
                 const safeName = sanitizeStorageFileName(file.name);
-                const filePath = `hop-dong/${Date.now()}_${safeName}`;
-                let uploadedUrl = '';
-                try {
-                    uploadedUrl = await thuChiService.uploadFile('hop_dong', filePath, file);
-                } catch (primaryErr: any) {
-                    const msg = String(primaryErr?.message || '');
-                    if (!msg.includes('Bucket "hop_dong"')) throw primaryErr;
-                    uploadedUrl = await thuChiService.uploadFile('thu-chi-files', filePath, file);
-                }
+                const filePath = `hop-dong/${Date.now()}_${i}_${safeName}`;
+                const uploadedUrl = await thuChiService.uploadFile('hop_dong', filePath, file);
                 newFiles.push({
                     file_type: fileTypeToUse,
                     file_name: file.name,
@@ -656,10 +693,15 @@ export function ThemHopDongModal({ isOpen, onClose, editData, contractCreatePref
                 });
             }
             setContractFiles((prev) => [...prev, ...newFiles]);
+            filesDirtyRef.current = true;
             setCustomFileTypeName('');
-        } catch (error) {
+            setFileLink('');
+        } catch (error: any) {
             console.error('Error uploading contract file:', error);
-            alert('Upload tài liệu thất bại. Vui lòng kiểm tra bucket "hop_dong" (hoặc fallback "thu-chi-files") và thử lại.');
+            alert(
+                'Upload tài liệu thất bại: ' +
+                    (error?.message || 'Kiểm tra server đang chạy và thử lại.'),
+            );
         } finally {
             setIsUploadingFile(false);
         }
@@ -726,17 +768,26 @@ export function ThemHopDongModal({ isOpen, onClose, editData, contractCreatePref
                     .filter(tc => tc.hop_dong_id === editData.uuid && tc.loai_phieu === 'Phiếu thu')
                     .reduce((sum, tc) => sum + (tc.so_tien || 0), 0);
                 
-                await contractService.update(editData.uuid, {
+                const updated = await contractService.update(editData.uuid, {
                     ...payload,
                     da_thu: daThu,
                     con_phai_thu: giaTriQT - daThu,
                 });
+                const finalFiles = normalizeContractFiles(updated?.files);
+                const persistedFiles = finalFiles.length > 0 ? finalFiles : contractFiles;
+                const finalStatus = updated?.file_status || fileStatus;
+                patchContractData({ files: persistedFiles, fileStatus: finalStatus });
+                emitHopDongDataChanged(editData.uuid, persistedFiles, finalStatus);
             } else {
-                await contractService.create({
+                const created = await contractService.create({
                     ...payload,
                     da_thu: 0,
                     con_phai_thu: giaTriQT
                 });
+                const newId = String(created?.id ?? created?.hop_dong_row_id ?? '').trim();
+                if (newId && contractFiles.length > 0) {
+                    emitHopDongDataChanged(newId, contractFiles, fileStatus);
+                }
             }
             onSuccess();
             onClose();
@@ -1388,7 +1439,7 @@ export function ThemHopDongModal({ isOpen, onClose, editData, contractCreatePref
                                 <div className="col-span-5">
                                     <label className="block text-[10px] font-semibold text-slate-600 mb-1">Link hoặc tải file</label>
                                     <input 
-                                        type="url" 
+                                        type="text" 
                                         value={fileLink} 
                                         onChange={(e) => setFileLink(e.target.value)} 
                                         placeholder="Dán link..." 
@@ -1405,8 +1456,7 @@ export function ThemHopDongModal({ isOpen, onClose, editData, contractCreatePref
                                             disabled={isUploadingFile}
                                             accept=".pdf,.doc,.docx,.xls,.xlsx,.jpg,.jpeg,.png"
                                             onChange={(e) => {
-                                                const file = e.target.files?.[0] || null;
-                                                void handleUploadFile(file);
+                                                void handleUploadFile(e.target.files);
                                                 e.currentTarget.value = '';
                                             }}
                                         />
@@ -1434,18 +1484,19 @@ export function ThemHopDongModal({ isOpen, onClose, editData, contractCreatePref
                                         <div className="flex items-center gap-2 overflow-hidden min-w-0">
                                             <FileText size={14} className="text-orange-400 shrink-0" />
                                             <div className="min-w-0 flex-1">
-                                                <div className="text-[11px] font-bold text-slate-800">{FILE_TYPE_LABELS[file.file_type] || file.file_type}</div>
+                                                <div className="text-[11px] font-bold text-slate-800">{hopDongFileTypeLabel(file.file_type)}</div>
                                                 <div className="text-[10px] text-slate-500 truncate">{file.file_name || file.file_url}</div>
                                             </div>
                                         </div>
                                         <div className="flex items-center gap-1 shrink-0">
                                             <button
                                                 type="button"
-                                                onClick={() => setPreviewUrl(file.file_url)}
-                                                className="p-1 text-blue-600 hover:bg-blue-50 rounded"
-                                                title="Xem"
+                                                onClick={() => downloadContractFile(file)}
+                                                className="px-2 py-1 text-[10px] font-semibold text-orange-600 bg-orange-50 hover:bg-orange-100 rounded flex items-center gap-1"
+                                                title="Tải tài liệu"
                                             >
-                                                <ExternalLink size={12} />
+                                                <Download size={12} />
+                                                Tải
                                             </button>
                                             <button 
                                                 type="button"

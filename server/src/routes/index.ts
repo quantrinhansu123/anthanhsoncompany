@@ -106,6 +106,7 @@ router.delete('/tasks/:id', taskController.delete);
 
 // Contracts
 router.get('/contracts', contractController.getAll);
+router.get('/contracts/:id', contractController.getById);
 router.post('/contracts', contractController.create);
 router.put('/contracts/:id', contractController.update);
 router.delete('/contracts/all', async (req, res) => {

@@ -56,6 +56,7 @@ interface HopDongModalContextType {
     contractData: HopDong | null;
     openChiTietHopDong: (data: HopDong) => void;
     closeChiTietHopDong: () => void;
+    patchContractData: (patch: Partial<HopDong>) => void;
 
     // Sub-modals inside Detail
     isAddDocumentOpen: boolean;
@@ -130,6 +131,10 @@ export function HopDongModalProvider({ children }: { children: ReactNode }) {
         setContractData(null);
     };
 
+    const patchContractData = (patch: Partial<HopDong>) => {
+        setContractData((prev) => (prev ? { ...prev, ...patch } : prev));
+    };
+
     const openAddDocument = () => setIsAddDocumentOpen(true);
     const closeAddDocument = () => setIsAddDocumentOpen(false);
 
@@ -171,6 +176,7 @@ export function HopDongModalProvider({ children }: { children: ReactNode }) {
                 contractData,
                 openChiTietHopDong,
                 closeChiTietHopDong,
+                patchContractData,
                 isAddDocumentOpen,
                 openAddDocument,
                 closeAddDocument,

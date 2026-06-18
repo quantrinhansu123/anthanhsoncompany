@@ -258,7 +258,6 @@ export function Layout() {
       <ThemTaiLieuHopDongModal
         isOpen={isAddDocumentOpen}
         onClose={closeAddDocument}
-        onSuccess={(data) => console.log('Document added:', data)}
       />
 
       <ThemThuChiHopDongModal

@@ -244,10 +244,14 @@ export function ChungChiHanhNghe() {
     if (!validateCertificateForm()) return;
 
     try {
+      const payload = {
+        ...certificateFormData,
+        ngayHetHanCC: certificateFormData.ngayHetHanCC?.trim() || null,
+      };
       if (editingCertificate) {
-        await certificateService.update(editingCertificate.id, certificateFormData);
+        await certificateService.update(editingCertificate.id, payload);
       } else {
-        await certificateService.create(certificateFormData);
+        await certificateService.create(payload);
       }
       await loadCertificates(); // Reload data
       closeCertificateModal();
@@ -1007,6 +1011,7 @@ export function ChungChiHanhNghe() {
               <div>
                 <label className="block text-sm font-medium text-slate-700 mb-1.5 flex items-center gap-1">
                   Ngày hết hạn CC
+                  <span className="text-xs font-normal text-slate-400">(không bắt buộc)</span>
                 </label>
                 <div className="relative">
                   <input
